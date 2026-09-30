@@ -28,6 +28,15 @@ the story, friends join the same world and the same missions, with modern option
 
 *[Version française plus bas.](#version-française)*
 
+## The launcher
+
+`SACoop.exe` updates the mod by itself from this page on every start (no need to download the zip again), checks your
+game version, and starts the game as host or guest. Options and release notes are in its tabs.
+
+<p align="center">
+  <img src="docs/img/lanceur.png" width="100%" alt="SACoop launcher">
+</p>
+
 ## What works in this pre-alpha
 
 - Host and join over UDP (default port 7800), up to 4 players.
@@ -43,24 +52,25 @@ the story, friends join the same world and the same missions, with modern option
 2. Vehicles (driver and passengers), weapons, shots and damage.
 3. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
 4. Shared time, weather, traffic and pedestrians.
-5. A co-op menu in the game, then a launcher with automatic updates.
+5. A co-op menu in the game, and a lobby in the launcher.
 6. Modern rendering options (as in VCCoop), all optional.
 
 ## Installation
 
 1. You need GTA San Andreas **1.0 US**. The current Steam version (3.0) must be downgraded first (a downgrader tool
    does it). The mod refuses to run on any other version.
-2. Copy the contents of the zip into the game folder, next to `gta_sa.exe`. Everybody needs the same zip.
-3. The host runs `SACoop - Heberger.cmd`. The others run `SACoop - Rejoindre.cmd` and type the host's IP address.
+2. Copy the contents of the zip into the game folder, next to `gta_sa.exe`, then run **`SACoop.exe`**. It keeps
+   itself and the mod up to date: everybody ends up on the same version without downloading anything again.
+3. The host clicks **HOST**. The others type the host's IP address and click **JOIN**.
 4. Everybody starts a new game. Over the Internet, the host opens UDP port 7800 on their router, or you use a
    virtual LAN.
 
-Uninstall: delete `dinput8.dll`, `sacoop*.ini`, `sacoop.log` and `logs\`.
+Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini`, `sacoop.log` and `logs\`.
 
 ## Building
 
 Visual Studio 2022 Build Tools (x86, `/MT`), nothing else: `build.cmd` compiles `src\*.cpp` into
-`build\dinput8.dll`. `dist\make-release.ps1 -Version <v>` builds and packs the zip. `run\` holds the two-instance
+`build\dinput8.dll` and the launcher into `build\SACoop.exe` (`launcher\make-art.ps1` draws its background and icon). `dist\make-release.ps1 -Version <v>` builds and packs the zip. `run\` holds the two-instance
 test scripts, `re\` the command-line Ghidra tools used to read the game.
 
 The game executable and any decompiled code are **not** in this repository.
@@ -86,6 +96,11 @@ Un mod coop pour **Grand Theft Auto: San Andreas** (PC, version 1.0 US), par les
 [VCCoop](https://github.com/Parricidium/VCCoop) (Vice City en coop). Même objectif : un joueur héberge et joue
 l'histoire, ses amis rejoignent le même monde et les mêmes missions, avec des options modernes en plus.
 
+## Le lanceur
+
+`SACoop.exe` met le mod à jour tout seul depuis cette page à chaque démarrage (plus besoin de retélécharger le zip),
+vérifie la version du jeu et lance la partie en hôte ou en invité. Options et notes de version sont dans ses onglets.
+
 ## Ce qui marche dans cette pré-alpha
 
 - Héberger et rejoindre en UDP (port 7800 par défaut), jusqu'à 4 joueurs.
@@ -102,24 +117,25 @@ l'histoire, ses amis rejoignent le même monde et les mêmes missions, avec des 
 2. Véhicules (conducteur et passagers), armes, tirs et dégâts.
 3. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
 4. Heure, météo, circulation et passants partagés.
-5. Un menu coop dans le jeu, puis un lanceur avec mises à jour automatiques.
+5. Un menu coop dans le jeu, et un salon dans le lanceur.
 6. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
 
 ## Installation
 
 1. Il faut GTA San Andreas **1.0 US**. La version Steam actuelle (3.0) doit d'abord être rétrogradée (un outil de
    rétrogradation le fait). Le mod refuse de se lancer sur une autre version.
-2. Copier le contenu du zip dans le dossier du jeu, à côté de `gta_sa.exe`. Tout le monde doit avoir le même zip.
-3. L'hôte lance `SACoop - Heberger.cmd`. Les autres lancent `SACoop - Rejoindre.cmd` et tapent l'adresse IP de l'hôte.
+2. Copier le contenu du zip dans le dossier du jeu, à côté de `gta_sa.exe`, puis lancer **`SACoop.exe`**. Il se met
+   à jour tout seul, avec le mod : tout le monde reste sur la même version sans rien retélécharger.
+3. L'hôte clique sur **HÉBERGER**. Les autres tapent l'adresse IP de l'hôte et cliquent sur **REJOINDRE**.
 4. Chacun commence une nouvelle partie. Par Internet, l'hôte ouvre le port UDP 7800 sur sa box, ou vous passez par
    un réseau virtuel.
 
-Désinstaller : supprimer `dinput8.dll`, `sacoop*.ini`, `sacoop.log` et `logs\`.
+Désinstaller : supprimer `dinput8.dll`, `SACoop.exe`, le dossier `SACoop`, `sacoop*.ini`, `sacoop.log` et `logs\`.
 
 ## Compiler
 
 Visual Studio 2022 Build Tools (x86, `/MT`), aucune autre dépendance : `build.cmd` compile `src\*.cpp` en
-`build\dinput8.dll`. `dist\make-release.ps1 -Version <v>` compile et assemble le zip. `run\` contient les scripts de
+`build\dinput8.dll` et le lanceur en `build\SACoop.exe` (`launcher\make-art.ps1` dessine son fond et son icône). `dist\make-release.ps1 -Version <v>` compile et assemble le zip. `run\` contient les scripts de
 test à deux instances, `re\` les outils Ghidra en ligne de commande qui ont servi à lire le jeu.
 
 L'exécutable du jeu et tout code décompilé ne sont **pas** dans ce dépôt.

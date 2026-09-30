@@ -15,15 +15,19 @@ Il faut
 
 Installation
 1. Copier le contenu du zip dans le dossier du jeu (a cote de gta_sa.exe).
-2. L'hote lance "SACoop - Heberger.cmd".
-   Les autres lancent "SACoop - Rejoindre.cmd" et tapent l'adresse IP de l'hote.
-3. Chacun commence une nouvelle partie. Par Internet, l'hote ouvre le port
+2. Lancer SACoop.exe (le lanceur). Il se met a jour tout seul a chaque
+   demarrage : plus besoin de retelecharger le zip.
+3. L'hote clique sur HEBERGER. Les autres tapent l'adresse IP de l'hote,
+   puis REJOINDRE. (Les raccourcis "SACoop - Heberger.cmd" et
+   "SACoop - Rejoindre.cmd" marchent aussi, sans mise a jour.)
+4. Chacun commence une nouvelle partie. Par Internet, l'hote ouvre le port
    UDP 7800 sur sa box (ou utilisez un reseau virtuel type Radmin VPN).
 
 Reglages : sacoop.ini. Pseudo, adresse et port : sacoop-joueur.ini (cree au
 premier lancement). Journaux : sacoop.log et le dossier logs.
 
-Desinstaller : supprimer dinput8.dll, sacoop*.ini, sacoop.log et logs.
+Desinstaller : supprimer dinput8.dll, SACoop.exe, le dossier SACoop, sacoop*.ini,
+sacoop.log et logs.
 
 Projet de fan, non officiel, sans lien avec Rockstar Games ni Take-Two.
 Aucun fichier du jeu n'est fourni : il faut posseder le jeu.
