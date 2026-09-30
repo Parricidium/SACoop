@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 3, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 4, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -62,6 +62,7 @@ struct MsgWorld {
     uint8_t type;
     uint8_t hours, minutes;
     short oldWeather, newWeather, forcedWeather;
+    float weatherBlend;   // CWeather::InterpolationValue (passage de l'ancienne a la nouvelle meteo)
 };
 #pragma pack(pop)
 
