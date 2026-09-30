@@ -1,0 +1,217 @@
+// Vehicules partages. Chaque vehicule occupe par un joueur recoit un identifiant reseau (joueur << 24 | compteur).
+// Son proprietaire (celui qui conduit, ou le dernier a l'avoir conduit) envoie son etat (MSG_VEHICLE) 30 fois par
+// seconde en roulant, 2 fois par seconde dans les 10 s qui suivent. Chez les autres, une copie le suit : vehicule de
+// mission cree comme par un script (CCarCtrl::CreateCarForScript 0x431F80), en etat "abandonne" (aucune IA ne le
+// conduit), recale vers la position recue a chaque image. Monter au volant d'une copie en prend la propriete : le
+// proprietaire precedent voit arriver des messages d'un autre proprietaire pour le meme identifiant et transforme
+// son vehicule en copie.
+#include "util.h"
+#include "sacoop.h"
+#include "net.h"
+#include "game.h"
+#include "vehicles.h"
+#include <math.h>
+#include <string.h>
+
+using namespace game;
+
+enum { MAX_NETVEH = 64 };
+struct NetVeh {
+    uint32_t id;         // 0 : case libre
+    void *veh;
+    int ref;             // reference de pool (le vehicule existe-t-il encore ?)
+    uint8_t owner;       // joueur proprietaire
+    uint32_t lastRecv;   // GetTickCount de la derniere reception (copies)
+    uint32_t lastSend;   // GetTickCount du dernier envoi (vehicules a nous)
+    uint32_t lastDriven; // GetTickCount de la derniere image ou un joueur local l'occupait
+    MsgVehicle last;     // dernier etat recu (copies)
+};
+static NetVeh g_veh[MAX_NETVEH];
+static uint32_t g_vehCounter;
+
+// --- Pool des vehicules (0xB74494, cases de 0xA18) ---
+static int VehRef(void *v)
+{
+    Pool *p = *(Pool **)0xB74494;
+    int i = (int)(((uint8_t *)v - p->objects) / 0xA18);
+    return (i << 8) | p->flags[i];
+}
+static void *VehFromRef(int ref)
+{
+    Pool *p = *(Pool **)0xB74494;
+    int i = ref >> 8;
+    if (i < 0 || i >= p->size || (p->flags[i] & 0x80) || p->flags[i] != (ref & 0xFF)) return nullptr;
+    return p->objects + i * 0xA18;
+}
+static bool Alive(NetVeh &n) { return n.id && n.veh && VehFromRef(n.ref) == n.veh; }
+
+static NetVeh *FindById(uint32_t id)
+{
+    for (auto &n : g_veh) if (n.id == id) return &n;
+    return nullptr;
+}
+static NetVeh *FindByVeh(void *v)
+{
+    for (auto &n : g_veh) if (n.id && n.veh == v && Alive(n)) return &n;
+    return nullptr;
+}
+static NetVeh *NewSlot()
+{
+    for (auto &n : g_veh) if (!n.id || !Alive(n)) { memset(&n, 0, sizeof(n)); return &n; }
+    return nullptr;
+}
+
+void *NetVehicleById(uint32_t id)
+{
+    NetVeh *n = FindById(id);
+    return n && Alive(*n) ? n->veh : nullptr;
+}
+
+// Identifiant reseau du vehicule occupe par le joueur local (enregistre au besoin : il en devient proprietaire).
+uint32_t LocalVehicleId(void *veh, bool driver)
+{
+    NetVeh *n = FindByVeh(veh);
+    if (!n) {
+        n = NewSlot();
+        if (!n) return 0;
+        n->id = ((uint32_t)(g_localId < 0 ? 0 : g_localId) << 24) | (++g_vehCounter & 0xFFFFFF);
+        n->veh = veh;
+        n->ref = VehRef(veh);
+        n->owner = (uint8_t)g_localId;
+        Log("vehicule %08X (modele %d) enregistre", n->id, *(int16_t *)((uint8_t *)veh + 0x22));
+    } else if (driver && n->owner != g_localId) {
+        n->owner = (uint8_t)g_localId;   // au volant d'une copie : elle devient la notre
+        Log("vehicule %08X : on en prend la propriete", n->id);
+    }
+    n->lastDriven = GetTickCount();
+    return n->id;
+}
+
+static void MatrixOf(void *e, float *right, float *fwd)
+{
+    uint8_t *m = *(uint8_t **)((uint8_t *)e + 0x14);
+    if (!m) return;
+    memcpy(right, m, 12);
+    memcpy(fwd, m + 0x10, 12);
+}
+
+// --- Envoi : vehicules dont on est proprietaire ---
+static void SendOwned()
+{
+    uint32_t now = GetTickCount();
+    for (auto &n : g_veh) {
+        if (!n.id || n.owner != g_localId || !Alive(n)) continue;
+        bool driving = now - n.lastDriven < 200;
+        uint32_t every = driving ? 33 : 500;
+        if (!driving && now - n.lastDriven > 10000) continue;   // gare depuis 10 s : plus rien a envoyer
+        if (now - n.lastSend < every) continue;
+        n.lastSend = now;
+        uint8_t *v = (uint8_t *)n.veh;
+        MsgVehicle m = {};
+        m.type = MSG_VEHICLE;
+        m.owner = (uint8_t)g_localId;
+        m.id = n.id;
+        m.model = (uint16_t)*(int16_t *)(v + 0x22);
+        m.color1 = v[0x434];
+        m.color2 = v[0x435];
+        memcpy(m.pos, EntityPos(v), 12);
+        MatrixOf(v, m.right, m.fwd);
+        memcpy(m.speed, v + 0x44, 12);
+        memcpy(m.turn, v + 0x50, 12);
+        m.driven = driving;
+        NetSendToAll(&m, sizeof(m));
+    }
+}
+
+// --- Reception ---
+static void OnVehicle(const MsgVehicle &m)
+{
+    if (m.owner == g_localId) return;
+    NetVeh *n = FindById(m.id);
+    if (n && n->owner == g_localId && Alive(*n)) {
+        // Un autre joueur a pris le volant de notre vehicule : il devient une copie chez nous.
+        Log("vehicule %08X : le joueur %d en prend la propriete", m.id, m.owner);
+    }
+    if (!n) {
+        n = NewSlot();
+        if (!n) return;
+        n->id = m.id;
+    }
+    n->owner = m.owner;
+    n->last = m;
+    n->lastRecv = GetTickCount();
+}
+
+static void CreateCopy(NetVeh &n)
+{
+    int model = n.last.model;
+    if (model < 400 || model > 611) return;
+    if (!ModelLoaded(model)) {
+        RequestModel(model, 2);
+        LoadAllRequestedModels(false);
+        if (!ModelLoaded(model)) return;
+    }
+    void *v = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(model, n.last.pos[0], n.last.pos[1], n.last.pos[2], false);
+    if (!v) return;
+    n.veh = v;
+    n.ref = VehRef(v);
+    uint8_t *p = (uint8_t *)v;
+    p[0x434] = n.last.color1;
+    p[0x435] = n.last.color2;
+    Log("copie du vehicule %08X (modele %d, joueur %d) creee", n.id, model, n.owner);
+}
+
+static void DestroyCopy(NetVeh &n)
+{
+    if (Alive(n)) {
+        WorldRemove(n.veh);
+        RemoveReferencesToDeletedObject(n.veh);
+        DeleteEntity(n.veh);
+        Log("copie du vehicule %08X retiree", n.id);
+    }
+    memset(&n, 0, sizeof(n));
+}
+
+// Recale une copie vers l'etat recu : position anticipee selon la vitesse, orientation, vitesses (la physique du jeu
+// continue entre deux messages). Grand ecart : placee d'un coup.
+static void UpdateCopy(NetVeh &n)
+{
+    uint8_t *v = (uint8_t *)n.veh;
+    const MsgVehicle &m = n.last;
+    float lead = (GetTickCount() - n.lastRecv) / 1000.0f;
+    if (lead > 0.25f) lead = 0.25f;
+    float target[3];
+    for (int k = 0; k < 3; k++) target[k] = m.pos[k] + m.speed[k] * 50.0f * lead;
+    float *pos = EntityPos(v);
+    float dx = target[0] - pos[0], dy = target[1] - pos[1], dz = target[2] - pos[2];
+    float err = sqrtf(dx * dx + dy * dy + dz * dz);
+    uint8_t *mat = *(uint8_t **)(v + 0x14);
+    if (!mat) return;
+    float k = err > 6.0f ? 1.0f : 0.25f;
+    if (err > 6.0f) WorldRemove(v);
+    pos[0] += dx * k; pos[1] += dy * k; pos[2] += dz * k;
+    float *right = (float *)mat, *fwd = (float *)(mat + 0x10), *up = (float *)(mat + 0x20);
+    memcpy(right, m.right, 12);
+    memcpy(fwd, m.fwd, 12);
+    up[0] = right[1] * fwd[2] - right[2] * fwd[1];
+    up[1] = right[2] * fwd[0] - right[0] * fwd[2];
+    up[2] = right[0] * fwd[1] - right[1] * fwd[0];
+    memcpy(v + 0x44, m.speed, 12);
+    memcpy(v + 0x50, m.turn, 12);
+    if (err > 6.0f) WorldAdd(v);
+}
+
+void VehiclesFrame()
+{
+    g_onVehicle = OnVehicle;
+    if (GameState() != 9 || !FindPlayerPed()) return;
+    uint32_t now = GetTickCount();
+    for (auto &n : g_veh) {
+        if (!n.id || n.owner == g_localId) continue;
+        if (n.veh && !Alive(n)) { Log("copie du vehicule %08X detruite par le jeu", n.id); n.veh = nullptr; }
+        if (now - n.lastRecv > 30000 && !PuppetInVehicle(n.veh)) { if (n.veh) DestroyCopy(n); else memset(&n, 0, sizeof(n)); continue; }
+        if (!n.veh) CreateCopy(n);
+        if (n.veh && now - n.lastRecv < 1500) UpdateCopy(n);
+    }
+    SendOwned();
+}
