@@ -14,6 +14,7 @@
 #include "net.h"
 #include "game.h"
 #include "vehicles.h"
+#include "hud.h"
 #include <math.h>
 #include <string.h>
 
@@ -67,9 +68,12 @@ static void __fastcall h_CivRender(void *ped, void *)
     ((int(__cdecl *)(int, int))*(void **)(rw + 0x20))(0x1E, old);
 }
 
+static void *PuppetOf(int id);
+
 void InstallPuppetRender()
 {
     o_CivRender = (PedRender_t)PatchPointer((void **)(0x86C0A8 + 18 * 4), (void *)h_CivRender);
+    InstallHud(PuppetOf);
 }
 static uint32_t g_calmSince;   // depuis quand on est en partie sans cinematique (creation des pantins)
 
@@ -113,6 +117,36 @@ static void SendLocalState()
         }
     }
     NetSendState(s);
+}
+
+// --- Heure et meteo : celles de l'hote pour tout le monde (MSG_WORLD, 1 fois par seconde) ---
+// CClock : heures 0xB70153, minutes 0xB70152, derniere minute 0xB70158 (CTimer::m_snTimeInMilliseconds 0xB7CB84).
+// CWeather : ancienne 0xC81320, nouvelle 0xC8131C, forcee 0xC81318, transition 0xC8130C.
+static void OnWorld(const MsgWorld &w)
+{
+    if (GameState() != 9) return;
+    uint8_t &h = *(uint8_t *)0xB70153, &m = *(uint8_t *)0xB70152;
+    int mine = h * 60 + m, host = w.hours * 60 + w.minutes, diff = host - mine;
+    if (diff > 720) diff -= 1440;
+    if (diff < -720) diff += 1440;
+    if (diff < -1 || diff > 1) {   // a plus d'une minute : on se cale (sinon l'horloge locale suit d'elle-meme)
+        h = w.hours; m = w.minutes;
+        *(uint32_t *)0xB70158 = *(uint32_t *)0xB7CB84;
+    }
+    *(short *)0xC81320 = w.oldWeather;
+    *(short *)0xC8131C = w.newWeather;
+    *(short *)0xC81318 = w.forcedWeather;
+    *(float *)0xC8130C = w.weatherBlend;
+}
+
+static void SyncWorld()
+{
+    if (!g_cfg.host || GameState() != 9) return;
+    static uint32_t last;
+    if (GetTickCount() - last < 1000) return;
+    last = GetTickCount();
+    MsgWorld w = { MSG_WORLD, *(uint8_t *)0xB70153, *(uint8_t *)0xB70152, *(short *)0xC81320, *(short *)0xC8131C, *(short *)0xC81318, *(float *)0xC8130C };
+    NetSendToGuests(&w, sizeof(w));
 }
 
 // --- Vetements du joueur local : a chaque changement, et toutes les 2 s (UDP : un paquet perdu est rattrape) ---
@@ -201,6 +235,13 @@ static void WarpPuppetOut(void *ped, const float *pos)
     ((void(__thiscall *)(void *, float, float, float, bool))((*(void ***)ped)[14]))(ped, pos[0], pos[1], pos[2], false);
 }
 
+static void *PuppetOf(int id)
+{
+    if (id < 0 || id >= MAX_PLAYERS || id == g_localId) return nullptr;
+    Puppet &p = g_puppets[id];
+    return p.ped && PedFromRef(p.ref) == p.ped ? p.ped : nullptr;
+}
+
 static bool IsPuppet(void *ped)
 {
     for (auto &p : g_puppets) if (p.ped == ped) return true;
@@ -211,6 +252,7 @@ static void DestroyPuppet(int id)
 {
     Puppet &p = g_puppets[id];
     if (!p.ped) return;
+    HudUpdateBlip(id, nullptr);
     if (PedFromRef(p.ref) != p.ped) { p.ped = nullptr; return; }   // deja supprime par le jeu
     WorldRemove(p.ped);
     RemoveReferencesToDeletedObject(p.ped);
@@ -452,6 +494,7 @@ void CoopFrame(bool inGameLoop)
     if (g_cfg.netAuto && !netTried) { netTried = true; NetStart(); }
     if (!NetRunning()) return;
     g_onClothes = OnClothes;
+    g_onWorld = OnWorld;
     NetPoll();
     SendLocalState();
     SendLocalClothes();
@@ -463,7 +506,8 @@ void CoopFrame(bool inGameLoop)
     if (others) *(uint8_t *)0xB7CB49 = 0;
     VehiclesFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
-        if (i != g_localId) UpdatePuppet(i);
+        if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
+    SyncWorld();
     Autotest();
 
     static uint32_t lastLog;

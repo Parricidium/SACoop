@@ -52,6 +52,8 @@ game version, and starts the game as host or guest. Options and release notes ar
   running and sprinting with the game's animations, in the right place. A pedestrian model can be picked instead.
 - **Shared vehicles**: whoever drives a car sends it to the others, who see it move with that player's CJ at the
   wheel (or as a passenger). Getting into someone else's car and driving off hands it over to you.
+- Each player's **name above their head** and a **radar blip** in their colour.
+- **Same time and weather** for everybody (the host's).
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
@@ -63,7 +65,7 @@ game version, and starts the game as host or guest. Options and release notes ar
 1. Vehicles, the rest: enter / exit animations for the other players, damage, radio, lights, sirens.
 2. Weapons, shots and damage.
 3. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
-4. Shared time, weather, traffic and pedestrians.
+4. Shared traffic and pedestrians.
 5. A co-op menu in the game, and a lobby in the launcher.
 6. Modern rendering options (as in VCCoop), all optional.
 
@@ -122,6 +124,8 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
   qui marche, court et sprinte avec les animations du jeu, au bon endroit. On peut choisir un piéton à la place.
 - **Véhicules partagés** : celui qui conduit envoie sa voiture aux autres, qui la voient rouler avec le CJ de ce
   joueur au volant (ou en passager). Monter dans la voiture d'un autre et partir avec vous la confie.
+- Le **pseudo de chaque joueur au-dessus de sa tête** et un **point radar** à sa couleur.
+- **Même heure et même météo** pour tout le monde (celles de l'hôte).
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture
@@ -134,7 +138,7 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 1. Véhicules, la suite : animations de montée / descente des autres joueurs, dégâts, radio, phares, sirènes.
 2. Armes, tirs et dégâts.
 3. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
-4. Heure, météo, circulation et passants partagés.
+4. Circulation et passants partagés.
 5. Un menu coop dans le jeu, et un salon dans le lanceur.
 6. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
 
