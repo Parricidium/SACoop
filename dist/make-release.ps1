@@ -10,8 +10,8 @@ $stage = "$PSScriptRoot\out\SACoop-$Version"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item "$root\build\dinput8.dll" $stage
+Copy-Item "$root\build\SACoop.exe" $stage   # lanceur : mises a jour automatiques
 Copy-Item "$PSScriptRoot\files\*" $stage -Recurse
-New-Item -ItemType Directory -Force "$stage\SACoop" | Out-Null
 Set-Content "$stage\SACoop\version.txt" $Version -NoNewline -Encoding ASCII
 
 $zip = "$PSScriptRoot\out\SACoop-$Version.zip"
