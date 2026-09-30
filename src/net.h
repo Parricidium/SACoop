@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 1, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 2, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -16,6 +16,7 @@ enum MsgType : uint8_t {
     MSG_PING,        // invite -> hote : heure d'envoi (mesure du ping)
     MSG_PONG,        // hote -> invite : la meme heure, renvoyee
     MSG_RESYNC,      // hote -> invite : ton flux fiable est perdu, reconnecte-toi (nouvelle session)
+    MSG_CLOTHES,     // vetements d'un joueur (CPedClothesDesc), a chaque changement puis toutes les 2 s ; relaye par l'hote
 };
 
 #pragma pack(push, 1)
@@ -43,6 +44,8 @@ struct MsgState {
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };
+// CPedClothesDesc du joueur : 10 cles de modeles, 18 cles de textures, gras, muscle (0x78 octets).
+struct MsgClothes { uint8_t type, id; uint32_t desc[30]; };
 struct MsgWorld {
     uint8_t type;
     uint8_t hours, minutes;
@@ -77,3 +80,5 @@ extern void (*g_onState)(const MsgState &s);       // chaque etat de joueur recu
 extern void (*g_onReliable)(int from, const uint8_t *data, int len);
 extern void (*g_onJoin)(int peer);                 // hote : un invite vient d'entrer (ou revient)
 extern uint16_t g_myPing;
+extern void (*g_onClothes)(const MsgClothes &c);   // vetements d'un autre joueur
+

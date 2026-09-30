@@ -50,8 +50,8 @@ static void LoadConfig()
     GetPrivateProfileStringA("SACoop", "Pseudo", "CJ", g_cfg.playerName, sizeof(g_cfg.playerName), ini);
     GetPrivateProfileStringA("SACoop", "Adresse", "127.0.0.1", g_cfg.address, sizeof(g_cfg.address), ini);
     g_cfg.port = GetPrivateProfileIntA("SACoop", "Port", 7800, ini);
-    g_cfg.skin = GetPrivateProfileIntA("SACoop", "Tenue", 106, ini);
-    if (g_cfg.skin < 1 || g_cfg.skin > 299) g_cfg.skin = 106;
+    g_cfg.skin = GetPrivateProfileIntA("SACoop", "Tenue", 0, ini);
+    if (g_cfg.skin < 0 || g_cfg.skin > 299) g_cfg.skin = 0;
 
     // Pseudo, adresse et port : dans sacoop-joueur.ini (absent du paquet, une mise a jour ne les efface pas).
     // Premier lancement : repris de sacoop.ini.
@@ -120,5 +120,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallFileHooks();
     InstallWindowHooks();
     InstallGamePatches();
+    InstallPuppetRender();
     return TRUE;
 }

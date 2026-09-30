@@ -60,7 +60,7 @@ namespace game {
     inline void WorldAdd(void *e) { ((void(__cdecl *)(void *))0x563220)(e); }
     inline void WorldRemove(void *e) { ((void(__cdecl *)(void *))0x563280)(e); }
     inline void RemoveReferencesToDeletedObject(void *e) { ((void(__cdecl *)(void *))0x565510)(e); }
-    inline void DeleteEntity(void *e) { (*(void(__thiscall **)(void *, int))(*(void ***)e)[0])(e, 1); }   // vtable[0] : destructeur
+    inline void DeleteEntity(void *e) { ((void(__thiscall *)(void *, int))((*(void ***)e)[0]))(e, 1); }   // vtable[0] : destructeur
 
     // --- Chargement des modeles (CStreaming) ---
     inline void RequestModel(int id, int flags) { ((void(__cdecl *)(int, int))0x4087E0)(id, flags); }   // flags 2 : mission

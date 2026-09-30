@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.2.2-prealpha"
+#define SACOOP_VERSION "0.3.0-prealpha"
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)
@@ -19,7 +19,7 @@ struct Config {
     char address[64];
     int port;
     char playerName[24];
-    int skin;               // Tenue : modele du pantin vu par les autres (piétons 1-299 ; 106 = fam2 par defaut)
+    int skin;               // Tenue : ce que les autres voient (0 = CJ avec ses vetements, par defaut ; 1-299 = un pieton du jeu)
     char autotest[32];      // Autotest : scenario de test (autotest.cpp)
     bool logScripts;        // JournalScripts : releves periodiques du fil du jeu
 };
@@ -38,6 +38,7 @@ void InstallCrashLog();
 void InstallFileHooks();
 void InstallWindowHooks();
 void InstallGamePatches();
+void InstallPuppetRender();   // coop.cpp : rendu des pantins (faces arriere)
 void StartWatchdog();
 void WatchdogFrame();
 void OnFrame();             // une fois par image, sur le fil du jeu (window.cpp, juste avant Present)

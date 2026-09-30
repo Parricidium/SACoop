@@ -13,6 +13,7 @@ void (*g_onState)(const MsgState &s);
 void (*g_onReliable)(int from, const uint8_t *data, int len);
 void (*g_onJoin)(int peer);
 uint16_t g_myPing;
+void (*g_onClothes)(const MsgClothes &c);
 
 static SOCKET g_sock = INVALID_SOCKET;
 static sockaddr_in g_hostAddr;               // invite : adresse de l'hote
@@ -308,6 +309,12 @@ static void HostReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         if (g_onState) g_onState(s);
         for (int i = 1; i < MAX_PLAYERS; i++)   // relais aux autres invites
             if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &s, sizeof(s));
+    } else if (buf[0] == MSG_CLOTHES && len >= (int)sizeof(MsgClothes)) {
+        MsgClothes c = *(const MsgClothes *)buf;
+        c.id = (uint8_t)id;
+        if (g_onClothes) g_onClothes(c);
+        for (int i = 1; i < MAX_PLAYERS; i++)   // relais aux autres invites
+            if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &c, sizeof(c));
     } else if (buf[0] == MSG_PING && len >= (int)sizeof(MsgPing)) {
         MsgPing p = *(const MsgPing *)buf;
         p.type = MSG_PONG;
@@ -379,6 +386,9 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         break;
     case MSG_WORLD:
         if (len >= (int)sizeof(MsgWorld) && g_onWorld) g_onWorld(*(const MsgWorld *)buf);
+        break;
+    case MSG_CLOTHES:
+        if (len >= (int)sizeof(MsgClothes) && ((const MsgClothes *)buf)->id != g_localId && g_onClothes) g_onClothes(*(const MsgClothes *)buf);
         break;
     case MSG_BYE:
         if (len >= (int)sizeof(MsgBye) && ((const MsgBye *)buf)->id < MAX_PLAYERS && ((const MsgBye *)buf)->id != g_localId) {

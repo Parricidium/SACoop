@@ -821,11 +821,11 @@ static void BuildOptions()
        L"R\u00E9glages et sauvegardes du jeu dans son dossier, s\u00E9par\u00E9s de vos sauvegardes solo.",
        L"Game settings and saves in its folder, apart from your solo saves.");
     // COOP
-    C(TAB_COOP, "Tenue", 106, { 105, 106, 107, 102, 103, 104, 108, 109, 110, 114, 115, 116 }, L"Personnage vu par les autres", L"Character others see",
-      { L"Grove Street 1", L"Grove Street 2", L"Grove Street 3", L"Ballas 1", L"Ballas 2", L"Ballas 3", L"Vagos 1", L"Vagos 2", L"Vagos 3", L"Aztecas 1", L"Aztecas 2", L"Aztecas 3" },
-      { L"Grove Street 1", L"Grove Street 2", L"Grove Street 3", L"Ballas 1", L"Ballas 2", L"Ballas 3", L"Vagos 1", L"Vagos 2", L"Vagos 3", L"Aztecas 1", L"Aztecas 2", L"Aztecas 3" }, L"",
-      L"Pr\u00E9-alpha : les autres joueurs vous voient sous ce personnage (CJ avec ses v\u00EAtements arrivera plus tard).",
-      L"Pre-alpha: the other players see you as this character (CJ with his clothes comes later).");
+    C(TAB_COOP, "Tenue", 0, { 0, 105, 106, 107, 102, 103, 104, 108, 109, 110, 114, 115, 116 }, L"Personnage vu par les autres", L"Character others see",
+      { L"CJ (tes v\u00EAtements)", L"Grove Street 1", L"Grove Street 2", L"Grove Street 3", L"Ballas 1", L"Ballas 2", L"Ballas 3", L"Vagos 1", L"Vagos 2", L"Vagos 3", L"Aztecas 1", L"Aztecas 2", L"Aztecas 3" },
+      { L"CJ (your clothes)", L"Grove Street 1", L"Grove Street 2", L"Grove Street 3", L"Ballas 1", L"Ballas 2", L"Ballas 3", L"Vagos 1", L"Vagos 2", L"Vagos 3", L"Aztecas 1", L"Aztecas 2", L"Aztecas 3" }, L"",
+      L"CJ : les autres joueurs vous voient avec vos v\u00EAtements (magasins compris). Sinon, sous le personnage choisi.",
+      L"CJ: the other players see you with your clothes (shops included). Otherwise, as the chosen character.");
 }
 
 static std::string GameIni() { return Narrow(g_gameDir + L"sacoop.ini"); }

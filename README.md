@@ -47,20 +47,21 @@ game version, and starts the game as host or guest. Options and release notes ar
 ## What works in this pre-alpha
 
 - Host and join over UDP (default port 7800), up to 4 players.
-- Each player sees the others as a pedestrian character (a Grove Street member by default, `Tenue` in
-  `sacoop.ini`) that walks, runs and sprints with the game's animations, and turns up in the right place.
+- Each player sees the others as **CJ wearing that player's own clothes** (shops and wardrobe included), walking,
+  running and sprinting with the game's animations, in the right place. A pedestrian model can be picked instead.
+- The pause menu no longer freezes the world while other players are connected, and switching windows does not
+  pause the game.
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
 - Settings and saves kept in the game folder, apart from your solo saves.
 - Two copies of the game can run on the same PC (the game normally refuses).
 
 ## Not there yet (roadmap)
 
-1. The remote players look like CJ, with their own clothes.
-2. Vehicles (driver and passengers), weapons, shots and damage.
-3. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
-4. Shared time, weather, traffic and pedestrians.
-5. A co-op menu in the game, and a lobby in the launcher.
-6. Modern rendering options (as in VCCoop), all optional.
+1. Vehicles (driver and passengers), weapons, shots and damage.
+2. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
+3. Shared time, weather, traffic and pedestrians.
+4. A co-op menu in the game, and a lobby in the launcher.
+5. Modern rendering options (as in VCCoop), all optional.
 
 ## Installation
 
@@ -111,8 +112,10 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 ## Ce qui marche dans cette pré-alpha
 
 - Héberger et rejoindre en UDP (port 7800 par défaut), jusqu'à 4 joueurs.
-- Chaque joueur voit les autres sous la forme d'un personnage (un membre de Grove Street par défaut, `Tenue` dans
-  `sacoop.ini`) qui marche, court et sprinte avec les animations du jeu, au bon endroit.
+- Chaque joueur voit les autres sous les traits de **CJ, habillé comme ce joueur** (magasins et garde-robe compris),
+  qui marche, court et sprinte avec les animations du jeu, au bon endroit. On peut choisir un piéton à la place.
+- Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
+  jeu en pause.
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture
   sautés.
 - Réglages et sauvegardes dans le dossier du jeu, à part de vos sauvegardes solo.
@@ -120,12 +123,11 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 
 ## Pas encore là (feuille de route)
 
-1. Les autres joueurs ont l'apparence de CJ, avec leurs propres vêtements.
-2. Véhicules (conducteur et passagers), armes, tirs et dégâts.
-3. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
-4. Heure, météo, circulation et passants partagés.
-5. Un menu coop dans le jeu, et un salon dans le lanceur.
-6. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
+1. Véhicules (conducteur et passagers), armes, tirs et dégâts.
+2. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
+3. Heure, météo, circulation et passants partagés.
+4. Un menu coop dans le jeu, et un salon dans le lanceur.
+5. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
 
 ## Installation
 
