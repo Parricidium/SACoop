@@ -1,0 +1,30 @@
+SACoop - GTA San Andreas en coop - PRE-ALPHA
+============================================
+
+ATTENTION : version tres precoce. Pour l'instant, les joueurs se voient
+marcher et courir dans la meme ville, et c'est tout : pas encore de
+vehicules, de missions partagees, de combat ni de menu coop. Ne vous
+attendez pas a une partie complete. Tout le reste arrive dans les
+prochaines versions.
+
+Il faut
+- GTA San Andreas pour PC, version 1.0 US. La version Steam actuelle
+  (3.0) doit etre retrogradee en 1.0 US (un outil de retrogradation fait
+  ca). Le mod refuse de se lancer sur une autre version.
+- Le meme zip SACoop chez tous les joueurs.
+
+Installation
+1. Copier le contenu du zip dans le dossier du jeu (a cote de gta_sa.exe).
+2. L'hote lance "SACoop - Heberger.cmd".
+   Les autres lancent "SACoop - Rejoindre.cmd" et tapent l'adresse IP de l'hote.
+3. Chacun commence une nouvelle partie. Par Internet, l'hote ouvre le port
+   UDP 7800 sur sa box (ou utilisez un reseau virtuel type Radmin VPN).
+
+Reglages : sacoop.ini. Pseudo, adresse et port : sacoop-joueur.ini (cree au
+premier lancement). Journaux : sacoop.log et le dossier logs.
+
+Desinstaller : supprimer dinput8.dll, sacoop*.ini, sacoop.log et logs.
+
+Projet de fan, non officiel, sans lien avec Rockstar Games ni Take-Two.
+Aucun fichier du jeu n'est fourni : il faut posseder le jeu.
+https://github.com/Parricidium/SACoop
