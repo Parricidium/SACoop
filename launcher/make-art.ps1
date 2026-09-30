@@ -184,19 +184,31 @@ foreach ($dark in $false, $true) {
     $dh = 170.0; $dw = $dh * $src.Width / $src.Height
     if ($dw -gt 220) { $dw = 220.0; $dh = $dw * $src.Height / $src.Width }
     $dst = New-Object System.Drawing.RectangleF (228 - $dw / 2), 8, $dw, $dh
+    # Le logo de JD est blanc : tel quel en theme sombre (ombre noire autour) ; en theme clair il passerait inapercu sur
+    # le panneau creme, il est donc teinte en vert Grove fonce (halo blanc autour).
     for ($i = 6; $i -ge 1; $i--) {
         $ia = New-Object System.Drawing.Imaging.ImageAttributes
         $cm = New-Object System.Drawing.Imaging.ColorMatrix
-        $cm.Matrix00 = 0; $cm.Matrix11 = 0; $cm.Matrix22 = 0; $cm.Matrix33 = $(if ($dark) { 0.17 } else { 0.12 })
-        $v = 0   # ombre noire : le logo de JD est blanc, il doit se lire aussi sur un bureau clair
+        $cm.Matrix00 = 0; $cm.Matrix11 = 0; $cm.Matrix22 = 0; $cm.Matrix33 = $(if ($dark) { 0.17 } else { 0.22 })
+        $v = $(if ($dark) { 0 } else { 1 })
         $cm.Matrix40 = $v; $cm.Matrix41 = $v; $cm.Matrix42 = $v
         $ia.SetColorMatrix($cm)
-        foreach ($o in @(@(-$i, 0), @($i, 0), @(0, -$i), @(0, $i))) {
+        $d = $i * 0.7
+        foreach ($o in @(@(-$i, 0), @($i, 0), @(0, -$i), @(0, $i), @(-$d, -$d), @($d, $d), @(-$d, $d), @($d, -$d))) {
             $r = New-Object System.Drawing.Rectangle ([int]($dst.X + $o[0])), ([int]($dst.Y + $o[1])), ([int]$dst.Width), ([int]$dst.Height)
             $g.DrawImage($logo, $r, $src.X, $src.Y, $src.Width, $src.Height, [System.Drawing.GraphicsUnit]::Pixel, $ia)
         }
     }
-    $g.DrawImage($logo, $dst, $src, [System.Drawing.GraphicsUnit]::Pixel)
+    if ($dark) { $g.DrawImage($logo, $dst, $src, [System.Drawing.GraphicsUnit]::Pixel) }
+    else {
+        $ia = New-Object System.Drawing.Imaging.ImageAttributes
+        $cm = New-Object System.Drawing.Imaging.ColorMatrix
+        $cm.Matrix00 = 0; $cm.Matrix11 = 0; $cm.Matrix22 = 0; $cm.Matrix33 = 1
+        $cm.Matrix40 = 26 / 255.0; $cm.Matrix41 = 92 / 255.0; $cm.Matrix42 = 50 / 255.0
+        $ia.SetColorMatrix($cm)
+        $r = New-Object System.Drawing.Rectangle ([int]$dst.X), ([int]$dst.Y), ([int]$dst.Width), ([int]$dst.Height)
+        $g.DrawImage($logo, $r, $src.X, $src.Y, $src.Width, $src.Height, [System.Drawing.GraphicsUnit]::Pixel, $ia)
+    }
 
     $g.Dispose()
     $out = Join-Path $ui $(if ($dark) { 'launcher-sombre.png' } else { 'launcher.png' })
