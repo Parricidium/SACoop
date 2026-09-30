@@ -643,29 +643,34 @@ static void RoundRect(GraphicsPath &p, RectF r, float rad)
     p.CloseFigure();
 }
 
-// Couleurs de San Andreas : vert Grove Street et or du coucher de soleil de Los Santos.
-static const Color kGreen(255, 36, 158, 74), kGold(255, 240, 168, 36);
-// Themes clair et sombre (bouton lune / soleil ; Theme=clair|sombre dans sacoop-launcher.ini, sinon celui de Windows).
+// Noir et blanc (demande de JD, 30/09) : theme sombre = fond noir, textes et accents blancs ; theme clair = fond blanc,
+// textes et accents noirs. Seuls les etats gardent une couleur (erreur en rouge, attention en orange, PRE-ALPHA en rouge).
+// Themes : bouton lune / soleil ; Theme=clair|sombre dans sacoop-launcher.ini, sinon celui de Windows.
 struct Theme {
     Color ink, grey, panel, panelBorder, sep, card, cardSel, choiceBorder, toggleOff, field, fieldBorder, placeholder,
-          tab, tabHot, pill, btn2, btn2Hot, circle, circleHot, fallA, fallB;
+          tab, tabHot, pill, btn2, btn2Hot, circle, circleHot, fallA, fallB, accent, accent2, onAccent, pillHot;
 };
 static const Theme kLight = {
-    Color(255, 36, 44, 34), Color(255, 110, 118, 100), Color(255, 250, 250, 244), Color(150, 255, 255, 255), Color(255, 222, 228, 206),
-    Color(255, 255, 255, 255), Color(255, 232, 244, 226), Color(255, 196, 222, 190), Color(255, 214, 220, 204),
-    Color(235, 255, 255, 255), Color(255, 204, 214, 196), Color(255, 176, 184, 168),
-    Color(185, 255, 255, 255), Color(240, 255, 255, 255), Color(235, 36, 44, 34), Color(215, 255, 255, 255), Color(240, 232, 244, 226),
-    Color(150, 255, 255, 255), Color(235, 255, 255, 255), Color(255, 250, 226, 170), Color(255, 236, 150, 90) };
+    Color(255, 20, 20, 20), Color(255, 110, 110, 110), Color(255, 250, 250, 250), Color(150, 255, 255, 255), Color(255, 225, 225, 225),
+    Color(255, 255, 255, 255), Color(255, 236, 236, 236), Color(255, 200, 200, 200), Color(255, 210, 210, 210),
+    Color(235, 255, 255, 255), Color(255, 210, 210, 210), Color(255, 175, 175, 175),
+    Color(185, 255, 255, 255), Color(240, 255, 255, 255), Color(235, 20, 20, 20), Color(215, 255, 255, 255), Color(240, 238, 238, 238),
+    Color(150, 255, 255, 255), Color(235, 255, 255, 255), Color(255, 250, 250, 250), Color(255, 210, 210, 210),
+    Color(255, 18, 18, 18), Color(255, 70, 70, 70), Color(255, 255, 255, 255), Color(255, 70, 70, 70) };
 static const Theme kDark = {
-    Color(255, 236, 242, 228), Color(255, 160, 172, 150), Color(255, 22, 30, 24), Color(90, 120, 220, 140), Color(255, 48, 64, 50),
-    Color(255, 32, 44, 34), Color(255, 36, 70, 44), Color(255, 64, 110, 72), Color(255, 64, 78, 66),
-    Color(235, 30, 40, 32), Color(255, 64, 84, 66), Color(255, 110, 126, 108),
-    Color(200, 32, 44, 34), Color(240, 44, 66, 48), Color(235, 50, 90, 56), Color(215, 32, 44, 34), Color(240, 40, 70, 46),
-    Color(170, 32, 44, 34), Color(235, 48, 70, 50), Color(255, 30, 36, 30), Color(255, 60, 40, 28) };
+    Color(255, 242, 242, 242), Color(255, 160, 160, 160), Color(255, 16, 16, 16), Color(60, 255, 255, 255), Color(255, 48, 48, 48),
+    Color(255, 30, 30, 30), Color(255, 44, 44, 44), Color(255, 80, 80, 80), Color(255, 64, 64, 64),
+    Color(235, 26, 26, 26), Color(255, 70, 70, 70), Color(255, 110, 110, 110),
+    Color(200, 30, 30, 30), Color(240, 48, 48, 48), Color(235, 60, 60, 60), Color(215, 24, 24, 24), Color(240, 44, 44, 44),
+    Color(170, 30, 30, 30), Color(235, 50, 50, 50), Color(255, 20, 20, 20), Color(255, 40, 40, 40),
+    Color(255, 245, 245, 245), Color(255, 190, 190, 190), Color(255, 12, 12, 12), Color(255, 95, 95, 95) };
 static bool g_dark;
 #define TH(x) ((g_dark ? kDark : kLight).x)
 #define kInk TH(ink)
 #define kGrey TH(grey)
+#define kGreen TH(accent)
+#define kGold TH(accent2)
+#define kOnAcc TH(onAccent)
 
 static Color Mix(Color a, Color b, float t)
 {
@@ -708,13 +713,13 @@ static void DrawButton(Graphics &g, int id, const wchar_t *label, bool primary)
     if (primary) {
         GraphicsPath sp;   // ombre coloree
         RoundRect(sp, RectF(r.X + 2, r.Y + 5, r.Width - 4, r.Height), 12);
-        SolidBrush sb(Color((BYTE)(55 * a), 40, 140, 60));
+        SolidBrush sb(Color((BYTE)(45 * a), 0, 0, 0));
         g.FillPath(&sb, &sp);
         LinearGradientBrush lg(r, WithA(kGreen, a), WithA(kGold, a), LinearGradientModeHorizontal);
         g.FillPath(&lg, &p);
         SolidBrush hi(Color((BYTE)(60 * b.hover * a), 255, 255, 255));
         g.FillPath(&hi, &p);
-        Text(g, label, r, 15, FontStyleBold, Color((BYTE)(255 * a), 255, 255, 255));
+        Text(g, label, r, 15, FontStyleBold, WithA(kOnAcc, a));
     } else {
         SolidBrush fill(Mix(WithA(TH(btn2), a), WithA(TH(btn2Hot), a), b.hover));
         g.FillPath(&fill, &p);
@@ -756,7 +761,7 @@ static void DrawBar(Graphics &g, RectF r, float p)
 {
     GraphicsPath bg;
     RoundRect(bg, r, r.Height / 2);
-    SolidBrush b(Color(70, 36, 158, 74));
+    SolidBrush b(WithA(kGreen, 0.22f));
     g.FillPath(&b, &bg);
     RectF fr = r;
     if (p >= 0) fr.Width = max(r.Height, r.Width * min(p, 1.0f));
@@ -885,9 +890,9 @@ static void DrawTabs(Graphics &g)
         bool on = g_tab == t, hot = g_tabHot == t;
         if (on) { LinearGradientBrush lg(r, kGreen, kGold, LinearGradientModeHorizontal); g.FillPath(&lg, &p); }
         else { SolidBrush b(hot ? TH(tabHot) : TH(tab)); g.FillPath(&b, &p); }
-        Text(g, TabName(t), r, 11.5f, FontStyleBold, on ? Color(255, 255, 255, 255) : Mix(kInk, kGreen, hot ? 1.0f : 0.0f));
+        Text(g, TabName(t), r, 11.5f, FontStyleBold, on ? kOnAcc : Mix(kGrey, kInk, hot ? 1.0f : 0.0f));
         if (t == TAB_NOTES && !on && NotesUnseen()) {   // pastille : des notes pas encore lues
-            SolidBrush dot(kGold);
+            SolidBrush dot(Color(255, 214, 48, 72));
             g.FillEllipse(&dot, r.X + r.Width - 7, r.Y - 1, 8.0f, 8.0f);
         }
     }
@@ -926,7 +931,7 @@ static void DrawOptions(Graphics &g)
             GraphicsPath tp; RoundRect(tp, tr, 10);
             if (v) { LinearGradientBrush lg(tr, kGreen, kGold, LinearGradientModeHorizontal); g.FillPath(&lg, &tp); }
             else { SolidBrush ob(TH(toggleOff)); g.FillPath(&ob, &tp); }
-            SolidBrush knob(Color(255, 255, 255, 255));
+            SolidBrush knob(v ? kOnAcc : Color(255, 255, 255, 255));
             g.FillEllipse(&knob, v ? tr.X + 24 : tr.X + 2, tr.Y + 2, 16.0f, 16.0f);
         } else {
             RectF cr(r.X + r.Width - 190, r.Y + 5, 178, 24);
@@ -1035,9 +1040,9 @@ static void DrawNotes(Graphics &g)
                 const wchar_t *lab = cmp == 0 ? T(L"INSTALL\u00C9E", L"INSTALLED") : T(L"NOUVELLE", L"NEW");
                 RectF br(area.X + w - 12 - 7.0f * (float)wcslen(lab), y + 2, 12 + 7.0f * (float)wcslen(lab), 17);
                 GraphicsPath bp; RoundRect(bp, br, 8.5f);
-                SolidBrush bb(cmp == 0 ? Color(45, 38, 150, 96) : Color(45, 240, 168, 36));
+                SolidBrush bb(cmp == 0 ? WithA(kInk, 0.12f) : WithA(kInk, 0.22f));
                 g.FillPath(&bb, &bp);
-                Text(g, lab, br, 9.5f, FontStyleBold, cmp == 0 ? Color(255, 38, 150, 96) : Color(255, 200, 130, 20));
+                Text(g, lab, br, 9.5f, FontStyleBold, kInk);
             }
             if (!body.empty()) g.DrawString(body.c_str(), -1, &fb, RectF(area.X + 10, y + 26, w - 16, box.Height + 4), &sf, &ink);
             if (i + 1 < notes.size()) g.DrawLine(&sep, area.X + 6, y + h - 8, area.X + w, y + h - 8);
@@ -1063,7 +1068,7 @@ static void DrawUI(Graphics &g)
     EnterCriticalSection(&g_cs);
     status = g_status; kind = g_statusKind;
     LeaveCriticalSection(&g_cs);
-    Color sc = kind == K_OK ? Color(255, 38, 150, 96) : kind == K_WARN ? Color(255, 205, 120, 30) : kind == K_ERR ? Color(255, 214, 48, 72) : kGrey;
+    Color sc = kind == K_OK ? kInk : kind == K_WARN ? Color(255, 205, 120, 30) : kind == K_ERR ? Color(255, 214, 48, 72) : kGrey;
     float prog = g_progress;
 
     {   // theme : lune (passer en sombre) ou soleil (passer en clair)
@@ -1127,7 +1132,7 @@ static void DrawUI(Graphics &g)
         DrawButton(g, B_JOIN, T(L"REJOINDRE", L"JOIN"), false);
         std::wstring exeLine;
         Color ec = kGrey;
-        if (g_exeKind == EXE_OK) { exeLine = L"gta_sa.exe 1.0 US \u2713"; ec = Color(255, 38, 150, 96); }
+        if (g_exeKind == EXE_OK) { exeLine = L"gta_sa.exe 1.0 US \u2713"; ec = kInk; }
         else if (g_exeKind == EXE_MISSING) { exeLine = T(L"gta_sa.exe introuvable", L"gta_sa.exe not found"); ec = Color(255, 214, 48, 72); }
         else { exeLine = T(L"exe pas en 1.0 US", L"exe is not 1.0 US"); ec = Color(255, 214, 48, 72); }
         Text(g, exeLine, RectF(78, 452, 170, 20), 12, FontStyleBold, ec, StringAlignmentNear);
@@ -1145,7 +1150,7 @@ static void DrawUI(Graphics &g)
         Text(g, T(L"Achetez GTA: San Andreas :", L"Buy GTA: San Andreas:"), RectF(56, b.r.Y, b.r.X - 56 - 8, b.r.Height), 12, FontStyleBold, kInk, StringAlignmentFar);
         GraphicsPath p;
         RoundRect(p, b.r, b.r.Height / 2);
-        SolidBrush fill(Mix(TH(pill), kGreen, b.hover));
+        SolidBrush fill(Mix(TH(pill), TH(pillHot), b.hover));
         g.FillPath(&fill, &p);
         Pen cart(Color(255, 255, 255, 255), 1.6f);
         cart.SetLineJoin(LineJoinRound);
