@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo.png">
-    <img src="docs/img/logo-vert.png" width="200" alt="SACoop">
+    <img src="docs/img/logo-noir.png" width="200" alt="SACoop">
   </picture>
 </p>
 
