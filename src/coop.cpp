@@ -1,9 +1,14 @@
 // Boucle coop : reseau, etat du joueur local, et doubles des autres joueurs (pantins).
-// Pantin : un CCivilianPed marque "personnage de mission" pour que la population ne le retire pas. Modele : un pieton
-// choisi par le joueur (Tenue, fam2 par defaut). Le modele 0 de CJ n'a pas de maillage a lui (celui du joueur est
-// construit a partir de ses vetements, sur son personnage) : un pantin avec le modele 0 etait invisible. Il se deplace par une tache
-// CTaskSimpleGoToPoint vers la position recue (marche / course / sprint selon le joueur) : les animations sont
+// Pantin : un CCivilianPed marque "personnage de mission" pour que la population ne le retire pas. Modele : CJ habille
+// comme le joueur qu'il represente (Tenue=0, par defaut), ou un pieton du jeu (Tenue=1..299). Il se deplace par une
+// tache CTaskSimpleGoToPoint vers la position recue (marche / course / sprint selon le joueur) : les animations sont
 // celles du jeu. S'il s'ecarte trop, il est replace d'un coup.
+//
+// CJ habille : le modele 0 n'a pas de maillage fixe, CClothes::ConstructPedModel (0x5A81E0) le construit dans les infos
+// du modele 0 a partir d'un jeu de vetements (CPedClothesDesc), et chaque personnage qui prend le modele 0 en fait une
+// copie. Pour un pantin : modele 0 construit avec les vetements du joueur distant (recus par MSG_CLOTHES), modele
+// attribue au pantin, puis modele 0 reconstruit avec les vetements du joueur local (sinon son prochain changement de
+// modele prendrait ceux de l'autre). Sans reconstruction juste avant, la copie etait invisible.
 #include "util.h"
 #include "sacoop.h"
 #include "net.h"
@@ -18,9 +23,54 @@ struct Puppet {
     int ref;             // reference de pool : le pantin est-il toujours la ?
     uint32_t lastTask;   // GetTickCount de la derniere tache donnee
     int moveState;
+    int model;           // 0 = CJ habille
+    uint32_t clothes;    // empreinte des vetements avec lesquels il a ete construit
+    uint32_t builtAt;    // GetTickCount de la derniere construction (pas plus d'une toutes les 2 s)
 };
 static Puppet g_puppets[MAX_PLAYERS];
+
+// Vetements des autres joueurs (MSG_CLOTHES) : CPedClothesDesc, 30 mots.
+static uint32_t g_clothes[MAX_PLAYERS][30];
+static uint32_t g_clothesHash[MAX_PLAYERS];   // 0 = pas encore recus
+
+static uint32_t *LocalClothes() { return *(uint32_t **)(0xB7CD9C + 4); }   // CWorld::Players[0].m_PlayerData.m_pPedClothesDesc
+static uint32_t ClothesHash(const uint32_t *d)
+{
+    bool any = false;
+    for (int k = 0; k < 28; k++) any |= d[k] != 0;
+    if (!any) return 0;   // jeu vide : le script ne l'a pas encore rempli (debut de partie)
+    uint32_t h = 2166136261u;
+    for (int k = 0; k < 30; k++) { h ^= d[k]; h *= 16777619u; }
+    return h ? h : 1;
+}
+static void ConstructPedModel0(const uint32_t *desc)
+{
+    ((void(__cdecl *)(int, const void *, const void *, bool))0x5A81E0)(0, desc, nullptr, false);
+}
 static uint32_t g_stateSeq;
+
+// Rendu des pantins : CPed::Render (vtable[18] des CCivilianPed, 0x86C0A8) ne coupe l'elimination des faces arriere
+// (rwRENDERSTATECULLMODE 0x1E = 1, aucune) que pour les joueurs (types 0 et 1). Le maillage de CJ construit a partir de
+// ses vetements est rendu comme celui du joueur.
+typedef void(__thiscall *PedRender_t)(void *);
+static PedRender_t o_CivRender;
+static bool IsPuppet(void *ped);
+static void __fastcall h_CivRender(void *ped, void *)
+{
+    if (!IsPuppet(ped)) { o_CivRender(ped); return; }
+    uint8_t *rw = *(uint8_t **)0xC97B24;   // RwEngineInstance : +0x20 RenderStateSet, +0x24 RenderStateGet
+    int old = 1;
+    ((int(__cdecl *)(int, int *))*(void **)(rw + 0x24))(0x1E, &old);
+    ((int(__cdecl *)(int, int))*(void **)(rw + 0x20))(0x1E, 1);
+    o_CivRender(ped);
+    ((int(__cdecl *)(int, int))*(void **)(rw + 0x20))(0x1E, old);
+}
+
+void InstallPuppetRender()
+{
+    o_CivRender = (PedRender_t)PatchPointer((void **)(0x86C0A8 + 18 * 4), (void *)h_CivRender);
+}
+static uint32_t g_calmSince;   // depuis quand on est en partie sans cinematique (creation des pantins)
 
 static bool InGame()
 {
@@ -57,6 +107,31 @@ static void SendLocalState()
     NetSendState(s);
 }
 
+// --- Vetements du joueur local : a chaque changement, et toutes les 2 s (UDP : un paquet perdu est rattrape) ---
+static void SendLocalClothes()
+{
+    static uint32_t last, lastHash;
+    if (!InGame()) return;
+    uint32_t *d = LocalClothes();
+    uint32_t h = d ? ClothesHash(d) : 0;
+    if (!h || (h == lastHash && GetTickCount() - last < 2000)) return;
+    last = GetTickCount();
+    lastHash = h;
+    MsgClothes c = { MSG_CLOTHES, (uint8_t)(g_localId < 0 ? 0 : g_localId) };
+    memcpy(c.desc, d, sizeof(c.desc));
+    NetSendToAll(&c, sizeof(c));
+}
+
+static void OnClothes(const MsgClothes &c)
+{
+    if (c.id >= MAX_PLAYERS) return;
+    uint32_t h = ClothesHash(c.desc);
+    if (h == g_clothesHash[c.id]) return;
+    memcpy(g_clothes[c.id], c.desc, sizeof(c.desc));
+    g_clothesHash[c.id] = h;
+    Log("vetements du joueur %d recus (%08X)", c.id, h);
+}
+
 // --- Pantins ---
 static void SetHeading(void *ped, float h)
 {
@@ -79,6 +154,12 @@ static void PlacePuppet(void *ped, const float *pos, float heading)
     WorldAdd(ped);
 }
 
+static bool IsPuppet(void *ped)
+{
+    for (auto &p : g_puppets) if (p.ped == ped) return true;
+    return false;
+}
+
 static void DestroyPuppet(int id)
 {
     Puppet &p = g_puppets[id];
@@ -91,9 +172,26 @@ static void DestroyPuppet(int id)
     Log("pantin du joueur %d retire", id);
 }
 
+// Donne au pantin CJ avec les vetements du joueur id (voir en tete). Le pantin est retire du monde et remis dedans.
+static void DressPuppet(int id)
+{
+    Puppet &p = g_puppets[id];
+    void *ped = p.ped;
+    WorldRemove(ped);
+    ((void(__thiscall *)(void *))((*(void ***)ped)[8]))(ped);   // DeleteRwObject (vtable[8])
+    ConstructPedModel0(g_clothes[id]);
+    ((void(__thiscall *)(void *))0x5E0130)(ped);                // SetModelIndex(0) + CWorld::Add, comme RebuildPlayer
+    uint32_t *mine = LocalClothes();
+    if (ClothesHash(mine)) ConstructPedModel0(mine);            // le modele 0 reprend les vetements du joueur local
+    p.clothes = g_clothesHash[id];
+    p.builtAt = GetTickCount();
+    Log("pantin du joueur %d habille (vetements %08X)", id, p.clothes);
+}
+
 static void CreatePuppet(int id, const MsgState &s)
 {
-    int model = s.skin >= 1 && s.skin <= 299 ? s.skin : 106;
+    int model = s.skin <= 299 ? s.skin : 0;
+    if (model == 0 && !g_clothesHash[id]) return;   // CJ : on attend ses vetements
     if (!ModelLoaded(model)) {
         RequestModel(model, 2);
         LoadAllRequestedModels(false);
@@ -106,7 +204,8 @@ static void CreatePuppet(int id, const MsgState &s)
     memcpy(EntityPos(ped), s.pos, sizeof(s.pos));
     SetHeading(ped, s.heading);
     WorldAdd(ped);
-    g_puppets[id] = { ped, PedRef(ped), 0, 0 };
+    g_puppets[id] = { ped, PedRef(ped), 0, 0, model, 0, 0 };
+    if (model == 0) DressPuppet(id);
     Log("pantin du joueur %d (%s, modele %d) cree en %.1f %.1f %.1f", id, s.name, model, s.pos[0], s.pos[1], s.pos[2]);
 }
 
@@ -130,9 +229,13 @@ static void UpdatePuppet(int id)
         Log("pantin du joueur %d supprime par le jeu, recreation", id);
         p.ped = nullptr;
     }
-    // Pas pendant une cinematique : le jeu nettoie la zone a la fin et supprimerait le pantin.
-    if (!p.ped && *(uint8_t *)0xB5F851) return;
+    // Pas pendant une cinematique ni juste apres : le jeu nettoie la zone a la fin (il supprimerait le pantin) et
+    // reconstruit le modele de CJ (un pantin copie a ce moment-la restait invisible).
+    if (!p.ped && GetTickCount() - g_calmSince < 5000) return;
+    if (p.ped && p.model != (s.skin <= 299 ? s.skin : 0)) DestroyPuppet(id);   // tenue changee : autre modele
     if (!p.ped) { CreatePuppet(id, s); if (!p.ped) return; }
+    // CJ : le joueur a change de vetements (magasin, garde-robe) : on le rhabille.
+    if (p.model == 0 && g_clothesHash[id] && p.clothes != g_clothesHash[id] && GetTickCount() - p.builtAt > 2000) DressPuppet(id);
     void *ped = p.ped;
     if (EntityArea(ped) != s.area) EntityArea(ped) = s.area;
 
@@ -190,7 +293,28 @@ static void Autotest()
         return;
     }
     joy[0x20 / 2] = 0;
+    // "regarde" (invite) : une fois, place le joueur 8 m derriere l'hote, tourne vers +x (axe des allers-retours de
+    // l'hote), camera dans le dos : les captures montrent le pantin de l'hote de face.
+    if (_stricmp(g_cfg.autotest, "regarde") == 0 && g_players[0].connected && g_players[0].state.inGame) {
+        static bool placed;
+        void *ped = FindPlayerPed();
+        if (!placed) {
+            placed = true;
+            float pos[3] = { 2232.0f, -1262.3f, 23.9f };   // ruelle de Ganton, 10 m derriere le depart de l'hote
+            PlacePuppet(ped, pos, -1.5708f);
+            Log("autotest : place derriere l'hote en %.1f %.1f %.1f", pos[0], pos[1], pos[2]);
+        }
+        ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);   // CCamera::SetCameraDirectlyBehindForFollowPed_CamOnAString
+        return;
+    }
     if (_stricmp(g_cfg.autotest, "marche") == 0) {
+        static bool placed;
+        if (!placed) {   // depart fixe dans la ruelle, tourne vers +x : memes images d'un test a l'autre
+            placed = true;
+            float pos[3] = { 2242.0f, -1262.3f, 23.9f };
+            PlacePuppet(FindPlayerPed(), pos, -1.5708f);
+            ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);
+        }
         // Allers-retours autour du point de depart : 3 s en avant, 1 s arrete, 3 s en arriere (le joueur fait demi-tour).
         int phase = (int)((t - 20000) / 1000) % 8;
         int want = phase < 3 ? -128 : phase < 4 ? 0 : phase < 7 ? 127 : 0;
@@ -205,9 +329,16 @@ void CoopFrame(bool inGameLoop)
     static bool netTried;
     if (g_cfg.netAuto && !netTried) { netTried = true; NetStart(); }
     if (!NetRunning()) return;
+    g_onClothes = OnClothes;
     NetPoll();
     SendLocalState();
+    SendLocalClothes();
     if (!inGameLoop) return;
+    if (!InGame() || *(uint8_t *)0xB5F851) g_calmSince = GetTickCount();
+    // Menu Pause ouvert par un joueur : tant qu'un autre joueur est connecte, le monde continue (CTimer::m_UserPause).
+    bool others = false;
+    for (int i = 0; i < MAX_PLAYERS; i++) others |= i != g_localId && g_players[i].connected;
+    if (others) *(uint8_t *)0xB7CB49 = 0;
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) UpdatePuppet(i);
     Autotest();

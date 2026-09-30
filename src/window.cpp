@@ -2,6 +2,7 @@
 // sans voler la souris ni le premier plan. San Andreas cree son peripherique en Direct3D 9 (d3d9.dll importee).
 #include "util.h"
 #include "sacoop.h"
+#include "net.h"
 #include <d3d9.h>
 #include <mmsystem.h>
 
@@ -190,6 +191,14 @@ static LRESULT CALLBACK h_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         static int logged;
         if (logged++ < 5) Log("fenetre : desactivation ignoree (message 0x%X)", msg);
         return DefWindowProcA(hwnd, msg, wp, lp);
+    }
+    // Reprise du focus : le jeu demande le menu Pause (0x53BC60 : m_bActivateMenuNextFrame, 0xBA677B = 1). En coop,
+    // revenir sur la fenetre ne doit rien mettre en pause.
+    if (msg == WM_SETFOCUS && NetRunning()) {
+        uint8_t before = *(uint8_t *)0xBA677B;
+        LRESULT r = CallWindowProcA(o_WndProc, hwnd, msg, wp, lp);
+        *(uint8_t *)0xBA677B = before;
+        return r;
     }
     return CallWindowProcA(o_WndProc, hwnd, msg, wp, lp);
 }
