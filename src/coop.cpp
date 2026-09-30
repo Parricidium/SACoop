@@ -13,6 +13,7 @@
 #include "sacoop.h"
 #include "net.h"
 #include "game.h"
+#include "vehicles.h"
 #include <math.h>
 #include <string.h>
 
@@ -103,6 +104,13 @@ static void SendLocalState()
         s.moveState = (uint8_t)Field<int>(ped, PED_MOVESTATE);
         int slot = Field<uint8_t>(ped, PED_WEAPONSLOT);
         s.weapon = (uint8_t)Field<int>(ped, PED_WEAPONS + slot * 0x1C);
+        if (void *veh = PedVehicle(ped)) {
+            bool driver = Field<void *>(veh, VEH_DRIVER) == ped;
+            s.seat = 0;
+            if (!driver)
+                for (int i = 0; i < 8; i++) if (Field<void *>(veh, VEH_PASSENGERS + i * 4) == ped) s.seat = (uint8_t)(i + 1);
+            if (driver || s.seat) s.vehicleId = LocalVehicleId(veh, driver);
+        }
     }
     NetSendState(s);
 }
@@ -152,6 +160,45 @@ static void PlacePuppet(void *ped, const float *pos, float heading)
     memcpy(EntityPos(ped), pos, 3 * sizeof(float));
     SetHeading(ped, heading);
     WorldAdd(ped);
+}
+
+bool PuppetInVehicle(void *veh)
+{
+    if (!veh) return false;
+    for (auto &p : g_puppets) if (p.ped && PedFromRef(p.ref) == p.ped && PedVehicle(p.ped) == veh) return true;
+    return false;
+}
+
+// Pantin mis dans un vehicule d'un coup, comme les commandes de script WARP_CHAR_INTO_CAR (0x36A) et
+// WARP_CHAR_INTO_CAR_AS_PASSENGER (0x430) : taches videes (CPedIntelligence::FlushImmediately 0x601640), puis tache
+// CTaskSimpleCarSetPedInAsDriver (0x6470E0) / AsPassenger (0x646FE0, porte : 0x64F190) construite sur la pile,
+// drapeau "d'un coup" leve (+0x18 / +0x1C), executee directement (ProcessPed 0x64B950 / 0x64B5D0), detruite.
+static void WarpPuppetIn(void *ped, void *veh, int seat)
+{
+    void *intel = Field<void *>(ped, PED_INTEL);
+    ((void(__thiscall *)(void *, bool))0x601640)(intel, false);
+    alignas(8) uint8_t task[0x60] = {};
+    if (seat == 0) {
+        ((void *(__thiscall *)(void *, void *, void *))0x6470E0)(task, veh, nullptr);
+        task[0x18] = 1;
+        ((bool(__thiscall *)(void *, void *))0x64B950)(task, ped);
+        ((void(__thiscall *)(void *))0x647170)(task);
+    } else {
+        int door = ((int(__cdecl *)(void *, int))0x64F190)(veh, seat - 1);
+        ((void *(__thiscall *)(void *, void *, int, void *))0x646FE0)(task, veh, door, nullptr);
+        task[0x1C] = 1;
+        ((bool(__thiscall *)(void *, void *))0x64B5D0)(task, ped);
+        ((void(__thiscall *)(void *))0x647080)(task);
+    }
+}
+
+// Sortie d'un coup, comme WARP_CHAR_FROM_CAR_TO_COORD (0x362) : taches videes avec tache par defaut, puis
+// CPed::Teleport (vtable[14]).
+static void WarpPuppetOut(void *ped, const float *pos)
+{
+    void *intel = Field<void *>(ped, PED_INTEL);
+    ((void(__thiscall *)(void *, bool))0x601640)(intel, true);
+    ((void(__thiscall *)(void *, float, float, float, bool))((*(void ***)ped)[14]))(ped, pos[0], pos[1], pos[2], false);
 }
 
 static bool IsPuppet(void *ped)
@@ -239,8 +286,29 @@ static void UpdatePuppet(int id)
     void *ped = p.ped;
     if (EntityArea(ped) != s.area) EntityArea(ped) = s.area;
 
+    // En vehicule : le pantin est mis a sa place dans la copie ; il en sort quand le joueur est a pied.
+    void *inVeh = PedVehicle(ped);
+    if (s.vehicleId) {
+        void *veh = NetVehicleById(s.vehicleId);
+        if (!veh) return;   // copie pas encore creee (modele en chargement)
+        bool placed = inVeh == veh && (s.seat == 0 ? Field<void *>(veh, VEH_DRIVER) == ped : Field<void *>(veh, VEH_PASSENGERS + (s.seat - 1) * 4) == ped);
+        if (!placed) {
+            if (inVeh) WarpPuppetOut(ped, s.pos);
+            WarpPuppetIn(ped, veh, s.seat);
+            p.moveState = 0;
+            Log("pantin du joueur %d mis dans le vehicule %08X (place %d)", id, s.vehicleId, s.seat);
+        }
+        return;
+    }
+    if (inVeh) {
+        WarpPuppetOut(ped, s.pos);
+        p.moveState = 0;
+        Log("pantin du joueur %d sorti du vehicule", id);
+        return;
+    }
+
     // Position visee : un peu en avant selon la vitesse (le joueur a continue d'avancer depuis l'envoi).
-    float lead = (GetTickCount() - s.time) / 1000.0f;
+    float lead = (GetTickCount() - np.lastStateAt) / 1000.0f;   // (horloge locale : celle de l'autre PC n'est pas la meme)
     if (lead < 0) lead = 0;
     if (lead > 0.3f) lead = 0.3f;
     float target[3];
@@ -300,11 +368,65 @@ static void Autotest()
         void *ped = FindPlayerPed();
         if (!placed) {
             placed = true;
-            float pos[3] = { 2232.0f, -1262.3f, 23.9f };   // ruelle de Ganton, 10 m derriere le depart de l'hote
-            PlacePuppet(ped, pos, -1.5708f);
+            // ruelle de Ganton : "voiture" (hote) -> 20 m devant son depart, tourne vers lui ; sinon 10 m derriere lui.
+            bool car = g_players[0].state.vehicleId != 0;
+            float pos[3] = { car ? 2264.0f : 2232.0f, -1262.3f, 23.9f };
+            PlacePuppet(ped, pos, car ? 1.5708f : -1.5708f);
             Log("autotest : place derriere l'hote en %.1f %.1f %.1f", pos[0], pos[1], pos[2]);
         }
+        // Voiture de l'hote : une fois qu'il en est descendu, on prend le volant de la copie et on avance un peu.
+        static uint32_t hostCar, tookAt;
+        if (g_players[0].state.vehicleId) hostCar = g_players[0].state.vehicleId;
+        if (hostCar && !g_players[0].state.vehicleId && t > 36000 && !tookAt) {
+            if (void *veh = NetVehicleById(hostCar)) {
+                WarpPuppetIn(ped, veh, 0);
+                tookAt = t;
+                Log("autotest : je prends le volant du vehicule %08X", hostCar);
+            }
+        }
+        if (tookAt) {
+            joy[0x20 / 2] = (t - tookAt > 1500 && t - tookAt < 2300) ? 255 : 0;
+            return;
+        }
         ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);   // CCamera::SetCameraDirectlyBehindForFollowPed_CamOnAString
+        return;
+    }
+    // "voiture" (hote) : un Greenwood (492) pose a 5 m, l'hote mis au volant, puis avance 2 s / s'arrete 2 s / recule 2 s
+    // (Croix : accelerer, Carre : freiner et reculer, sur la manette 0).
+    if (_stricmp(g_cfg.autotest, "voiture") == 0) {
+        static void *car;
+        static bool done;
+        void *ped = FindPlayerPed();
+        if (!done) {
+            done = true;
+            float pos[3] = { 2242.0f, -1262.3f, 23.9f };
+            PlacePuppet(ped, pos, -1.5708f);
+            if (!ModelLoaded(492)) { RequestModel(492, 2); LoadAllRequestedModels(false); }
+            car = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(492, 2247.0f, -1262.3f, 24.2f, false);
+            if (car) {
+                if (uint8_t *m = *(uint8_t **)((uint8_t *)car + 0x14)) {   // tournee vers +x
+                    float *r = (float *)m, *f = (float *)(m + 0x10);
+                    r[0] = 0; r[1] = -1; r[2] = 0; f[0] = 1; f[1] = 0; f[2] = 0;
+                }
+                WarpPuppetIn(ped, car, 0);
+                Log("autotest : au volant d'un Greenwood");
+            }
+            return;
+        }
+        // 0,8 s en avant, 1,6 s au repos, 1,2 s en arriere (le recul est plus lent) : la voiture reste dans la ruelle.
+        if (t > 32000) {   // descente (Triangle), puis a pied
+            joy[0x20 / 2] = joy[0x1C / 2] = 0;
+            joy[0x1E / 2] = t < 32400 ? 255 : 0;
+            static bool said;
+            if (!said) { said = true; Log("autotest : je descends"); }
+            return;
+        }
+        uint32_t c = (t - 20000) % 3200;
+        int phase = c < 1000 ? 0 : c < 2400 ? 1 : 2;
+        joy[0x20 / 2] = phase == 0 ? 255 : 0;   // Croix
+        joy[0x1C / 2] = phase == 2 ? 255 : 0;   // Carre
+        static int last = -1;
+        if (last != phase) { last = phase; Log("autotest : %s", phase == 0 ? "j'avance" : phase == 1 ? "je m'arrete" : "je recule"); }
         return;
     }
     if (_stricmp(g_cfg.autotest, "marche") == 0) {
@@ -339,6 +461,7 @@ void CoopFrame(bool inGameLoop)
     bool others = false;
     for (int i = 0; i < MAX_PLAYERS; i++) others |= i != g_localId && g_players[i].connected;
     if (others) *(uint8_t *)0xB7CB49 = 0;
+    VehiclesFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) UpdatePuppet(i);
     Autotest();

@@ -11,10 +11,11 @@
 </p>
 
 <p align="center">
-  <a href="https://store.steampowered.com/app/12120/"><img src="https://img.shields.io/badge/Buy%20GTA%20San%20Andreas%20legitimately-Steam-1b2838?style=for-the-badge&logo=steam&logoColor=white" alt="Buy GTA San Andreas on Steam"></a>
+  <a href="https://store.rockstargames.com/fr/game/buy-grand-theft-auto-the-trilogy"><img src="https://img.shields.io/badge/Buy%20GTA%20San%20Andreas%20legitimately-Rockstar%20Store-FCAF17?style=for-the-badge&logo=rockstargames&logoColor=black" alt="Buy GTA San Andreas on the Rockstar Store"></a>
 </p>
 <p align="center">
-  <b>This mod needs a legitimately owned copy of Grand Theft Auto: San Andreas.</b> No game data is included here.
+  <b>This mod needs a legitimately owned copy of Grand Theft Auto: San Andreas.</b>
+  <a href="https://store.rockstargames.com/fr/game/buy-grand-theft-auto-the-trilogy">Buy it on the Rockstar Store</a> (also on Steam). No game data is included here.
 </p>
 
 > [!WARNING]
@@ -49,6 +50,8 @@ game version, and starts the game as host or guest. Options and release notes ar
 - Host and join over UDP (default port 7800), up to 4 players.
 - Each player sees the others as **CJ wearing that player's own clothes** (shops and wardrobe included), walking,
   running and sprinting with the game's animations, in the right place. A pedestrian model can be picked instead.
+- **Shared vehicles**: whoever drives a car sends it to the others, who see it move with that player's CJ at the
+  wheel (or as a passenger). Getting into someone else's car and driving off hands it over to you.
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
@@ -57,11 +60,12 @@ game version, and starts the game as host or guest. Options and release notes ar
 
 ## Not there yet (roadmap)
 
-1. Vehicles (driver and passengers), weapons, shots and damage.
-2. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
-3. Shared time, weather, traffic and pedestrians.
-4. A co-op menu in the game, and a lobby in the launcher.
-5. Modern rendering options (as in VCCoop), all optional.
+1. Vehicles, the rest: enter / exit animations for the other players, damage, radio, lights, sirens.
+2. Weapons, shots and damage.
+3. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
+4. Shared time, weather, traffic and pedestrians.
+5. A co-op menu in the game, and a lobby in the launcher.
+6. Modern rendering options (as in VCCoop), all optional.
 
 ## Installation
 
@@ -95,6 +99,8 @@ The game executable and any decompiled code are **not** in this repository.
 
 # Version française
 
+> Il faut posséder une copie légitime de GTA San Andreas (rétrogradée en 1.0 US) : [l'acheter sur le Rockstar Store](https://store.rockstargames.com/fr/game/buy-grand-theft-auto-the-trilogy) (aussi sur Steam). Aucun fichier du jeu n'est fourni.
+
 > [!WARNING]
 > **PRÉ-ALPHA.** C'est le tout début du projet. Pour l'instant, deux joueurs (jusqu'à quatre) se voient marcher et
 > courir dans la même ville, et c'est tout. Pas encore de véhicules, de missions partagées, de combat ni de menu coop.
@@ -114,6 +120,8 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 - Héberger et rejoindre en UDP (port 7800 par défaut), jusqu'à 4 joueurs.
 - Chaque joueur voit les autres sous les traits de **CJ, habillé comme ce joueur** (magasins et garde-robe compris),
   qui marche, court et sprinte avec les animations du jeu, au bon endroit. On peut choisir un piéton à la place.
+- **Véhicules partagés** : celui qui conduit envoie sa voiture aux autres, qui la voient rouler avec le CJ de ce
+  joueur au volant (ou en passager). Monter dans la voiture d'un autre et partir avec vous la confie.
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture
@@ -123,11 +131,12 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 
 ## Pas encore là (feuille de route)
 
-1. Véhicules (conducteur et passagers), armes, tirs et dégâts.
-2. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
-3. Heure, météo, circulation et passants partagés.
-4. Un menu coop dans le jeu, et un salon dans le lanceur.
-5. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
+1. Véhicules, la suite : animations de montée / descente des autres joueurs, dégâts, radio, phares, sirènes.
+2. Armes, tirs et dégâts.
+3. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
+4. Heure, météo, circulation et passants partagés.
+5. Un menu coop dans le jeu, et un salon dans le lanceur.
+6. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
 
 ## Installation
 

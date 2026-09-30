@@ -30,6 +30,14 @@ namespace game {
 
     inline void *FindPlayerPed() { return ((void *(__cdecl *)(int))0x56E210)(-1); }
 
+    // Vehicule : +0x460 conducteur, +0x464 passagers (8), +0x488 places passagers, +0x434/0x435 couleurs.
+    enum : int { VEH_DRIVER = 0x460, VEH_PASSENGERS = 0x464, VEH_MAXPASS = 0x488, VEH_TYPE = 0x590 };
+    // Personnage en vehicule : drapeau bInVehicle (+0x46C bit 0x100) et CPed::m_pVehicle (+0x58C).
+    inline void *PedVehicle(void *ped)
+    {
+        return (Field<uint32_t>(ped, 0x46C) & 0x100) ? Field<void *>(ped, 0x58C) : nullptr;
+    }
+
     // Pool des personnages (CPools::ms_pPedPool 0xB74490 : objets, octets d'etat, taille ; cases de 0x7C4) :
     // reference = (case << 8) | octet d'etat (bit 7 = case libre). Une reference sert a verifier qu'un personnage
     // qu'on a cree existe encore (le jeu peut le supprimer : fin de cinematique, nettoyage de zone).

@@ -34,7 +34,7 @@ using std::max;
 using namespace Gdiplus;
 
 static const wchar_t *kReleasesApi = L"https://api.github.com/repos/Parricidium/SACoop/releases?per_page=40";
-static const wchar_t *kStoreUrl = L"https://store.steampowered.com/app/12120/";   // (meme lien que le README)
+static const wchar_t *kStoreUrl = L"https://store.rockstargames.com/fr/game/buy-grand-theft-auto-the-trilogy";   // Trilogy (meme lien que le README et VCCoop)
 static const float kImgW = 1000, kImgH = 620;   // mise en page (coordonnees de launcher.png)
 
 // ---------------------------------------------------------------- etat
@@ -616,7 +616,7 @@ static void Layout()
     g_btn[B_HOST].r = RectF(76, 390, 148, 46);
     g_btn[B_JOIN].r = RectF(232, 390, 148, 46);
     g_btn[B_EXE].r = RectF(250, 452, 130, 20);
-    g_btn[B_BUY].r = RectF(250, 554, 130, 26);
+    g_btn[B_BUY].r = RectF(236, 554, 144, 26);
     g_btn[B_CLOSE].r = RectF(938, 76, 28, 28);
     g_btn[B_MIN].r = RectF(904, 76, 28, 28);
     g_btn[B_THEME].r = RectF(62, 100, 26, 26);   // coin du panneau, a gauche du logo
@@ -1145,7 +1145,7 @@ static void DrawUI(Graphics &g)
     Text(g, T(L"Mod non officiel et non commercial.", L"Unofficial, non-commercial mod."), RectF(56, 510, 344, 14), 10, FontStyleRegular, lg);
     Text(g, T(L"Non affili\u00E9 \u00E0 Rockstar Games ni \u00E0 Take-Two.", L"Not affiliated with Rockstar Games or Take-Two."), RectF(56, 523, 344, 14), 10, FontStyleRegular, lg);
     Text(g, T(L"N\u00E9cessite une copie l\u00E9gale de GTA: San Andreas.", L"Requires a legal copy of GTA: San Andreas."), RectF(56, 536, 344, 14), 10, FontStyleRegular, lg);
-    {   // Acheter le jeu : pastille sombre avec un panier, vers Steam
+    {   // Acheter le jeu : pastille sombre avec un panier, vers la boutique Rockstar
         Button &b = g_btn[B_BUY];
         Text(g, T(L"Achetez GTA: San Andreas :", L"Buy GTA: San Andreas:"), RectF(56, b.r.Y, b.r.X - 56 - 8, b.r.Height), 12, FontStyleBold, kInk, StringAlignmentFar);
         GraphicsPath p;
@@ -1162,7 +1162,7 @@ static void DrawUI(Graphics &g)
         SolidBrush white(Color(255, 255, 255, 255));
         g.FillEllipse(&white, x + 3.2f, y + 10.4f, 3.2f, 3.2f);
         g.FillEllipse(&white, x + 9.8f, y + 10.4f, 3.2f, 3.2f);
-        Text(g, L"Steam", RectF(b.r.X + 30, b.r.Y, b.r.Width - 36, b.r.Height), 12, FontStyleBold, Color(255, 255, 255, 255), StringAlignmentNear);
+        Text(g, L"Rockstar Store", RectF(b.r.X + 30, b.r.Y, b.r.Width - 36, b.r.Height), 12, FontStyleBold, Color(255, 255, 255, 255), StringAlignmentNear);
     }
 }
 

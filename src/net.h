@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 2, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 3, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -17,6 +17,7 @@ enum MsgType : uint8_t {
     MSG_PONG,        // hote -> invite : la meme heure, renvoyee
     MSG_RESYNC,      // hote -> invite : ton flux fiable est perdu, reconnecte-toi (nouvelle session)
     MSG_CLOTHES,     // vetements d'un joueur (CPedClothesDesc), a chaque changement puis toutes les 2 s ; relaye par l'hote
+    MSG_VEHICLE,     // etat d'un vehicule, par son proprietaire (vehicles.cpp) ; relaye par l'hote
 };
 
 #pragma pack(push, 1)
@@ -41,11 +42,22 @@ struct MsgState {
     uint8_t moveState;  // CPed::m_nMoveState : 1 immobile, 4 marche, 6 course, 7 sprint
     uint8_t weapon;
     uint16_t skin;      // modele de son pantin chez les autres (reglage Tenue)
+    uint32_t vehicleId; // vehicule reseau occupe (0 = a pied)
+    uint8_t seat;       // 0 : au volant, 1..8 : passager
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };
 // CPedClothesDesc du joueur : 10 cles de modeles, 18 cles de textures, gras, muscle (0x78 octets).
 struct MsgClothes { uint8_t type, id; uint32_t desc[30]; };
+// Vehicule : identifiant = (joueur qui l'a enregistre << 24) | compteur ; envoye par son proprietaire.
+struct MsgVehicle {
+    uint8_t type, owner;
+    uint32_t id;
+    uint16_t model;
+    uint8_t color1, color2;
+    float pos[3], right[3], fwd[3], speed[3], turn[3];
+    uint8_t driven;     // un joueur est dedans en ce moment
+};
 struct MsgWorld {
     uint8_t type;
     uint8_t hours, minutes;
@@ -81,4 +93,5 @@ extern void (*g_onReliable)(int from, const uint8_t *data, int len);
 extern void (*g_onJoin)(int peer);                 // hote : un invite vient d'entrer (ou revient)
 extern uint16_t g_myPing;
 extern void (*g_onClothes)(const MsgClothes &c);   // vetements d'un autre joueur
+extern void (*g_onVehicle)(const MsgVehicle &v);   // etat d'un vehicule d'un autre joueur
 
