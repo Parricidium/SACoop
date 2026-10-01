@@ -615,6 +615,14 @@ static void UnstickFade()
     static uint32_t stuckSince;
     uint8_t *cam = (uint8_t *)0xB6F028;
     float alpha = *(float *)(cam + 0xBFC);
+    // Pendant une cinematique (celle de l'hote, rejouee) : le fondu de l'hote, tel quel (sinon l'invite deja noir au
+    // lancement pouvait voir toute la cinematique en noir, son fondu d'entree rejoue ne prenant pas).
+    if (CutsceneRunning() && g_players[0].connected && g_players[0].state.inGame) {
+        cam[0x51] = 0;
+        *(float *)(cam + 0xBFC) = g_players[0].state.fade;
+        stuckSince = 0;
+        return;
+    }
     int st = Field<int>(FindPlayerPed(), PED_STATE);
     const NetPlayer &host = g_players[0];
     bool stuck = alpha > 200.0f && !cam[0x51] && st != 54 && st != 55 && !CutsceneRunning() &&
