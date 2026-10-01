@@ -77,6 +77,7 @@ game version, and starts the game as host or guest. Options and release notes ar
   mission gets its markers and texts. **Shared save**: when the host saves, the save goes to every player's same slot. Side activities stay local to each player.
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
+- **COOP menu in the game** (main and pause menus): host, join an address, change your name, see the session.
 - **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send; `/join` brings you back next to the host). **F5** (held): players board (name, health, distance). **F10**: co-op panel (go to a player, friendly fire,
   outfit, and time / weather for the host).
 - **Widescreen**: the 3D, the HUD (radar, icons, texts) and the menus keep their proportions on wide screens, with a wider field
@@ -169,6 +170,8 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
   chaque joueur, au même emplacement. Les activités annexes restent locales à chacun.
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
+- **Menu COOP dans le jeu** (menus principal et pause) : héberger, rejoindre une adresse, changer de pseudo, voir la
+  session.
 - **G** : monter en passager dans la voiture d'un autre joueur (F aussi). **T** : tchat (Entrée pour envoyer ; `/rejoindre` vous ramène près de l'hôte). **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance). **F10** : panneau coop (aller vers un
   joueur, tir ami, tenue, et heure / météo pour l'hôte).
 - **Grand écran** : la 3D, le HUD (radar, icônes, textes) et les menus gardent leurs proportions sur un écran large, avec un champ

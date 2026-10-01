@@ -4,6 +4,7 @@
 #include "sacoop.h"
 #include "chat.h"
 #include "panel.h"
+#include "menu.h"
 #include "widescreen.h"
 #include "passenger.h"
 #include "net.h"
@@ -133,6 +134,7 @@ static HRESULT WINAPI h_Present(IDirect3DDevice9 *dev, const RECT *src, const RE
     static bool inFrame;
     if (!inFrame) { inFrame = true; OnFrame(); inFrame = false; }
     WidescreenFrame();
+    MenuFrame();
     // Menus resserres (widescreen.cpp) : bandes laterales effacees (sinon des restes d'anciennes images y restent).
     float barW = MenuBarWidth();
     if (barW > 0.5f) {
@@ -205,6 +207,7 @@ static BOOL WINAPI h_SetCursorPos(int x, int y)
 static WNDPROC o_WndProc;
 static LRESULT CALLBACK h_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && MenuWindowMessage(msg, wp)) return 0;   // saisie du menu COOP
     if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && PanelWindowMessage(msg, wp)) return 0;  // panneau F10
     if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && ChatWindowMessage(msg, wp)) return 0;   // saisie du tchat
     if (msg == WM_KEYDOWN) PassengerWindowMessage(msg, wp);                                    // G : passager

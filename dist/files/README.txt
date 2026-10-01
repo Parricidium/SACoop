@@ -35,7 +35,8 @@ Installation
    to download the zip again.
 3. The host clicks HOST. The others type the host's IP address, then JOIN.
    ("SACoop - Heberger.cmd" and "SACoop - Rejoindre.cmd" also work, without
-   updates.)
+   updates.) In the game too: main or pause menu > COOP (Host, Join with
+   the address, Name).
 4. The host starts their game (new or a save). Guests still in the menu
    follow automatically (same save if they received it). Over the
    Internet, the host opens UDP port 7800 on their router (or use a virtual

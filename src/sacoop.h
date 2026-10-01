@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.25.0-prealpha"
+#define SACOOP_VERSION "0.26.0-prealpha"
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)
@@ -21,6 +21,7 @@ struct Config {
     char playerName[24];
     int testMission;        // TestMission : mission lancee par l'autotest "mission"
     int testLoadSlot;       // ChargerEmplacement : le demarrage auto charge cet emplacement (1-8, tests)
+    int testMenuCoop;       // TestMenuCoop : 1 la page COOP s'ouvre et heberge, 2 elle rejoint (captures)
     bool testBoard;         // TestTableau : tableau des joueurs toujours affiche (captures)
     bool testSkip;          // TestPasser : l'autotest "mission" passe la cinematique
     bool widescreen;        // GrandEcran : 3D au format de l'ecran, champ de vision elargi (defaut 1)
