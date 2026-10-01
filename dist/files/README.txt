@@ -14,6 +14,8 @@ What already works
   the mission on. Story progress, mission money and the host's save are
   shared.
 - Same time, same weather, same pedestrians and traffic near the host.
+- Police: one wanted level for everybody, and the host's police also
+  chases wanted guests (RecherchePartagee, PoliceHote).
 
 Keys
 - G: get in another player's car as a passenger (F too).

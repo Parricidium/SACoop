@@ -33,6 +33,11 @@
 </p>
 <p align="center"><i>On the guest: the mission camera with Sweet and the host ("Joueur1"), then the mission's own texts, in widescreen.</i></p>
 
+<p align="center">
+  <img src="docs/img/police-invite.jpg" width="100%" alt="The host's police going after a wanted guest">
+</p>
+<p align="center"><i>A wanted guest: the host's cops come for them too (Grove Street).</i></p>
+
 # SACoop — the San Andreas story in co-op (work in progress)
 
 A co-op mod for **Grand Theft Auto: San Andreas** (PC, version 1.0 US), by the authors of
@@ -66,6 +71,8 @@ ready).
   tyres, smoke, fire, explosion), siren and repairs.
 - Each player's **name above their head** and a **radar blip** in their colour.
 - **Same time and weather** for everybody (the host's).
+- **Police for everybody**: one wanted level for the group (the highest; losing the police clears it for all), and
+  the host's cops also hunt down wanted guests near the host (their hits land on the guest).
 - **Shared street life**: near the host, everybody sees the same pedestrians and traffic (the host's); far away,
   each player keeps their own.
 - **Weapons and shots**: everybody sees the weapon in each player's hand and their shots. Players can hurt each
@@ -94,7 +101,7 @@ ready).
 ## Not there yet (roadmap)
 
 1. Story missions, the rest: testing every mission (the real test with JD and friends).
-2. Police for guests (the host's police only chases the host).
+2. Police cars ramming guests' cars (cops on foot already chase them).
 3. Modern rendering options (as in VCCoop), all optional.
 
 ## Installation
@@ -162,6 +169,9 @@ quand un joueur arrive, part ou se met prêt).
   pare-chocs, phares, pneus, fumée, feu, explosion), sa sirène et ses réparations.
 - Le **pseudo de chaque joueur au-dessus de sa tête** et un **point radar** à sa couleur.
 - **Même heure et même météo** pour tout le monde (celles de l'hôte).
+- **Police pour tous** : un seul niveau de recherche pour le groupe (le plus haut ; semer la police l'efface pour
+  tous), et les policiers de l'hôte traquent aussi les invités recherchés près de lui (leurs coups arrivent chez
+  l'invité).
 - **Rues partagées** : près de l'hôte, tout le monde voit les mêmes passants et la même circulation (ceux de
   l'hôte) ; loin de lui, chacun garde les siens.
 - **Armes et tirs** : chacun voit l'arme en main des autres joueurs et leurs tirs. Les joueurs peuvent se blesser
@@ -193,7 +203,7 @@ quand un joueur arrive, part ou se met prêt).
 ## Pas encore là (feuille de route)
 
 1. Missions de l'histoire, la suite : essai de chaque mission (le vrai test entre amis).
-2. Police pour les invités (celle de l'hôte ne poursuit que l'hôte).
+2. Voitures de police qui éperonnent celle d'un invité (les policiers à pied le poursuivent déjà).
 3. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
 
 ## Installation

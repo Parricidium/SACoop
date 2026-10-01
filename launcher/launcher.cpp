@@ -903,6 +903,12 @@ static void BuildOptions()
     T2(TAB_COOP, "TirAmi", 1, L"Tir ami", L"Friendly fire",
        L"Les autres joueurs peuvent vous blesser (balles, coups, voitures). Chacun choisit pour lui.",
        L"The other players can hurt you (bullets, hits, cars). Each player chooses for themselves.");
+    T2(TAB_COOP, "RecherchePartagee", 1, L"Recherche partag\u00E9e", L"Shared wanted level",
+       L"Un seul niveau de recherche pour tous : le crime d'un joueur attire la police sur le groupe, la semer la retire \u00E0 tous.",
+       L"One wanted level for everybody: one player's crime brings the police on the group, losing it clears it for all.");
+    T2(TAB_COOP, "PoliceHote", 1, L"Police de l'h\u00F4te", L"Host's police",
+       L"La police de l'h\u00F4te poursuit aussi les invit\u00E9s recherch\u00E9s (r\u00E9glage de l'h\u00F4te ; chez un invit\u00E9 : pas de police locale \u00E0 c\u00F4t\u00E9 de l'h\u00F4te).",
+       L"The host's police also chases wanted guests (host setting; on a guest: no local police near the host).");
 }
 
 static std::string GameIni() { return Narrow(g_gameDir + L"sacoop.ini"); }

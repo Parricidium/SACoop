@@ -24,6 +24,7 @@
 #include "population.h"
 #include "passenger.h"
 #include "script.h"
+#include "police.h"
 #include <math.h>
 #include <string.h>
 
@@ -129,6 +130,7 @@ static void SendLocalState()
         CombatFillState(s);
         float alpha = *(float *)(0xB6F028 + 0xBFC);
         s.fade = (uint8_t)(alpha < 0 ? 0 : alpha > 255 ? 255 : alpha);
+        s.wanted = (uint8_t)WantedLevel();
         if (void *veh = PedVehicle(ped)) {
             bool driver = Field<void *>(veh, VEH_DRIVER) == ped;
             s.seat = 0;
@@ -573,6 +575,42 @@ static void Autotest()
         }
         return;
     }
+    // "police" (invite) : pose a 6 m de l'hote, puis recherche 2 a 30 s : la police de l'hote doit venir le chercher
+    // (police.cpp) et ses coups arriver ici. Vie remise a 100 toutes les 10 s pour durer.
+    if (_stricmp(g_cfg.autotest, "police") == 0 && g_players[0].connected && g_players[0].state.inGame) {
+        static bool placed, wanted;
+        static uint32_t lastHeal;
+        void *ped = FindPlayerPed();
+        if (!placed && t > 26000) {
+            placed = true;
+            float pos[3] = { g_players[0].state.pos[0] + 6.0f, g_players[0].state.pos[1], g_players[0].state.pos[2] };
+            PlacePuppet(ped, pos, 1.5708f);
+            Log("autotest : place a 6 m de l'hote");
+        }
+        if (!wanted && t > 30000) {
+            wanted = true;
+            int a[2] = { 0, 2 };
+            RunScriptCommand(0x010D, 2, a);
+            Log("autotest : recherche %d", WantedLevel());
+        }
+        if (wanted && t - lastHeal > 10000) {
+            lastHeal = t;
+            Log("autotest : vie %.0f, recherche %d", Field<float>(ped, PED_HEALTH), WantedLevel());
+            if (Field<float>(ped, PED_HEALTH) > 0.0f) Field<float>(ped, PED_HEALTH) = 100.0f;
+        }
+        return;
+    }
+    // "rue" (hote) : se pose une fois dans Grove Street (impasse ouverte : les voitures de police y arrivent).
+    if (_stricmp(g_cfg.autotest, "rue") == 0) {
+        static bool placed;
+        if (!placed) {
+            placed = true;
+            float pos[3] = { 2495.0f, -1668.0f, 13.34f };
+            PlacePuppet(FindPlayerPed(), pos, 0.0f);
+            Log("autotest : pose dans Grove Street");
+        }
+        return;
+    }
     // "pnj" (hote) : un personnage de mission (Big Smoke, modele special 290 "SMOKE") pose a 4 m, qui fait des
     // allers-retours dans la ruelle, avec un pistolet ; tue a 60 s s'il vit encore (sa copie doit tomber chez l'invite).
     if (_stricmp(g_cfg.autotest, "pnj") == 0) {
@@ -873,6 +911,7 @@ void CoopFrame(bool inGameLoop)
     MirrorFrame();
     ConditionsFrame();
     PopulationFrame();
+    PoliceFrame();
     PassengerFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }

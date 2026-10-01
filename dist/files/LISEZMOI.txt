@@ -13,6 +13,8 @@ Ce qui marche deja
   vehicules de mission, et peuvent faire avancer la mission. Progression,
   argent des missions et sauvegarde de l'hote partages.
 - Meme heure, meme meteo, memes passants et circulation pres de l'hote.
+- Police : un seul niveau de recherche pour tous, et la police de l'hote
+  poursuit aussi les invites recherches (RecherchePartagee, PoliceHote).
 
 Touches
 - G : monter en passager dans la voiture d'un autre joueur (F aussi).
