@@ -3,7 +3,7 @@
 //  - chez lui : plus de population locale (CPopulation::PedDensityMultiplier 0x8D2530 et CCarCtrl::CarDensityMultiplier
 //    0x8A5B20 a 0, generateurs de voitures garees sautes : appel de CTheCarGenerators::Process en 0x53C06A), et les
 //    passants / vehicules locaux deja la sont retires des qu'ils ne sont plus a l'ecran (ou a plus de 60 m), sauf sa
-//    police (un invite recherche garde la sienne) ;
+//    police quand celle de l'hote ne s'occupe pas de lui (PoliceHote=0 : un invite recherche garde la sienne) ;
 //  - chez l'hote : ses passants et vehicules ordinaires a moins de 150 m d'un invite partage lui sont envoyes
 //    (entities.cpp : MSG_PED marque PF_AMBIENT ; vehicles.cpp : vehicules reseau de l'hote), et ses copies les suivent.
 // Loin de l'hote, chacun garde sa propre population.
@@ -15,6 +15,7 @@
 #include "entities.h"
 #include "vehicles.h"
 #include "population.h"
+#include "police.h"
 #include <math.h>
 #include <string.h>
 
@@ -79,7 +80,7 @@ static void RemoveLocalPopulation()
         if (peds->flags[i] & 0x80) continue;
         void *ped = peds->objects + i * 0x7C4;
         if (ped == me || Field<uint8_t>(ped, 0x484) != 1 || PedVehicle(ped)) continue;   // passant ordinaire a pied
-        if (Field<int>(ped, 0x598) == 6) continue;   // policier (PEDTYPE_COP) : la police de l'invite recherche reste la sienne
+        if (Field<int>(ped, 0x598) == 6 && !HostPoliceOnGuests()) continue;   // policier (PEDTYPE_COP) : la police de l'invite recherche reste la sienne
         if (OnScreen(ped) && Dist2(EntityPos(ped), mp) < 60.0f * 60.0f) continue;
         ((void(__cdecl *)(void *))0x610F20)(ped);   // CPopulation::RemovePed
     }
@@ -89,7 +90,7 @@ static void RemoveLocalPopulation()
         if (veh->flags[i] & 0x80) continue;
         uint8_t *v = veh->objects + i * 0xA18;
         if (v == mine || (v[0x4A4] != 1 && v[0x4A4] != 3)) continue;   // aleatoire ou garee
-        if (v[0x428] & 1) continue;   // vehicule des forces de l'ordre (bIsLawEnforcer) : idem
+        if ((v[0x428] & 1) && !HostPoliceOnGuests()) continue;   // vehicule des forces de l'ordre (bIsLawEnforcer) : idem
         if (OnScreen(v) && Dist2(EntityPos(v), mp) < 60.0f * 60.0f) continue;
         bool playerInside = false;
         void *drv = Field<void *>(v, VEH_DRIVER);
@@ -105,20 +106,13 @@ static void RemoveLocalPopulation()
     }
 }
 
-// Niveau de recherche du joueur local : CWorld::Players[0].m_PlayerData.m_pWanted (0xB7CD9C), CWanted +0x2C.
-static int WantedLevel()
-{
-    uint8_t *w = *(uint8_t **)0xB7CD9C;
-    int lvl = w ? *(int *)(w + 0x2C) : 0;
-    return lvl >= 0 && lvl <= 6 ? lvl : 0;
-}
-
 static void GuestFrame()
 {
     float &ped = *(float *)0x8D2530, &car = *(float *)0x8A5B20;
-    // Recherche : la police de l'hote ne poursuit que lui ; l'invite recherche garde la generation de son jeu (elle
-    // amene sa police), le reste de sa population locale est retire comme d'habitude.
-    bool shared = PopulationShared(), quiet = shared && WantedLevel() == 0;
+    // Recherche : avec PoliceHote, la police de l'hote vient aussi pour l'invite (police.cpp) : rien de local. Sans,
+    // l'invite recherche garde la generation de son jeu (elle amene sa police), le reste de sa population locale est
+    // retire comme d'habitude.
+    bool shared = PopulationShared(), quiet = shared && (WantedLevel() == 0 || HostPoliceOnGuests());
     if (quiet != g_wasShared) {
         g_wasShared = quiet;
         if (quiet) { g_savedPed = ped; g_savedCar = car; }

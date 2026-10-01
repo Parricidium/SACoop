@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 9, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 10, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -54,6 +54,7 @@ struct MsgState {
     uint8_t carDoor;
     uint32_t carTaskVeh;// vehicule reseau de cette montee / descente
     uint8_t fade;       // niveau de fondu de l'ecran (CCamera +0xBFC, 0 clair - 255 noir)
+    uint8_t wanted;     // niveau de recherche de la police (0-6)
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };
