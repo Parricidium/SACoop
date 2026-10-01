@@ -1,5 +1,7 @@
 // Tchat. T ouvre la saisie (en partie, hors menu), Entree envoie, Echap annule. Pendant la saisie, les touches vont au
 // tchat (WM_KEYDOWN / WM_KEYUP / WM_CHAR avales dans la procedure de fenetre, window.cpp) : CJ ne bouge pas.
+// Commandes (texte commencant par "/", jamais envoye) : /rejoindre (/tp, /join) pose le joueur pres de l'hote, ou
+// directement en passager s'il conduit avec une place libre ; /aide (/help) les rappelle.
 // Les messages passent par le flux fiable (RL_CHAT) : un invite envoie a l'hote, qui l'affiche et le relaie aux
 // autres invites. Affichage : les 8 derniers messages a gauche de l'ecran, 15 s chacun ; la ligne de saisie dessous.
 #include "util.h"
@@ -7,6 +9,9 @@
 #include "net.h"
 #include "game.h"
 #include "chat.h"
+#include "peds.h"
+#include "hud.h"
+#include <math.h>
 #include <string.h>
 
 enum : uint8_t { RL_CHAT = 20 };
@@ -38,8 +43,43 @@ static const char *PlayerName(int id)
     return id >= 0 && id < MAX_PLAYERS && g_players[id].state.name[0] ? g_players[id].state.name : "?";
 }
 
+static bool g_fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+
+// /rejoindre : pres de l'hote (2 m derriere lui), ou passager de sa voiture s'il y a une place.
+static void JoinHost()
+{
+    using namespace game;
+    void *me = FindPlayerPed(), *host = PuppetOf(0);
+    if (g_cfg.host || !me || !host) { HudToast(g_fr ? "Rien a rejoindre" : "Nothing to join", 3000); return; }
+    if (PedVehicle(me)) { HudToast(g_fr ? "Descendez d'abord du vehicule" : "Get out of the vehicle first", 3000); return; }
+    if (void *veh = PedVehicle(host)) {
+        int maxPass = Field<uint8_t>(veh, VEH_MAXPASS);
+        for (int i = 0; i < maxPass && i < 8; i++)
+            if (!Field<void *>(veh, VEH_PASSENGERS + i * 4)) {
+                WarpPuppetIn(me, veh, i + 1);
+                HudToast(g_fr ? "Passager de l'hote" : "Riding with the host", 3000);
+                return;
+            }
+    }
+    const float *hp = EntityPos(host);
+    float h = Field<float>(host, PED_ROTATION);
+    float pos[3] = { hp[0] + sinf(h) * 2.0f, hp[1] - cosf(h) * 2.0f, hp[2] };
+    EntityArea(me) = EntityArea(host);
+    PlacePuppet(me, pos, h);
+    HudToast(g_fr ? "Pres de l'hote" : "Next to the host", 3000);
+}
+
+static bool Command(const char *text)
+{
+    if (text[0] != '/') return false;
+    if (!lstrcmpiA(text, "/rejoindre") || !lstrcmpiA(text, "/tp") || !lstrcmpiA(text, "/join")) JoinHost();
+    else HudToast(g_fr ? "Commandes : /rejoindre (pres de l'hote)" : "Commands: /join (next to the host)", 5000);
+    return true;
+}
+
 static void Send(const char *text)
 {
+    if (Command(text)) return;
     uint8_t buf[2 + MAX_TEXT + 1];
     buf[0] = RL_CHAT;
     buf[1] = (uint8_t)(g_localId < 0 ? 0 : g_localId);
