@@ -86,7 +86,7 @@ bool ThumbGet(int kind, const char *model, float uv[4], float *aspect)
         g_asked[key] = true;
         std::string lower = model;
         for (auto &c : lower) c = (char)tolower((unsigned char)c);
-        g_queue.push_back({ key, lower, kind });
+        g_queue.push_front({ key, lower, kind });   // (la page regardee en dernier d'abord)
         SetEvent(g_wake);
     }
     return false;

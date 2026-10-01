@@ -18,6 +18,7 @@
 #include "combat.h"
 #include "ui.h"
 #include "thumbs.h"
+#include "../launcher/skins.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -332,30 +333,82 @@ static void ToolsTab(float x0, float y0, float x1, float y1)
            L("Armes : Desert Eagle, fusil \xE0" " pompe, MP5, M4, fusil de pr\xE9" "cision, grenades.", "Weapons: Desert Eagle, shotgun, MP5, M4, sniper rifle, grenades."));
 }
 
-static const int kSkinIds[] = { 0, 105, 106, 107, 102, 103, 104, 108, 109, 110, 114, 115, 116 };
-static const char *const kSkinModels[] = { "player", "fam1", "fam2", "fam3", "ballas1", "ballas2", "ballas3", "lsv1", "lsv2", "lsv3", "vla1", "vla2", "vla3" };
-static const char *const kSkinNames[] = { "CJ", "Grove 1", "Grove 2", "Grove 3", "Ballas 1", "Ballas 2", "Ballas 3", "Vagos 1", "Vagos 2", "Vagos 3", "Aztecas 1", "Aztecas 2", "Aztecas 3" };
+// Tenues : CJ puis tous les pietons de data\peds.ide (ordre et noms : launcher\skins.h, comme le lanceur).
+struct SkinEntry { int id; std::string model, name; };
+static std::vector<SkinEntry> g_skinList;
+static float g_skinScroll = -1;
+static void LoadSkinList()
+{
+    static bool done;
+    if (done) return;
+    done = true;
+    std::vector<int> ids = { 0 };
+    std::vector<std::string> models(300);
+    char path[MAX_PATH];
+    wsprintfA(path, "%sdata\\peds.ide", GameDir());
+    if (FILE *f = fopen(path, "r")) {
+        char line[512];
+        bool in = false;
+        while (fgets(line, sizeof(line), f)) {
+            char *p = line;
+            while (*p == ' ' || *p == '\t') p++;
+            if (!in) { if (!_strnicmp(p, "peds", 4)) in = true; continue; }
+            if (!_strnicmp(p, "end", 3)) break;
+            if (*p < '0' || *p > '9') continue;
+            int id = atoi(p);
+            char *c = strchr(p, ',');
+            if (!c || id < 1 || id > 288) continue;
+            c++;
+            while (*c == ' ' || *c == '\t') c++;
+            char name[32] = {};
+            int n = 0;
+            while (*c && *c != ',' && *c != ' ' && *c != '\t' && n < 31) name[n++] = (char)tolower((unsigned char)*c++);
+            if (!n) continue;
+            models[id] = name;
+            ids.push_back(id);
+        }
+        fclose(f);
+    }
+    SkinSort(ids);
+    for (int id : ids) g_skinList.push_back({ id, id ? models[id] : std::string("player"), SkinLabel(id, id ? models[id] : std::string()) });
+    Log("menu jeu : %d tenues", (int)g_skinList.size());
+}
 
 static void OutfitTab(float x0, float y0, float x1, float y1)
 {
+    LoadSkinList();
     float k = K();
-    UiText(x0, y0, 12.5f * k, C_GREY, UI_LEFT, L("Ce que les autres joueurs voient (CJ : avec vos v\xEA" "tements, magasins compris).",
-                                                  "What the other players see (CJ: with your clothes, shops included)."));
-    const int cols = 7;
-    float cw = (x1 - x0 - (cols - 1) * 8 * k) / cols, ch = cw * 1.25f, y = y0 + 24 * k;
-    for (int i = 0; i < 13; i++) {
+    UiText(x0, y0, 12.5f * k, C_GREY, UI_LEFT, L("Ce que les autres joueurs voient (CJ : avec vos v\xEA" "tements, magasins compris). Molette : d\xE9" "filer.",
+                                                  "What the other players see (CJ: with your clothes, shops included). Wheel: scroll."));
+    const int cols = 9, rows = 3, per = cols * rows;
+    int total = (int)g_skinList.size(), pages = (total + per - 1) / per;
+    if (g_skinScroll < 0) {   // a l'ouverture : la page de la tenue portee
+        g_skinScroll = 0;
+        for (int i = 0; i < total; i++) if (g_skinList[i].id == g_cfg.skin) g_skinScroll = (float)(i / per);
+    }
+    if (Hover(x0, y0, x1, y1) && g_wheel) { g_skinScroll += g_wheel; g_wheel = 0; }
+    if (g_skinScroll > pages - 1) g_skinScroll = (float)(pages - 1);
+    if (g_skinScroll < 0) g_skinScroll = 0;
+    int first = (int)g_skinScroll * per;
+    float cw = (x1 - x0 - (cols - 1) * 8 * k) / cols, y = y0 + 24 * k;
+    float ch = (y1 - y - 22 * k - (rows - 1) * 8 * k) / rows;
+    for (int i = 0; i < per && first + i < total; i++) {
+        const SkinEntry &e = g_skinList[first + i];
         float cx0 = x0 + (i % cols) * (cw + 8 * k), cy0 = y + (i / cols) * (ch + 8 * k), cx1 = cx0 + cw, cy1 = cy0 + ch;
-        bool sel = g_cfg.skin == kSkinIds[i], hot = Hover(cx0, cy0, cx1, cy1);
+        bool sel = g_cfg.skin == e.id, hot = Hover(cx0, cy0, cx1, cy1);
         UiRect(cx0, cy0, cx1, cy1, 10 * k, sel ? 0xFFFFFF30 : 0xFFFFFF10, 0xFFFFFF08, sel ? 0xFFFFFFFF : hot ? 0xFFFFFF90 : 0xFFFFFF20, sel ? 2.2f * k : 1 * k);
         float uv[4], aspect = 0.66f;
-        if (ThumbGet(THUMB_PED, kSkinModels[i], uv, &aspect)) {
-            float ih = ch - 24 * k, iw = ih * aspect;
+        if (ThumbGet(THUMB_PED, e.model.c_str(), uv, &aspect)) {
+            float ih = ch - 22 * k, iw = ih * aspect;
             if (iw > cw - 6 * k) { iw = cw - 6 * k; ih = iw / aspect; }
-            UiImage((cx0 + cx1) * 0.5f - iw * 0.5f, cy0 + 4 * k, (cx0 + cx1) * 0.5f + iw * 0.5f, cy0 + 4 * k + ih, uv);
+            UiImage((cx0 + cx1) * 0.5f - iw * 0.5f, cy0 + 3 * k, (cx0 + cx1) * 0.5f + iw * 0.5f, cy0 + 3 * k + ih, uv);
         }
-        UiText((cx0 + cx1) * 0.5f, cy1 - 19 * k, 12 * k, C_INK, UI_CENTER, kSkinNames[i], true);
-        if (hot && g_click) { g_click = false; Queue(A_SKIN, kSkinIds[i]); }
+        UiText((cx0 + cx1) * 0.5f, cy1 - 17 * k, 10.5f * k, C_INK, UI_CENTER, e.name.c_str(), true);
+        if (hot && g_click) { g_click = false; Queue(A_SKIN, e.id); }
     }
+    char pg[32];
+    sprintf(pg, "%d / %d", (int)g_skinScroll + 1, pages);
+    UiText(x1, y1 - 16 * k, 12 * k, C_GREY, UI_RIGHT, pg);
 }
 
 // Reglages graphiques du jeu d'origine (gfx.cpp), pour chaque joueur, appliques tout de suite.

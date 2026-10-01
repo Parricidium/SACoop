@@ -559,6 +559,23 @@ bool ImgOpen(const std::wstring &gameDir)
 
 std::string PedModelName(int id) { return id >= 0 && id < (int)g_pedNames.size() ? g_pedNames[id] : ""; }
 
+bool ModelExists(const std::string &name)
+{
+    std::string n = Lower(name);
+    auto has = [&](const std::string &f) { return g_mods.count(f) || g_img.count(f) || g_playerImg.count(f); };
+    return has(n + ".dff") && has(n + ".txd");
+}
+
+// Pietons de peds.ide (1 a 288) dont le modele et les textures sont dans le jeu (ou ses mods).
+std::vector<int> PedIds()
+{
+    std::vector<int> out;
+    for (int id = 1; id <= 288 && id < (int)g_pedNames.size(); id++)
+        if (!g_pedNames[id].empty() && ModelExists(g_pedNames[id])) out.push_back(id);
+    return out;
+}
+
+
 static bool g_lowerArms = true;   // bras baisses ; pas pour les vetements de CJ, deja bras le long du corps
 static Model3D *ModelFromData(const std::vector<uint8_t> &dff, const std::vector<uint8_t> &txd, const std::string &modelName)
 {
