@@ -424,7 +424,7 @@ static std::vector<Note> g_notes;
 static volatile bool g_notesDone;
 static float g_notesH;
 
-// Markdown simple : titres, gras et code retires ; puces "- " -> "•".
+// Markdown simple : titres, gras et code retires ; puces "- " -> "\u2022".
 static std::wstring CleanNote(const std::wstring &s)
 {
     std::wstring o;
@@ -816,6 +816,9 @@ static void BuildOptions()
     C(TAB_VIDEO, "ImagesParSeconde", 30, { 25, 30, 45, 60 }, L"Images par seconde", L"Frame rate", {}, {}, L" i/s",
       L"30 = jeu d'origine (conseill\u00E9). Au-dessus, le jeu d'origine a des bogues de physique connus.",
       L"30 = original game (recommended). Above it, the original game has known physics bugs.");
+    T2(TAB_VIDEO, "GrandEcran", 1, L"Grand \u00E9cran", L"Widescreen",
+       L"La 3D garde ses proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi (choisir la r\u00E9solution de l'\u00E9cran dans les options du jeu).",
+       L"3D keeps its proportions on wide screens, with a wider field of view (pick your screen's resolution in the game options).");
     T2(TAB_VIDEO, "SansIntro", 1, L"Passer les logos", L"Skip logos", L"Pas de logos ni de vid\u00E9o d'ouverture au d\u00E9marrage.", L"No logos or intro video at startup.");
     T2(TAB_VIDEO, "SauvegardesLocales", 1, L"Sauvegardes \u00E0 part", L"Separate saves",
        L"R\u00E9glages et sauvegardes du jeu dans son dossier, s\u00E9par\u00E9s de vos sauvegardes solo.",
