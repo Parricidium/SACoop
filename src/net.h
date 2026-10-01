@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 13, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 14, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -58,6 +58,7 @@ struct MsgState {
     uint8_t wanted;     // niveau de recherche de la police (0-6)
     uint8_t meleeSeq;   // compteur de coups au corps a corps (chaque nouveau coup est rejoue par le pantin)
     uint8_t meleeAnim;  // animation du dernier coup (coop.cpp, kMeleeAnims)
+    uint8_t aiming;     // vise avec une arme a feu (CTaskSimpleUseGun, type 1017, tache secondaire 0) ; aim = point vise
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };

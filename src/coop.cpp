@@ -168,6 +168,17 @@ static void SendLocalState()
         if (!PedVehicle(ped)) WatchMelee(ped);
         s.meleeSeq = g_meleeSeq;
         s.meleeAnim = g_meleeAnim;
+        // Visee (tache secondaire d'attaque = CTaskSimpleUseGun, type 1017, mesure 01/10) : point vise = 40 m devant la
+        // camera (cadre de la camera RenderWare de la scene, 0xC1703C : at +0x70, position +0x80 de sa matrice LTM).
+        void *sec = PrimaryTasks(ped)[5];
+        if (!PedVehicle(ped) && sec && ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) == 1017) {
+            s.aiming = 1;
+            if (void *cam = *(void **)0xC1703C)
+                if (uint8_t *fr = *(uint8_t **)((uint8_t *)cam + 4)) {
+                    const float *at = (const float *)(fr + 0x70), *cp = (const float *)(fr + 0x80);
+                    for (int k = 0; k < 3; k++) s.aim[k] = cp[k] + at[k] * 40.0f;
+                }
+        }
         if (void *veh = PedVehicle(ped)) {
             bool driver = Field<void *>(veh, VEH_DRIVER) == ped;
             s.seat = 0;
@@ -368,6 +379,7 @@ static void CreatePuppet(int id, const MsgState &s)
     void *ped = NewCivilianPed(2, model);   // PEDTYPE_PLAYER_NETWORK : les relations envers le joueur s'y appliquent (npc.cpp)
     if (!ped) { Log("pantin du joueur %d : pool des personnages plein", id); return; }
     SetCharCreatedBy(ped, 2);
+    ((void(__thiscall *)(void *, short))0x5EFF60)(ped, 1);   // CPed::DisablePedSpeech (094E) : pas de repliques de PNJ
     EntityArea(ped) = s.area;
     memcpy(EntityPos(ped), s.pos, sizeof(s.pos));
     SetHeading(ped, s.heading);
@@ -500,6 +512,33 @@ static void UpdatePuppet(int id)
         }
     }
     if ((int)(p.meleeUntil - GetTickCount()) > 0) return;
+    // Visee de son joueur : le pantin leve son arme vers le point vise (CTaskSimpleUseGun en tache secondaire 0, ordre
+    // AIM ; ctor 0x61DE60 (cible, point, ordre, rafale, tout de suite), point en +0x20, mis a jour a chaque image).
+    {
+        void **tm = PrimaryTasks(ped);
+        void *sec = tm[5];
+        bool has = sec && ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) == 1017;
+        bool want = s.aiming && s.weapon >= 22 && s.weapon <= 38;
+        if (want && !has) {
+            if (void *mem = ((void *(__cdecl *)(unsigned))0x61A5A0)(0x3C)) {
+                void *task = ((void *(__thiscall *)(void *, void *, float, float, float, int, int, int))0x61DE60)(mem, nullptr, s.aim[0], s.aim[1], s.aim[2], 1, 1, 1);
+                ((void(__thiscall *)(void *, void *, int))0x681B60)(tm, task, 0);   // CTaskManager::SetTaskSecondary
+                static int said;
+                if (said < 10) { said++; Log("pantin du joueur %d : vise (%.1f %.1f %.1f)", id, s.aim[0], s.aim[1], s.aim[2]); }
+            }
+        } else if (want && has) {
+            memcpy((uint8_t *)sec + 0x20, s.aim, 12);
+            ((bool(__thiscall *)(void *, void *, void *, int))0x61E040)(sec, ped, nullptr, 1);   // ControlGun : ordre AIM de l'image (sinon la tache retombe)
+        } else if (!want && has) {
+            ((void(__thiscall *)(void *, void *, int))0x681B60)(tm, nullptr, 0);
+        }
+        if (want) {
+            const float *pp = EntityPos(ped);
+            float h = atan2f(-(s.aim[0] - pp[0]), s.aim[1] - pp[1]);
+            Field<float>(ped, PED_ROTATION) = h;
+            Field<float>(ped, PED_AIMROT) = h;
+        }
+    }
 
     if (FollowOnFoot(ped, s.pos, s.speed, s.heading, s.moveState, GetTickCount() - np.lastStateAt, p.moveState)) p.lastTask = GetTickCount();
 }
@@ -516,7 +555,7 @@ bool FollowOnFoot(void *ped, const float *rpos, const float *rspeed, float headi
     float *pos = EntityPos(ped);
     float dx = target[0] - pos[0], dy = target[1] - pos[1], dz = target[2] - pos[2];
     float d2 = dx * dx + dy * dy, dist = sqrtf(d2);
-    if (dist > 4.0f || fabsf(dz) > 3.0f) {   // trop loin : replace d'un coup
+    if (dist > 10.0f || fabsf(dz) > 3.0f) {   // trop loin : replace d'un coup
         PlacePuppet(ped, rpos, heading);
         SetPrimaryTask(ped, nullptr, 3);
         moveState = 0;
@@ -529,6 +568,13 @@ bool FollowOnFoot(void *ped, const float *rpos, const float *rspeed, float headi
         return false;
     }
     if (move == MOVE_STILL) move = MOVE_WALK;   // petit rattrapage a pied
+    // Rattrapage continu au-dela de 1,2 m : un pantin a la tenue de PNJ court moins vite que CJ, il se laissait distancer
+    // puis etait replace d'un coup (sauts de 5 m filmes par JD, 01/10). Il glisse vers sa place a chaque image.
+    if (dist > 1.2f) {
+        float step = (dist - 1.0f) * 0.12f;
+        pos[0] += dx / dist * step;
+        pos[1] += dy / dist * step;
+    }
     // Cible : devant le joueur, pour que le pantin ne s'arrete pas entre deux messages.
     CVector goal = { target[0], target[1], target[2] };
     if (dist > 0.01f) { goal.x = target[0] + dx / dist * 1.0f; goal.y = target[1] + dy / dist * 1.0f; }
@@ -947,6 +993,34 @@ static void Autotest()
         joy[0x22 / 2] = ((t > 30000 && t < 30200) || (t > 32000 && t < 32200) || (t > 34000 && t < 34200)) ? 255 : 0;
         static int said;
         if (t > 30000 && !said) { said = 1; Log("autotest : coups de poing"); }
+        return;
+    }
+    // "vise" (diagnostic) : pistolet, vise (R1) de 30 a 40 s, tire (Rond) a 34-36 s ; types des taches du joueur.
+    if (_stricmp(g_cfg.autotest, "vise") == 0) {
+        static bool armed;
+        static uint32_t lastLog;
+        void *ped = FindPlayerPed();
+        if (!armed) {   // (face a l'invite place par "regarde" dans la ruelle de Ganton)
+            armed = true; int w = -1; EnsurePedWeapon(ped, 22, w);
+            float pos[3] = { 2238.0f, -1259.0f, 23.9f };
+            PlacePuppet(ped, pos, 1.5708f);
+            ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);
+            return;
+        }
+        joy[0xC / 2] = t > 30000 && t < 40000 ? 255 : 0;
+        joy[0x22 / 2] = ((t > 34000 && t < 34150) || (t > 35000 && t < 35150)) ? 255 : 0;
+        if (t > 28000 && t < 42000 && t - lastLog > 1000) {
+            lastLog = t;
+            char buf[200] = "";
+            void **tk = PrimaryTasks(ped);
+            for (int k = 0; k < 11; k++)
+                for (void *task = tk[k]; task; task = ((void *(__thiscall *)(void *))(*(void ***)task)[2])(task)) {
+                    char one[16];
+                    wsprintfA(one, "%d:%d ", k, ((int(__thiscall *)(void *))(*(void ***)task)[4])(task));
+                    if (lstrlenA(buf) < 180) lstrcatA(buf, one);
+                }
+            Log("autotest : taches du joueur (%s) : %s", t > 30000 && t < 40000 ? "vise" : "repos", buf);
+        }
         return;
     }
     if (_stricmp(g_cfg.autotest, "tireinv") == 0) {

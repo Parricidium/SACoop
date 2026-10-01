@@ -200,11 +200,18 @@ static void HostPoliceChasesGuests()
 enum : uint8_t { RL_EJECT = 21 };
 static void HostEjections()
 {
-    static uint32_t lastSent[MAX_PLAYERS];
+    static uint32_t lastSent[MAX_PLAYERS], inSince[MAX_PLAYERS], lastIn[MAX_PLAYERS];
     uint32_t now = GetTickCount();
     for (int p = 1; p < MAX_PLAYERS; p++) {
         void *pup = PuppetOf(p);
-        if (!pup || !PlayerUp(p) || !g_players[p].state.vehicleId || PedVehicle(pup) || now - lastSent[p] < 3000) continue;
+        if (!pup) continue;
+        // Le pantin doit avoir ete assis (au moins 1 s) puis en etre sorti il y a moins de 1,5 s : sinon un joueur qui
+        // montait dans une voiture pres d'un policier etait "ejecte" pendant que son pantin ouvrait encore la portiere
+        // (le joueur 2 ne pouvait plus monter dans aucune voiture pendant une poursuite, 01/10).
+        if (PedVehicle(pup)) { if (!inSince[p]) inSince[p] = now; lastIn[p] = now; continue; }
+        bool wasSeated = inSince[p] && lastIn[p] - inSince[p] > 1000 && now - lastIn[p] < 1500;
+        if (now - lastIn[p] > 1500) inSince[p] = 0;
+        if (!wasSeated || !PlayerUp(p) || !g_players[p].state.vehicleId || now - lastSent[p] < 3000) continue;
         Pool *pool = *(Pool **)0xB74490;
         bool cop = false;
         for (int i = 0; i < pool->size && !cop; i++) {
@@ -224,7 +231,10 @@ bool PoliceReliable(const uint8_t *d, int len)
 {
     if (len < 1 || d[0] != RL_EJECT) return false;
     void *me = FindPlayerPed();
-    if (me && PedVehicle(me)) {
+    void *veh = me ? PedVehicle(me) : nullptr;
+    const float *spd = veh ? (const float *)((uint8_t *)veh + 0x44) : nullptr;
+    if (veh && spd[0] * spd[0] + spd[1] * spd[1] > 0.08f * 0.08f) { Log("police : ejection ignoree (vehicule en mouvement)"); return true; }
+    if (me && veh) {
         int ref = PedRef(me);
         RunScriptCommand(0x0633, 1, &ref);   // TASK_LEAVE_ANY_CAR
         Log("police : sorti du vehicule par un policier de l'hote");
