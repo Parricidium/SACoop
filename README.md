@@ -90,6 +90,8 @@ ready).
   mission gets its markers and texts. **Shared save**: when the host saves, the save goes to every player's same slot. Side activities stay local to each player.
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
+- **Shared mods**: put car, weapon or character mods (`.dff`, `.txd`, handling lines...) in `SACoop\mods`; the host
+  sends them to the guests in the launcher lobby, and everybody plays with the host's mods.
 - **COOP menu in the game** (main and pause menus): host, join an address, change your name, see the session.
 - **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send; `/join` brings you back next to the host). **F5** (held): players board (name, health, distance). **F6**: first-person view on foot. **F10**: co-op panel (go to a player, friendly fire,
   outfit, and time / weather for the host).
@@ -191,6 +193,8 @@ quand un joueur arrive, part ou se met prêt).
   chaque joueur, au même emplacement. Les activités annexes restent locales à chacun.
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
+- **Mods partagés** : posez vos mods de voitures, d'armes ou de personnages (`.dff`, `.txd`, lignes de handling...)
+  dans `SACoop\mods` ; l'hôte les envoie aux invités dans le salon du lanceur, et tout le monde joue avec ses mods.
 - **Menu COOP dans le jeu** (menus principal et pause) : héberger, rejoindre une adresse, changer de pseudo, voir la
   session.
 - **G** : monter en passager dans la voiture d'un autre joueur (F aussi). **T** : tchat (Entrée pour envoyer ; `/rejoindre` vous ramène près de l'hôte). **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance). **F6** : vue à la première personne à pied. **F10** : panneau coop (aller vers un
