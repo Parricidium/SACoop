@@ -11,6 +11,7 @@
 #include "chat.h"
 #include "peds.h"
 #include "hud.h"
+#include "panel.h"
 #include <math.h>
 #include <string.h>
 
@@ -45,34 +46,10 @@ static const char *PlayerName(int id)
 
 static bool g_fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
 
-// /rejoindre : pres de l'hote (2 m derriere lui), ou passager de sa voiture s'il y a une place.
-static void JoinHost()
-{
-    using namespace game;
-    void *me = FindPlayerPed(), *host = PuppetOf(0);
-    if (g_cfg.host || !me || !host) { HudToast(g_fr ? "Rien a rejoindre" : "Nothing to join", 3000); return; }
-    if (PedVehicle(me)) { HudToast(g_fr ? "Descendez d'abord du vehicule" : "Get out of the vehicle first", 3000); return; }
-    if (void *veh = PedVehicle(host)) {
-        int maxPass = Field<uint8_t>(veh, VEH_MAXPASS);
-        for (int i = 0; i < maxPass && i < 8; i++)
-            if (!Field<void *>(veh, VEH_PASSENGERS + i * 4)) {
-                WarpPuppetIn(me, veh, i + 1);
-                HudToast(g_fr ? "Passager de l'hote" : "Riding with the host", 3000);
-                return;
-            }
-    }
-    const float *hp = EntityPos(host);
-    float h = Field<float>(host, PED_ROTATION);
-    float pos[3] = { hp[0] + sinf(h) * 2.0f, hp[1] - cosf(h) * 2.0f, hp[2] };
-    EntityArea(me) = EntityArea(host);
-    PlacePuppet(me, pos, h);
-    HudToast(g_fr ? "Pres de l'hote" : "Next to the host", 3000);
-}
-
 static bool Command(const char *text)
 {
     if (text[0] != '/') return false;
-    if (!lstrcmpiA(text, "/rejoindre") || !lstrcmpiA(text, "/tp") || !lstrcmpiA(text, "/join")) JoinHost();
+    if (!lstrcmpiA(text, "/rejoindre") || !lstrcmpiA(text, "/tp") || !lstrcmpiA(text, "/join")) { if (g_cfg.host) HudToast(g_fr ? "Rien a rejoindre" : "Nothing to join", 3000); else GoToPlayer(0); }
     else HudToast(g_fr ? "Commandes : /rejoindre (pres de l'hote)" : "Commands: /join (next to the host)", 5000);
     return true;
 }
