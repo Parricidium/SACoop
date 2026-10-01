@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 7, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 8, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -21,6 +21,7 @@ enum MsgType : uint8_t {
     MSG_DAMAGE,      // coup porte par un joueur a un autre (combat.cpp) ; relaye par l'hote
     MSG_PED,         // hote -> invites : un personnage de mission (entities.cpp)
     MSG_PEDHIT,      // invite -> hote : coup porte a un personnage de mission
+    MSG_MARKER,      // hote -> invites : commande LOCATE / IS_CHAR_IN_AREA a marqueur (conditions.cpp)
 };
 
 #pragma pack(push, 1)
@@ -88,6 +89,8 @@ struct MsgPed {
 };
 enum { PF_DEAD = 1 };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
+// Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).
+struct MsgMarker { uint8_t type, n; uint16_t op; int vals[8]; };
 struct MsgWorld {
     uint8_t type;
     uint8_t hours, minutes;
@@ -128,4 +131,5 @@ extern void (*g_onVehicle)(const MsgVehicle &v);   // etat d'un vehicule d'un au
 extern void (*g_onDamage)(const MsgDamage &d);     // coup porte par un joueur a un autre
 extern void (*g_onPed)(const MsgPed &p);           // invite : personnage de mission de l'hote
 extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite sur un personnage de mission
+extern void (*g_onMarker)(const MsgMarker &m);     // invite : marqueur de zone de l'hote
 

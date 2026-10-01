@@ -356,6 +356,27 @@ static void RestoreScreen()
     }
 }
 
+// Valeurs des n premiers parametres d'une commande (ip juste apres l'opcode), sans avancer le script.
+bool ScriptReadValues(void *script, uint8_t *ip, int n, int *vals)
+{
+    Param p;
+    for (int k = 0; k < n; k++) {
+        if (!ReadParam(script, ip, p)) return false;
+        vals[k] = p.value;
+    }
+    return true;
+}
+
+// Execute une commande dans le script fantome ; types[k] : 'i' entier, 'f' reel.
+void RunScriptCommandTyped(int op, int nargs, const char *types, const int *args)
+{
+    memcpy(g_script + 8, "sacoop", 7);
+    int c = 2;
+    *(uint16_t *)g_code = (uint16_t)op;
+    for (int k = 0; k < nargs; k++) { g_code[c++] = types[k] == 'f' ? 6 : 1; memcpy(g_code + c, &args[k], 4); c += 4; }
+    ExecCommand(op);
+}
+
 // Execute une commande a parametres entiers dans le script fantome (autotests, retablissement de l'ecran).
 void RunScriptCommand(int op, int nargs, const int *args)
 {

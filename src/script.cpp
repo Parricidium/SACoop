@@ -12,6 +12,7 @@
 #include "net.h"
 #include "script.h"
 #include "mirror.h"
+#include "conditions.h"
 #include <string.h>
 
 static ScriptHandler_t g_orig[27];
@@ -50,7 +51,9 @@ static char Dispatch(int index, void *script, int op)
         if (g_cfg.host && IsStoryMission(mission)) MirrorMissionStart();
     }
     MirrorBefore(script, op);
+    ConditionBefore(script, op);
     char r = g_orig[index](script, op);
+    ConditionAfter();
     MirrorAfter(script, op);
     return r;
 }

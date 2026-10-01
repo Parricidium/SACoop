@@ -18,6 +18,7 @@ void (*g_onVehicle)(const MsgVehicle &v);
 void (*g_onDamage)(const MsgDamage &d);
 void (*g_onPed)(const MsgPed &p);
 void (*g_onPedHit)(const MsgPedHit &h);
+void (*g_onMarker)(const MsgMarker &m);
 
 static SOCKET g_sock = INVALID_SOCKET;
 static sockaddr_in g_hostAddr;               // invite : adresse de l'hote
@@ -410,6 +411,9 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         break;
     case MSG_PED:
         if (len >= (int)sizeof(MsgPed) && g_onPed) g_onPed(*(const MsgPed *)buf);
+        break;
+    case MSG_MARKER:
+        if (len >= (int)sizeof(MsgMarker) && g_onMarker) g_onMarker(*(const MsgMarker *)buf);
         break;
     case MSG_VEHICLE:
         if (len >= (int)sizeof(MsgVehicle) && g_onVehicle) g_onVehicle(*(const MsgVehicle *)buf);
