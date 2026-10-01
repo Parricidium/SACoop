@@ -15,6 +15,7 @@ Ce qui marche deja
 - Meme heure, meme meteo, memes passants et circulation pres de l'hote.
 
 Touches
+- G : monter en passager dans la voiture d'un autre joueur (F aussi).
 - T : tchat (Entree pour envoyer, Echap pour annuler).
 - F5 (maintenue) : tableau des joueurs.
 

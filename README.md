@@ -72,7 +72,7 @@ game version, and starts the game as host or guest. Options and release notes ar
   mission gets its markers and texts. **Shared save**: when the host saves, the save goes to every player's same slot. Side activities stay local to each player.
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
-- **T**: chat (Enter to send). **F5** (held): players board (name, health, distance).
+- **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send). **F5** (held): players board (name, health, distance).
 - **Widescreen**: the 3D and the HUD (radar, icons, texts) keep their proportions on wide screens, with a wider field
   of view (Hor+). Borderless mode picks your screen's resolution by itself.
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
@@ -163,7 +163,7 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
   chaque joueur, au même emplacement. Les activités annexes restent locales à chacun.
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
-- **T** : tchat (Entrée pour envoyer). **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance).
+- **G** : monter en passager dans la voiture d'un autre joueur (F aussi). **T** : tchat (Entrée pour envoyer). **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance).
 - **Grand écran** : la 3D et le HUD (radar, icônes, textes) gardent leurs proportions sur un écran large, avec un champ
   de vision élargi. En plein écran sans bordure, la résolution de l'écran est choisie toute seule.
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture

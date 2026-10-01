@@ -22,6 +22,7 @@
 #include "conditions.h"
 #include "savesync.h"
 #include "population.h"
+#include "passenger.h"
 #include "script.h"
 #include <math.h>
 #include <string.h>
@@ -624,6 +625,47 @@ static void Autotest()
         }
         return;
     }
+    // "passager" (invite) : quand l'hote ("taxi") est au volant, pose a 2,5 m a droite de sa voiture puis G (30 s).
+    if (_stricmp(g_cfg.autotest, "passager") == 0) {
+        static int step;
+        void *ped = FindPlayerPed();
+        void *veh = g_players[0].state.vehicleId ? NetVehicleById(g_players[0].state.vehicleId) : nullptr;
+        if (step == 0 && veh && t > 28000) {
+            step = 1;
+            const float *vp = EntityPos(veh);
+            float pos[3] = { vp[0], vp[1] - 2.5f, vp[2] };
+            PlacePuppet(ped, pos, 0.0f);
+            Log("autotest : a cote de la voiture de l'hote (%.1f %.1f %.1f, conducteur %p, pantin %p)", vp[0], vp[1], vp[2], Field<void *>(veh, VEH_DRIVER), PuppetOf(0));
+        } else if (step == 1 && t > 30000) {
+            step = 2;
+            PassengerRequest();
+            Log("autotest : G (passager)");
+        }
+        if (step < 2) ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);
+        return;
+    }
+    // "taxi" (hote) : au volant d'un Greenwood pose a 5 m, immobile jusqu'a 45 s, puis avance 2 s.
+    if (_stricmp(g_cfg.autotest, "taxi") == 0) {
+        static bool done;
+        void *ped = FindPlayerPed();
+        if (!done) {
+            done = true;
+            float pos[3] = { 2485.0f, -1665.0f, 13.3f };   // Grove Street, degage (portieres accessibles des deux cotes)
+            PlacePuppet(ped, pos, -1.5708f);
+            if (!ModelLoaded(492)) { RequestModel(492, 2); LoadAllRequestedModels(false); }
+            if (void *car = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(492, 2490.0f, -1665.0f, 13.6f, false)) {
+                if (uint8_t *m = *(uint8_t **)((uint8_t *)car + 0x14)) {
+                    float *r = (float *)m, *f = (float *)(m + 0x10);
+                    r[0] = 0; r[1] = -1; r[2] = 0; f[0] = 1; f[1] = 0; f[2] = 0;
+                }
+                WarpPuppetIn(ped, car, 0);
+                Log("autotest : taxi pret");
+            }
+            return;
+        }
+        joy[0x20 / 2] = (t > 45000 && t < 47000) ? 255 : 0;   // Croix : avance
+        return;
+    }
     // "tireinv" (invite) : place comme "regarde", un M4, puis tire sur la premiere copie de personnage de mission
     // (a partir de 32 s, un coup toutes les 500 ms) : les coups vont a l'hote.
     if (_stricmp(g_cfg.autotest, "tireinv") == 0) {
@@ -831,6 +873,7 @@ void CoopFrame(bool inGameLoop)
     MirrorFrame();
     ConditionsFrame();
     PopulationFrame();
+    PassengerFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
     SyncWorld();

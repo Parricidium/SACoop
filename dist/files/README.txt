@@ -16,6 +16,7 @@ What already works
 - Same time, same weather, same pedestrians and traffic near the host.
 
 Keys
+- G: get in another player's car as a passenger (F too).
 - T: chat (Enter to send, Escape to cancel).
 - F5 (held): players board.
 
