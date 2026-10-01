@@ -960,6 +960,47 @@ static void Autotest()
         joy[1] = (int16_t)want;
         if (last != want) { last = want; Log("autotest : %s", want < 0 ? "je cours" : want > 0 ? "je reviens" : "je m'arrete"); }
     }
+    // "nage" (cadence, fps.cpp) : pose en mer au large de Santa Maria, nage tout droit 10 s (distance au journal, a
+    // comparer entre 30 et 60 images/s), puis pilote un Maverick 10 s (rotor).
+    if (_stricmp(g_cfg.autotest, "nage") == 0) {
+        static int step;
+        static float from[3];
+        static void *heli;
+        static uint32_t frames0;
+        void *ped = FindPlayerPed();
+        if (step == 0) {
+            step = 1;
+            float pos[3] = { 250.0f, -1950.0f, 0.5f };
+            PlacePuppet(ped, pos, 1.5708f);
+            ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);
+            Log("autotest : pose en mer");
+        } else if (step == 1 && t > 25000) {
+            step = 2;
+            memcpy(from, EntityPos(ped), 12);
+            frames0 = *(uint32_t *)0xB7CB4C;   // CTimer::m_FrameCounter
+            Log("autotest : je nage");
+        } else if (step == 2) {
+            joy[1] = -128;
+            if (t > 35000) {
+                step = 3;
+                joy[1] = 0;
+                const float *p = EntityPos(ped);
+                float dx = p[0] - from[0], dy = p[1] - from[1];
+                Log("autotest : nage, %.1f m en 10 s a %.1f images/s (z %.1f)", sqrtf(dx * dx + dy * dy), (*(uint32_t *)0xB7CB4C - frames0) / 10.0f, p[2]);
+            }
+        } else if (step == 3 && t > 37000) {
+            step = 4;
+            if (!ModelLoaded(487)) { RequestModel(487, 2); LoadAllRequestedModels(false); }
+            float pos[3] = { 170.0f, -1830.0f, 4.0f };   // plage
+            PlacePuppet(ped, pos, 0.0f);
+            heli = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(487, 175.0f, -1830.0f, 5.0f, false);
+            if (heli) WarpPuppetIn(ped, heli, 0);
+            Log("autotest : Maverick %s", heli ? "pret" : "absent");
+        } else if (step == 4 && t > 47000) {
+            step = 5;
+            if (heli) Log("autotest : rotor du Maverick %.3f apres 10 s", *(float *)((uint8_t *)heli + 0x84C));
+        }
+    }
 }
 
 void CoopFrame(bool inGameLoop)

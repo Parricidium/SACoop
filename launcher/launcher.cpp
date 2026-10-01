@@ -901,9 +901,9 @@ static void BuildOptions()
       { L"Borderless", L"Windowed", L"Fullscreen" }, L"",
       L"Plein \u00E9cran fen\u00EAtr\u00E9 (conseill\u00E9) : la fen\u00EAtre couvre l'\u00E9cran, changer de fen\u00EAtre ne met pas le jeu en pause.",
       L"Borderless (recommended): the window covers the screen, switching windows does not pause the game.");
-    C(TAB_VIDEO, "ImagesParSeconde", 30, { 25, 30, 45, 60 }, L"Images par seconde", L"Frame rate", {}, {}, L" i/s",
-      L"30 = jeu d'origine (conseill\u00E9). Au-dessus, le jeu d'origine a des bogues de physique connus.",
-      L"30 = original game (recommended). Above it, the original game has known physics bugs.");
+    C(TAB_VIDEO, "ImagesParSeconde", 60, { 30, 45, 60 }, L"Images par seconde", L"Frame rate", {}, {}, L" i/s",
+      L"60 conseill\u00E9 : les bogues de cadence du jeu d'origine (nage, freinage, portes, h\u00E9lices...) sont corrig\u00E9s (Framerate Vigilante). 30 = jeu d'origine.",
+      L"60 recommended: the original game's frame-rate bugs (swimming, braking, doors, rotors...) are fixed (Framerate Vigilante). 30 = original game.");
     T2(TAB_VIDEO, "GrandEcran", 1, L"Grand \u00E9cran", L"Widescreen",
        L"La 3D et le HUD gardent leurs proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi.",
        L"The 3D and the HUD keep their proportions on wide screens, with a wider field of view.");

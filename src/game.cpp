@@ -90,10 +90,28 @@ static int __cdecl h_FrontendIdle(int ev, void *arg)
     return r;
 }
 
+// Temps passe par image dans le jeu (Idle) et dans SACoop (CoopFrame), au journal toutes les 10 s.
 static int __cdecl h_GameIdle(int ev, void *arg)
 {
+    static LARGE_INTEGER freq, since;
+    static double gameMs, coopMs;
+    static int n;
+    if (!freq.QuadPart) { QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&since); }
+    LARGE_INTEGER a, b, c;
+    QueryPerformanceCounter(&a);
     int r = RsEventHandler(ev, arg);
+    QueryPerformanceCounter(&b);
     CoopFrame(true);
+    QueryPerformanceCounter(&c);
+    gameMs += (b.QuadPart - a.QuadPart) * 1000.0 / freq.QuadPart;
+    coopMs += (c.QuadPart - b.QuadPart) * 1000.0 / freq.QuadPart;
+    n++;
+    if ((c.QuadPart - since.QuadPart) > freq.QuadPart * 10) {
+        Log("temps par image : jeu %.1f ms, coop %.1f ms (%d images)", gameMs / n, coopMs / n, n);
+        gameMs = coopMs = 0;
+        n = 0;
+        since = c;
+    }
     return r;
 }
 
