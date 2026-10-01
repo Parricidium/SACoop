@@ -4,6 +4,7 @@
 void MirrorBefore(void *script, int op);   // hote : avant chaque commande (capture des parametres)
 void MirrorAfter(void *script, int op);    // hote : apres (sorties, envoi)
 void MirrorFrame();
+void MirrorTestObject(int step, const float *pos);   // autotest "objet" (hote)
 void MirrorMissionStart();                 // hote : une mission de l'histoire demarre (regroupement)
 bool ScriptReadValues(void *script, unsigned char *ip, int n, int *vals);
 void RunScriptCommandTyped(int op, int nargs, const char *types, const int *args);

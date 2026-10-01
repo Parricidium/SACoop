@@ -537,6 +537,10 @@ static void Autotest()
             RunScriptCommand(0x0417, 1, &m);
             Log("autotest : mission %d lancee", m);
         }
+        // TestPasser=1 : l'hote passe la cinematique d'ouverture (Croix) 8 s apres le lancement.
+        static uint32_t startedAt;
+        if (started && !startedAt) startedAt = t;
+        if (g_cfg.testSkip && startedAt && t - startedAt > 8000 && t - startedAt < 10000) joy[0x20 / 2] = (t / 100) % 2 ? 255 : 0;
         // Echec voulu a 85 s (l'hote meurt) : la fin de mission doit retablir l'ecran des invites.
         static bool failed;
         if (started && !failed && t > 85000 && running) {
@@ -544,6 +548,13 @@ static void Autotest()
             ApplyPedHit(FindPlayerPed(), nullptr, 0, 1000, 3);
             Log("autotest : l'hote meurt (echec de mission)");
         }
+        return;
+    }
+    // "objet" (hote) : un objet de mission (baril) devant l'invite "regarde" a 26 s, deplace a 34 s, supprime a 42 s.
+    if (_stricmp(g_cfg.autotest, "objet") == 0) {
+        static int step;
+        static const float at[3][3] = { { 2236.0f, -1262.3f, 23.4f }, { 2236.0f, -1260.0f, 23.4f }, {} };
+        if (step < 3 && t > 26000u + step * 8000u) { MirrorTestObject(step, at[step]); step++; }
         return;
     }
     // "pnj" (hote) : un personnage de mission (Big Smoke, modele special 290 "SMOKE") pose a 4 m, qui fait des
