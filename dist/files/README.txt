@@ -23,6 +23,7 @@ Keys
 - T: chat (Enter to send, Escape to cancel). In the chat, /join brings
   you next to the host (or as his passenger if he is driving).
 - F5 (held): players board.
+- F6: first-person view on foot (F6 again to go back).
 - F10: co-op panel (go to a player, friendly fire, outfit; time and weather
   for the host). Arrows and Enter to choose, Escape to close.
 

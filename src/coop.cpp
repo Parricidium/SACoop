@@ -25,6 +25,7 @@
 #include "passenger.h"
 #include "script.h"
 #include "police.h"
+#include "camera.h"
 #include <math.h>
 #include <string.h>
 
@@ -924,6 +925,7 @@ void CoopFrame(bool inGameLoop)
     ConditionsFrame();
     PopulationFrame();
     PoliceFrame();
+    CameraFrame();
     PassengerFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
