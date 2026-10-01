@@ -284,7 +284,7 @@ static void UpdateCopy(Copy &c, uint32_t now)
     if (inVeh) { WarpPuppetOut(ped, m.pos); c.moveState = 0; return; }
     // Visee (policiers, gangs : arme levee vers leur cible) et animations d'action, comme les pantins des joueurs.
     AimMirror(ped, (m.flags & PF_AIMING) && m.weapon >= 22 && m.weapon <= 38, m.aim);
-    // (animations d'action des PNJ : pas encore, plantage 0x4D1750 avec leurs gestes de discussion 0:126/137/138)
+    AnimsApply(ped, m.anims, m.animCount, c.anims);
     FollowOnFoot(ped, m.pos, m.speed, m.heading, m.moveState, now - c.lastRecv, c.moveState);
 }
 

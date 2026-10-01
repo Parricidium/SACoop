@@ -2,7 +2,10 @@
 #pragma once
 #include "net.h"
 
-struct AnimMirror { int16_t ids[ANIMS_MAX]; void *assoc[ANIMS_MAX]; int count; };   // animations creees par nous sur cette copie
+struct AnimMirror {   // animations creees par nous sur cette copie
+    int16_t ids[ANIMS_MAX]; void *assoc[ANIMS_MAX]; int count;
+    void *fading[8]; int nFading;   // effacees par nous, surveillees jusqu'a leur disparition
+};
 
 int AnimsCollect(void *ped, NetAnim *out, int max);         // animations d'action du personnage (les plus fortes)
 void AnimsApply(void *ped, const NetAnim *in, int n, AnimMirror &m);

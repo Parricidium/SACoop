@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.45.0-prealpha"
+#define SACOOP_VERSION "0.46.0-prealpha"
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)

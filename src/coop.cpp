@@ -53,6 +53,8 @@ struct Puppet {
     uint8_t meleeSeq;
     uint32_t meleeUntil; // coup en cours de rejeu : le suivi a pied attend
     AnimMirror anims;    // animations d'action donnees au pantin (anims.cpp)
+    float dbAim[3];      // tir par la fenetre : point vise donne au pantin
+    uint32_t dbAt;
 };
 
 // Coups au corps a corps (poings, fichier d'animations PED) : vus sur le joueur (RpAnimBlendClumpGetAssociation
@@ -175,8 +177,10 @@ static void SendLocalState()
         // Visee (tache secondaire d'attaque = CTaskSimpleUseGun, type 1017, mesure 01/10) : point vise = 40 m devant la
         // camera (cadre de la camera RenderWare de la scene, 0xC1703C : at +0x70, position +0x80 de sa matrice LTM).
         void *sec = PrimaryTasks(ped)[5];
-        if (!PedVehicle(ped) && sec && ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) == 1017) {
-            s.aiming = 1;
+        bool driveby = PedVehicle(ped) && HasTaskType(ped, 1022);   // tir par la fenetre (meme tache que les PNJ)
+        { static int said; if (driveby && said < 3) { said++; Log("tir par la fenetre du joueur (arme %d)", (int)s.weapon); } }
+        if (driveby || (!PedVehicle(ped) && sec && ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) == 1017)) {
+            s.aiming = driveby ? 2 : 1;
             if (void *cam = *(void **)0xC1703C)
                 if (uint8_t *fr = *(uint8_t **)((uint8_t *)cam + 4)) {
                     const float *at = (const float *)(fr + 0x70), *cp = (const float *)(fr + 0x80);
@@ -480,7 +484,30 @@ static void UpdatePuppet(int id)
         void *veh = NetVehicleById(s.vehicleId);
         if (!veh) return;   // copie pas encore creee (modele en chargement)
         bool placed = inVeh == veh && (s.seat == 0 ? Field<void *>(veh, VEH_DRIVER) == ped : Field<void *>(veh, VEH_PASSENGERS + (s.seat - 1) * 4) == ped);
-        if (placed) { if (p.carTask != 3) p.carTask = 0; return; }
+        if (placed) {
+            if (p.carTask != 3) p.carTask = 0;
+            // Animations du joueur dans son vehicule (bunny hop, pedalage debout, gestes...) et tir par la fenetre : le
+            // pantin assis recoit TASK_DRIVE_BY 0713 vers le point vise (cadence 0 : les balles sont les tirs rejoues),
+            // redonnee quand le point bouge de plus de 4 m ; retiree (tache principale 3) quand le joueur arrete.
+            AnimsApply(ped, s.anims, s.animCount, p.anims);
+            bool db = s.aiming == 2 && s.weapon >= 22 && s.weapon <= 38, has = HasTaskType(ped, 1022);
+            uint32_t tnow = GetTickCount();
+            float dx = s.aim[0] - p.dbAim[0], dy = s.aim[1] - p.dbAim[1];
+            if (db && (!has || (dx * dx + dy * dy > 16.0f && tnow - p.dbAt > 400))) {
+                float rad = 60.0f;
+                int args[10] = { PedRef(ped), -1, -1, 0, 0, 0, 0, 0, 0, 0 };
+                memcpy(&args[3], s.aim, 12);
+                memcpy(&args[6], &rad, 4);
+                RunScriptCommandTyped(0x0713, 10, "iiiffffiii", args);
+                memcpy(p.dbAim, s.aim, 12);
+                p.dbAt = tnow;
+                static int said;
+                if (said < 10) { said++; Log("pantin du joueur %d : tir par la fenetre", id); }
+            } else if (!db && has) {
+                SetPrimaryTask(ped, nullptr, 3);
+            }
+            return;
+        }
         if (p.carTask) return;   // montee (ou descente) en cours : on la laisse finir
         if (inVeh) WarpPuppetOut(ped, s.pos);
         WarpPuppetIn(ped, veh, s.seat);
@@ -517,7 +544,7 @@ static void UpdatePuppet(int id)
     }
     if ((int)(p.meleeUntil - GetTickCount()) > 0) return;
     // Visee de son joueur (arme levee vers le point vise) et animations d'action (sauts, accroupi, coups...) : anims.cpp.
-    AimMirror(ped, s.aiming && s.weapon >= 22 && s.weapon <= 38, s.aim);
+    AimMirror(ped, s.aiming == 1 && s.weapon >= 22 && s.weapon <= 38, s.aim);
     AnimsApply(ped, s.anims, s.animCount, p.anims);
 
     if (FollowOnFoot(ped, s.pos, s.speed, s.heading, s.moveState, GetTickCount() - np.lastStateAt, p.moveState)) p.lastTask = GetTickCount();
@@ -1043,6 +1070,58 @@ static void Autotest()
                 if (lstrlenA(buf) < 340) lstrcatA(buf, one);
             }
         Log("anims : %s", buf);
+        return;
+    }
+    // "driveby" / "bmx" (hote) : face a l'invite place par "regarde" ; au volant d'une Greenwood avec un Uzi, tir par la
+    // fenetre (0713 sur soi) de 30 a 40 s ; ou sur un BMX, pedale et bunny hops (R1 tenu puis lache) de 30 a 40 s.
+    if (_stricmp(g_cfg.autotest, "driveby") == 0 || _stricmp(g_cfg.autotest, "bmx") == 0) {
+        bool bmx = _stricmp(g_cfg.autotest, "bmx") == 0;
+        static void *veh;
+        void *ped = FindPlayerPed();
+        int model = bmx ? 481 : 492;
+        if (!veh) {
+            if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
+            float pos[3] = { 2485.0f, -1665.0f, 13.3f };   // Grove Street, degage
+            PlacePuppet(ped, pos, -1.5708f);
+            veh = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(model, 2490.0f, -1665.0f, 13.6f, false);
+            if (!veh) return;
+            if (uint8_t *m = *(uint8_t **)((uint8_t *)veh + 0x14)) { float *r = (float *)m, *f = (float *)(m + 0x10); r[0] = 0; r[1] = -1; r[2] = 0; f[0] = 1; f[1] = 0; f[2] = 0; }
+            WarpPuppetIn(ped, veh, 0);
+            if (!bmx) { int w = -1; EnsurePedWeapon(ped, 28, w); }
+            Log("autotest : %s pret", bmx ? "BMX" : "tir par la fenetre");
+            return;
+        }
+        static int step;
+        if (t < 29000 && PedVehicle(ped) != veh) { WarpPuppetIn(ped, veh, 0); return; }   // (l'intro du jeu repose CJ dans la ruelle)
+        if (bmx) {
+            joy[0x20 / 2] = t > 30000 && t < 40000 && (t / 300) % 2 ? 255 : 0;   // pedale
+            joy[0xC / 2] = t > 30000 && t < 40000 && (t % 2000) < 600 ? 255 : 0;   // bunny hop : tenu puis lache
+        } else if (step == 0 && t > 30000) {
+            step = 1;
+            const float *p = EntityPos(ped);
+            float tgt[3] = { p[0] - 10.0f, p[1] - 15.0f, p[2] }, rad = 60.0f;
+            int args[10] = { PedRef(ped), -1, -1, 0, 0, 0, 0, 0, 0, 0 };
+            memcpy(&args[3], tgt, 12);
+            memcpy(&args[6], &rad, 4);
+            RunScriptCommandTyped(0x0713, 10, "iiiffffiii", args);
+            Log("autotest : je tire par la fenetre");
+        } else if (step == 1 && t > 40000) {
+            step = 2;
+            SetPrimaryTask(ped, nullptr, 3);
+        }
+        static uint32_t lastLog;
+        if (t > 29000 && t < 42000 && t - lastLog > 1000) {
+            lastLog = t;
+            char buf[200] = "";
+            void **tk = PrimaryTasks(ped);
+            for (int k = 0; k < 11; k++)
+                for (void *task = tk[k]; task; task = ((void *(__thiscall *)(void *))(*(void ***)task)[2])(task)) {
+                    char one[16];
+                    wsprintfA(one, "%d:%d ", k, ((int(__thiscall *)(void *))(*(void ***)task)[4])(task));
+                    if (lstrlenA(buf) < 180) lstrcatA(buf, one);
+                }
+            Log("autotest : taches du joueur : %s", buf);
+        }
         return;
     }
     if (_stricmp(g_cfg.autotest, "tireinv") == 0) {

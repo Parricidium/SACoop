@@ -61,7 +61,7 @@ struct MsgState {
     uint8_t wanted;     // niveau de recherche de la police (0-6)
     uint8_t meleeSeq;   // compteur de coups au corps a corps (chaque nouveau coup est rejoue par le pantin)
     uint8_t meleeAnim;  // animation du dernier coup (coop.cpp, kMeleeAnims)
-    uint8_t aiming;     // vise avec une arme a feu (CTaskSimpleUseGun, type 1017, tache secondaire 0) ; aim = point vise
+    uint8_t aiming;     // 1 : vise a pied (CTaskSimpleUseGun 1017) ; 2 : tire par la fenetre (CTaskSimpleGangDriveBy 1022) ; aim = point vise
     uint8_t animCount;  // animations d'action en cours (sauts, accroupi, coups, nage...), rejouees par le pantin
     NetAnim anims[ANIMS_MAX];
     char name[24];
