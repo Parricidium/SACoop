@@ -76,6 +76,9 @@ static const MirrorOp kOps[] = {
     { 0x02EA, "" },        // CLEAR_CUTSCENE (0x4D5ED0) : attend que celle de l'invite soit finie
     { 0x0055, "ifff" },    // SET_PLAYER_COORDINATES : l'invite est pose a cote (decale selon son numero)
     { 0x0109, "ii" },      // ADD_SCORE : l'argent gagne en mission, pour chacun
+    { 0x00A1, "Pfff" },    // SET_CHAR_COORDINATES (joueur de l'hote : l'invite est pose a cote)
+    { 0x0860, "Pi" },      // LINK_CHAR_WITH_INTERIOR (joueur de l'hote : l'invite aussi)
+    { 0x04BB, "i" },       // SET_AREA_VISIBLE : seulement si l'invite vient d'etre pose avec l'hote, ou est pres de lui
     { 0x0107, "ifffO" },   // CREATE_OBJECT (modele negatif : table des objets utilises 0xA44B70, id a +24)
     { 0x029B, "ifffO" },   // CREATE_OBJECT_NO_OFFSET
     { 0x0108, "o" },       // DELETE_OBJECT
@@ -363,6 +366,7 @@ static void ExecCommand(int op)
 }
 
 static void RestoreScreen();
+static uint32_t g_teleportedAt;   // invite : derniere teleportation avec l'hote (SET_AREA_VISIBLE a suivre)
 
 // Rejoue une commande ; faux si une entite manque encore (on reessaiera).
 static bool Replay(const uint8_t *d, int len)
@@ -459,7 +463,9 @@ static bool Replay(const uint8_t *d, int len)
             break;
         }
         case 'H': {
-            void *ped = PuppetOf(0);
+            // Joueur de l'hote : pour une teleportation ou un interieur, c'est l'invite lui-meme qui suit ;
+            // sinon (marqueur, camera...), son pantin chez l'invite.
+            void *ped = op == 0x00A1 || op == 0x0860 ? FindPlayerPed() : PuppetOf(0);
             if (!ped) return false;
             v = PedRef(ped);
             break;
@@ -482,11 +488,26 @@ static bool Replay(const uint8_t *d, int len)
         g_code[c++] = kind == 'f' ? 6 : 1;
         memcpy(g_code + c, &v, 4); c += 4;
     }
-    if (op == 0x0055 && c >= 2 + 20) {   // SET_PLAYER_COORDINATES : a cote de l'hote, decale selon le numero
+    // SET_PLAYER_COORDINATES / SET_CHAR_COORDINATES du joueur de l'hote : a cote de lui, decale selon le numero.
+    bool selfTeleport = op == 0x0055 || (op == 0x00A1 && d[4] == 'H');
+    if (selfTeleport && c >= 2 + 20) {
         float x;
         memcpy(&x, g_code + 2 + 5 + 1, 4);
         x += 1.5f * g_localId;
         memcpy(g_code + 2 + 5 + 1, &x, 4);
+        if (PedVehicle(FindPlayerPed())) return true;   // en voiture : on ne l'arrache pas
+        g_teleportedAt = GetTickCount();
+    }
+    if (op == 0x0860 && d[4] != 'H') return true;   // interieur d'un autre personnage : sa copie suit le reseau
+    if (op == 0x04BB) {   // zone visible : seulement avec l'hote, sinon la ville de l'invite se dechargerait
+        void *host = PuppetOf(0), *me = FindPlayerPed();
+        bool closeBy = false;
+        if (host && me) {
+            const float *a = EntityPos(host), *b = EntityPos(me);
+            float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+            closeBy = dx * dx + dy * dy + dz * dz < 40.0f * 40.0f;
+        }
+        if (!closeBy && GetTickCount() - g_teleportedAt > 3000) return true;
     }
     ExecCommand(op);
     static int logged;
