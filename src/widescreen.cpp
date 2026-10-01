@@ -15,6 +15,10 @@
 //    est choisi s'il existe (RwEngineGetNumVideoModes 0x7F2CC0, RwEngineGetVideoModeInfo 0x7F2CF0, RwVideoMode de 24 octets {l, h, prof,
 //    drapeaux, frequence, format}) : celle du bureau en plein ecran sans bordure, TailleFenetre en fenetre. Le mode retenu est aussi
 //    range comme choix du jeu (GcurSelVM 0x8D6220, FrontEndMenuManager.m_nDisplayVideoMode 0xBA6820).
+//  - Fenetre du jeu « choix du peripherique » (carte graphique, resolution : DialogBoxParamA en 0x746241 dans
+//    psSelectDevice, des que Direct3D voit plusieurs adaptateurs : GnumSubSystems 0xC920F0 > 1, PC a deux cartes ou ecrans) : jamais montree, SACoop choisit (entree de
+//    DialogBoxParamA dans la table d'importation de gta_sa.exe : on repond OK sans l'ouvrir). Plein ecran : le mode de
+//    la taille du bureau.
 #include "util.h"
 #include "sacoop.h"
 #include "widescreen.h"
@@ -74,10 +78,10 @@ static SetVideoMode_t o_SetVideoMode;
 static int __cdecl h_SetVideoMode(int idx)
 {
     static bool done;
-    if (!done && g_cfg.windowed) {
+    if (!done) {
         done = true;
-        int w = g_cfg.borderless ? GetSystemMetrics(SM_CXSCREEN) : g_cfg.winW;
-        int h = g_cfg.borderless ? GetSystemMetrics(SM_CYSCREEN) : g_cfg.winH;
+        int w = g_cfg.borderless || !g_cfg.windowed ? GetSystemMetrics(SM_CXSCREEN) : g_cfg.winW;
+        int h = g_cfg.borderless || !g_cfg.windowed ? GetSystemMetrics(SM_CYSCREEN) : g_cfg.winH;
         // Mode 0 = le bureau (fenetre) : il laissait le jeu a sa resolution enregistree (800x600 etire, flou) ; on prend
         // le vrai mode de cette taille.
         int n = ((int(__cdecl *)())0x7F2CC0)();
@@ -142,8 +146,30 @@ void WidescreenFrame()
     Log("grand ecran : menus resserres au format 4:3");
 }
 
+static INT_PTR WINAPI h_DialogBoxParamA(HINSTANCE, LPCSTR, HWND, DLGPROC, LPARAM)
+{
+    Log("resolution : fenetre de choix du peripherique du jeu sautee (carte graphique par defaut)");
+    return IDOK;
+}
+
+static void SkipDeviceDialog()
+{
+    void *real = (void *)GetProcAddress(GetModuleHandleA("user32.dll"), "DialogBoxParamA");
+    uint8_t *mod = (uint8_t *)GetModuleHandleA(NULL);
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(mod + ((IMAGE_DOS_HEADER *)mod)->e_lfanew);
+    IMAGE_DATA_DIRECTORY &dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!real || !dir.VirtualAddress) return;
+    for (IMAGE_IMPORT_DESCRIPTOR *d = (IMAGE_IMPORT_DESCRIPTOR *)(mod + dir.VirtualAddress); d->Name; d++) {
+        if (_stricmp((const char *)(mod + d->Name), "user32.dll")) continue;
+        for (void **slot = (void **)(mod + d->FirstThunk); *slot; slot++)
+            if (*slot == real) { PatchPointer(slot, (void *)h_DialogBoxParamA); return; }
+    }
+    Log("resolution : DialogBoxParamA absent des importations du jeu");
+}
+
 void InstallResolution()
 {
+    SkipDeviceDialog();
     static const uint8_t pro[] = { 0x8B, 0x44, 0x24, 0x04, 0x8B, 0x0D, 0x24, 0x7B, 0xC9, 0x00 };
     o_SetVideoMode = (SetVideoMode_t)MakeDetour(0x7F2D50, pro, sizeof(pro), (void *)h_SetVideoMode);
 }
