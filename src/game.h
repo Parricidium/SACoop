@@ -70,6 +70,12 @@ namespace game {
     inline void RemoveReferencesToDeletedObject(void *e) { ((void(__cdecl *)(void *))0x565510)(e); }
     inline void DeleteEntity(void *e) { ((void(__thiscall *)(void *, int))((*(void ***)e)[0]))(e, 1); }   // vtable[0] : destructeur
 
+    // --- Armes : CPed::GiveWeapon(type, munitions, bool) -> emplacement (ret 0Ch) ; SetCurrentWeapon(emplacement) ;
+    // CWeaponInfo::GetWeaponInfo(type, competence) : +0xC modele, +0x10 second modele, +0x14 emplacement. ---
+    inline int GiveWeapon(void *ped, int type, int ammo) { return ((int(__thiscall *)(void *, int, int, bool))0x5E6080)(ped, type, ammo, false); }
+    inline void SetCurrentWeapon(void *ped, int slot) { ((void(__thiscall *)(void *, int))0x5E61F0)(ped, slot); }
+    inline uint8_t *WeaponInfo(int type) { return ((uint8_t *(__cdecl *)(int, int))0x743C60)(type, 1); }
+
     // --- Chargement des modeles (CStreaming) ---
     inline void RequestModel(int id, int flags) { ((void(__cdecl *)(int, int))0x4087E0)(id, flags); }   // flags 2 : mission
     inline void LoadAllRequestedModels(bool priorityOnly) { ((void(__cdecl *)(bool))0x40EA10)(priorityOnly); }

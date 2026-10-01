@@ -826,6 +826,9 @@ static void BuildOptions()
       { L"CJ (your clothes)", L"Grove Street 1", L"Grove Street 2", L"Grove Street 3", L"Ballas 1", L"Ballas 2", L"Ballas 3", L"Vagos 1", L"Vagos 2", L"Vagos 3", L"Aztecas 1", L"Aztecas 2", L"Aztecas 3" }, L"",
       L"CJ : les autres joueurs vous voient avec vos v\u00EAtements (magasins compris). Sinon, sous le personnage choisi.",
       L"CJ: the other players see you with your clothes (shops included). Otherwise, as the chosen character.");
+    T2(TAB_COOP, "TirAmi", 1, L"Tir ami", L"Friendly fire",
+       L"Les autres joueurs peuvent vous blesser (balles, coups, voitures). Chacun choisit pour lui.",
+       L"The other players can hurt you (bullets, hits, cars). Each player chooses for themselves.");
 }
 
 static std::string GameIni() { return Narrow(g_gameDir + L"sacoop.ini"); }

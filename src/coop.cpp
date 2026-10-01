@@ -15,6 +15,7 @@
 #include "game.h"
 #include "vehicles.h"
 #include "hud.h"
+#include "combat.h"
 #include <math.h>
 #include <string.h>
 
@@ -68,12 +69,13 @@ static void __fastcall h_CivRender(void *ped, void *)
     ((int(__cdecl *)(int, int))*(void **)(rw + 0x20))(0x1E, old);
 }
 
-static void *PuppetOf(int id);
+void *PuppetOf(int id);
 
 void InstallPuppetRender()
 {
     o_CivRender = (PedRender_t)PatchPointer((void **)(0x86C0A8 + 18 * 4), (void *)h_CivRender);
     InstallHud(PuppetOf);
+    InstallCombat();
 }
 static uint32_t g_calmSince;   // depuis quand on est en partie sans cinematique (creation des pantins)
 
@@ -108,6 +110,7 @@ static void SendLocalState()
         s.moveState = (uint8_t)Field<int>(ped, PED_MOVESTATE);
         int slot = Field<uint8_t>(ped, PED_WEAPONSLOT);
         s.weapon = (uint8_t)Field<int>(ped, PED_WEAPONS + slot * 0x1C);
+        CombatFillState(s);
         if (void *veh = PedVehicle(ped)) {
             bool driver = Field<void *>(veh, VEH_DRIVER) == ped;
             s.seat = 0;
@@ -235,11 +238,18 @@ static void WarpPuppetOut(void *ped, const float *pos)
     ((void(__thiscall *)(void *, float, float, float, bool))((*(void ***)ped)[14]))(ped, pos[0], pos[1], pos[2], false);
 }
 
-static void *PuppetOf(int id)
+void *PuppetOf(int id)
 {
     if (id < 0 || id >= MAX_PLAYERS || id == g_localId) return nullptr;
     Puppet &p = g_puppets[id];
     return p.ped && PedFromRef(p.ref) == p.ped ? p.ped : nullptr;
+}
+
+int PuppetIndex(void *ped)
+{
+    if (!ped) return -1;
+    for (int i = 0; i < MAX_PLAYERS; i++) if (g_puppets[i].ped == ped && PedFromRef(g_puppets[i].ref) == ped) return i;
+    return -1;
 }
 
 static bool IsPuppet(void *ped)
@@ -294,6 +304,7 @@ static void CreatePuppet(int id, const MsgState &s)
     SetHeading(ped, s.heading);
     WorldAdd(ped);
     g_puppets[id] = { ped, PedRef(ped), 0, 0, model, 0, 0 };
+    CombatPuppetCreated(id);
     if (model == 0) DressPuppet(id);
     Log("pantin du joueur %d (%s, modele %d) cree en %.1f %.1f %.1f", id, s.name, model, s.pos[0], s.pos[1], s.pos[2]);
 }
@@ -327,6 +338,15 @@ static void UpdatePuppet(int id)
     if (p.model == 0 && g_clothesHash[id] && p.clothes != g_clothesHash[id] && GetTickCount() - p.builtAt > 2000) DressPuppet(id);
     void *ped = p.ped;
     if (EntityArea(ped) != s.area) EntityArea(ped) = s.area;
+    // Mort : le pantin meurt aussi (animation du jeu) ; a la reapparition du joueur (hopital), il est recree.
+    int pstate = Field<int>(ped, PED_STATE);
+    bool puppetDead = pstate == 54 || pstate == 55 || Field<float>(ped, PED_HEALTH) <= 0.0f;
+    if (s.health <= 0.0f) {
+        if (!puppetDead) { CombatKillPuppet(ped, s.weapon); Log("pantin du joueur %d : mort", id); }
+        return;
+    }
+    if (puppetDead) { DestroyPuppet(id); return; }
+    CombatUpdatePuppet(id, ped, s);
 
     // En vehicule : le pantin est mis a sa place dans la copie ; il en sort quand le joueur est a pied.
     void *inVeh = PedVehicle(ped);
@@ -412,7 +432,8 @@ static void Autotest()
             placed = true;
             // ruelle de Ganton : "voiture" (hote) -> 20 m devant son depart, tourne vers lui ; sinon 10 m derriere lui.
             bool car = g_players[0].state.vehicleId != 0;
-            float pos[3] = { car ? 2264.0f : 2232.0f, -1262.3f, 23.9f };
+            // (a pied : 0.5 m sur le cote, dans l'axe de la visee libre du "tireur", camera par-dessus l'epaule)
+            float pos[3] = { car ? 2264.0f : 2232.0f, car ? -1262.3f : -1261.8f, 23.9f };
             PlacePuppet(ped, pos, car ? 1.5708f : -1.5708f);
             Log("autotest : place derriere l'hote en %.1f %.1f %.1f", pos[0], pos[1], pos[2]);
         }
@@ -469,6 +490,41 @@ static void Autotest()
         joy[0x1C / 2] = phase == 2 ? 255 : 0;   // Carre
         static int last = -1;
         if (last != phase) { last = phase; Log("autotest : %s", phase == 0 ? "j'avance" : phase == 1 ? "je m'arrete" : "je recule"); }
+        return;
+    }
+    // "tireur" (hote) : un M4, tourne vers l'invite ("regarde" en 2232), vise (R1) et tire par rafales (Rond).
+    if (_stricmp(g_cfg.autotest, "tireur") == 0) {
+        static bool armed;
+        void *ped = FindPlayerPed();
+        if (!armed) {
+            armed = true;
+            float pos[3] = { 2242.0f, -1262.3f, 23.9f };
+            PlacePuppet(ped, pos, 1.5708f);
+            uint8_t *info = WeaponInfo(31);
+            int m1 = *(int *)(info + 0xC);
+            if (m1 > 0 && !ModelLoaded(m1)) { RequestModel(m1, 2); LoadAllRequestedModels(false); }
+            SetCurrentWeapon(ped, GiveWeapon(ped, 31, 900));
+            Log("autotest : M4 en main");
+            return;
+        }
+        if (t < 26000) ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);   // camera dans le dos (tourne vers l'invite)
+        void *target = PuppetOf(1);
+        if (target && t > 26000) {        // pile face au pantin (a 10 m, 0.1 rad d'ecart = rate)
+            const float *a = EntityPos(ped), *b = EntityPos(target);
+            float h = atan2f(-(b[0] - a[0]), b[1] - a[1]);
+            Field<float>(ped, PED_ROTATION) = h;
+            Field<float>(ped, PED_AIMROT) = h;
+        }
+        joy[0xC / 2] = t > 26000 ? 255 : 0;                          // R1 : on vise
+        // Tirs vers la poitrine du pantin (la visee libre suit la camera, trop imprecise pour un test) : 1 coup / 400 ms.
+        static uint32_t lastShot;
+        const float *tp = target ? EntityPos(target) : nullptr, *mp = EntityPos(ped);
+        if (tp && fabsf(tp[0] - mp[0]) + fabsf(tp[1] - mp[1]) < 30.0f && t > 27000 && t - lastShot > 400) {
+            lastShot = t;
+            const float *b = tp;
+            float aim[3] = { b[0], b[1], b[2] + 0.3f };
+            CombatTestShot(ped, aim);
+        }
         return;
     }
     if (_stricmp(g_cfg.autotest, "marche") == 0) {
