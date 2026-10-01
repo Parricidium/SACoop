@@ -55,8 +55,8 @@ the story, friends join the same world and the same missions, with modern option
 ## The launcher
 
 `SACoop.exe` updates the mod by itself from this page on every start (no need to download the zip again), checks your
-game version, and starts the game as host or guest. Its tabs hold the lobby, your mods (on/off), the options and the
-release notes; the round button at the top right of the left panel opens the logs of your last 50 sessions (to send
+game version, and starts the game as host or guest. Its tabs hold the lobby, your outfit (3D preview), your mods (on/off,
+3D preview), the options and the release notes; the round button at the top right of the left panel opens the logs of your last 50 sessions (to send
 when something goes wrong).
 
 **Lobby**: HOST opens a lobby; the others JOIN it with the host's address and click READY. The host picks a new game
@@ -164,8 +164,8 @@ l'histoire, ses amis rejoignent le même monde et les mêmes missions, avec des 
 ## Le lanceur
 
 `SACoop.exe` met le mod à jour tout seul depuis cette page à chaque démarrage (plus besoin de retélécharger le zip),
-vérifie la version du jeu et lance la partie en hôte ou en invité. Ses onglets : le salon, vos mods (activer /
-désactiver), les options et les notes de version ; le bouton rond en haut à droite du panneau de gauche ouvre les
+vérifie la version du jeu et lance la partie en hôte ou en invité. Ses onglets : le salon, votre tenue (aperçu 3D), vos
+mods (activer / désactiver, aperçu 3D), les options et les notes de version ; le bouton rond en haut à droite du panneau de gauche ouvre les
 journaux de vos 50 dernières parties (à envoyer en cas de souci).
 
 **Salon** : HÉBERGER ouvre un salon ; les autres le REJOIGNENT avec l'adresse de l'hôte et cliquent sur PRÊT. L'hôte
