@@ -16,6 +16,8 @@ uint16_t g_myPing;
 void (*g_onClothes)(const MsgClothes &c);
 void (*g_onVehicle)(const MsgVehicle &v);
 void (*g_onDamage)(const MsgDamage &d);
+void (*g_onPed)(const MsgPed &p);
+void (*g_onPedHit)(const MsgPedHit &h);
 
 static SOCKET g_sock = INVALID_SOCKET;
 static sockaddr_in g_hostAddr;               // invite : adresse de l'hote
@@ -323,6 +325,10 @@ static void HostReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         if (g_onDamage) g_onDamage(d);
         for (int i = 1; i < MAX_PLAYERS; i++)   // relais aux autres invites (seul le joueur touche l'applique)
             if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &d, sizeof(d));
+    } else if (buf[0] == MSG_PEDHIT && len >= (int)sizeof(MsgPedHit)) {
+        MsgPedHit h = *(const MsgPedHit *)buf;
+        h.from = (uint8_t)id;
+        if (g_onPedHit) g_onPedHit(h);
     } else if (buf[0] == MSG_VEHICLE && len >= (int)sizeof(MsgVehicle)) {
         if (g_onVehicle) g_onVehicle(*(const MsgVehicle *)buf);
         for (int i = 1; i < MAX_PLAYERS; i++)   // relais aux autres invites
@@ -401,6 +407,9 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         break;
     case MSG_DAMAGE:
         if (len >= (int)sizeof(MsgDamage) && g_onDamage) g_onDamage(*(const MsgDamage *)buf);
+        break;
+    case MSG_PED:
+        if (len >= (int)sizeof(MsgPed) && g_onPed) g_onPed(*(const MsgPed *)buf);
         break;
     case MSG_VEHICLE:
         if (len >= (int)sizeof(MsgVehicle) && g_onVehicle) g_onVehicle(*(const MsgVehicle *)buf);

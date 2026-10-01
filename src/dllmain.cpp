@@ -2,6 +2,7 @@
 // et renvoie DirectInput8Create vers la vraie DLL du systeme.
 #include "util.h"
 #include "sacoop.h"
+#include "script.h"
 #include "net.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,5 +123,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallWindowHooks();
     InstallGamePatches();
     InstallPuppetRender();
+    InstallScripts();
     return TRUE;
 }

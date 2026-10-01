@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 6, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 7, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -19,6 +19,8 @@ enum MsgType : uint8_t {
     MSG_CLOTHES,     // vetements d'un joueur (CPedClothesDesc), a chaque changement puis toutes les 2 s ; relaye par l'hote
     MSG_VEHICLE,     // etat d'un vehicule, par son proprietaire (vehicles.cpp) ; relaye par l'hote
     MSG_DAMAGE,      // coup porte par un joueur a un autre (combat.cpp) ; relaye par l'hote
+    MSG_PED,         // hote -> invites : un personnage de mission (entities.cpp)
+    MSG_PEDHIT,      // invite -> hote : coup porte a un personnage de mission
 };
 
 #pragma pack(push, 1)
@@ -68,10 +70,23 @@ struct MsgVehicle {
     uint8_t wheels[4], doors[6];   // CDamageManager (voitures seulement)
     uint32_t lights, panels;
 };
-enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */ };
+enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */ };
 // Coup porte par le joueur "from" au joueur "to" : touche decidee chez le tireur, degats appliques par le jeu du joueur
 // touche (regles du joueur, gilet, reaction, mort).
-struct MsgDamage { uint8_t type, from, to, weapon, bodyPart, pad[3]; float damage; };
+// pedId : coup d'un personnage de mission de l'hote (son id MsgPed), 0 : du joueur "from".
+struct MsgDamage { uint8_t type, from, to, weapon, bodyPart, pad[3]; float damage; uint32_t pedId; };
+// Personnage de mission de l'hote (id = sa reference de pool chez l'hote), ~15 fois par seconde.
+struct MsgPed {
+    uint8_t type, flags;        // PF_*
+    uint16_t model;
+    uint32_t id;
+    float pos[3], speed[3], heading, health;
+    uint8_t moveState, weapon, seat, area;
+    uint32_t vehicleId;         // vehicule reseau (0 : a pied)
+    char special[8];            // modele special (290-299) : son nom (CStreaming::RequestSpecialModel)
+};
+enum { PF_DEAD = 1 };
+struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 struct MsgWorld {
     uint8_t type;
     uint8_t hours, minutes;
@@ -110,4 +125,6 @@ extern uint16_t g_myPing;
 extern void (*g_onClothes)(const MsgClothes &c);   // vetements d'un autre joueur
 extern void (*g_onVehicle)(const MsgVehicle &v);   // etat d'un vehicule d'un autre joueur
 extern void (*g_onDamage)(const MsgDamage &d);     // coup porte par un joueur a un autre
+extern void (*g_onPed)(const MsgPed &p);           // invite : personnage de mission de l'hote
+extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite sur un personnage de mission
 

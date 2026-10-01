@@ -7,5 +7,7 @@ void CombatFillState(MsgState &s);                                    // tirs et
 void CombatPuppetCreated(int id);                                     // pantin (re)cree : son arme sera redonnee
 void CombatUpdatePuppet(int id, void *ped, const MsgState &s);        // arme en main et tirs rejoues
 void CombatKillPuppet(void *ped, int weapon);                          // le joueur du pantin est mort chez lui
+void ApplyPedHit(void *victim, void *damager, int weapon, int damage, int bodyPart);   // coup comme une balle
+void EnsurePedWeapon(void *ped, int type, int &current);
 void CombatTestShot(void *ped, const float *aim);                     // autotest : tir de l'arme en main vers un point
 int PuppetIndex(void *ped);                                           // coop.cpp : joueur dont c'est le pantin, sinon -1

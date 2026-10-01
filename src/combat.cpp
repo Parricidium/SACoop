@@ -12,6 +12,7 @@
 #include "net.h"
 #include "game.h"
 #include "combat.h"
+#include "entities.h"
 #include <math.h>
 #include <string.h>
 
@@ -49,10 +50,11 @@ void CombatFillState(MsgState &s)
 // --- Arme en main du pantin ---
 static int g_puppetWeapon[MAX_PLAYERS] = { -1, -1, -1, -1 };
 
-static void GivePuppetWeapon(int id, void *ped, int type)
+// Met l'arme "type" en main (modele charge avant). current : derniere arme donnee (-1 : aucune).
+void EnsurePedWeapon(void *ped, int type, int &current)
 {
     if (type < 0 || type > 46) type = 0;
-    if (g_puppetWeapon[id] == type) return;
+    if (current == type) return;
     uint8_t *info = WeaponInfo(type);
     if (!info) return;
     int m1 = *(int *)(info + 0xC), m2 = *(int *)(info + 0x10);
@@ -62,8 +64,9 @@ static void GivePuppetWeapon(int id, void *ped, int type)
     if ((m1 > 0 && !ModelLoaded(m1)) || (m2 > 0 && !ModelLoaded(m2))) return;   // on reessaie plus tard
     int slot = type ? GiveWeapon(ped, type, 9999) : 0;
     SetCurrentWeapon(ped, slot);
-    g_puppetWeapon[id] = type;
+    current = type;
 }
+static void GivePuppetWeapon(int id, void *ped, int type) { EnsurePedWeapon(ped, type, g_puppetWeapon[id]); }
 
 void CombatPuppetCreated(int id) { g_puppetWeapon[id] = -1; g_shotsKnown[id] = false; }
 
@@ -117,9 +120,10 @@ static void __fastcall h_Damage(int *calc, void *edx, void *victim, float *resp,
 {
     if (g_killing) { o_Damage(calc, edx, victim, resp, speak); return; }
     void *damager = (void *)calc[0];
-    // Coup d'un pantin, ou de la voiture qu'il conduit : decide chez son joueur, rien en local.
-    bool fromPuppet = damager && (PuppetIndex(damager) >= 0 ||
-                      ((*((uint8_t *)damager + 0x36) & 7) == 2 && PuppetIndex(Field<void *>(damager, VEH_DRIVER)) >= 0));
+    // Coup d'un pantin ou d'une copie de personnage de mission (ou de la voiture qu'il conduit) : decide chez son
+    // joueur / chez l'hote, rien en local.
+    void *damagerPed = damager && (*((uint8_t *)damager + 0x36) & 7) == 2 ? Field<void *>(damager, VEH_DRIVER) : damager;
+    bool fromPuppet = damagerPed && (PuppetIndex(damagerPed) >= 0 || IsMissionCopy(damagerPed));
     if (fromPuppet && !*((uint8_t *)resp + 10)) {
         resp[0] = resp[1] = 0;
         *((uint8_t *)resp + 8) = 0;
@@ -128,6 +132,17 @@ static void __fastcall h_Damage(int *calc, void *edx, void *victim, float *resp,
         return;
     }
     int victimPlayer = PuppetIndex(victim);
+    if (victimPlayer < 0 && IsMissionCopy(victim)) {   // copie d'un personnage de mission : l'hote decide
+        void *me = FindPlayerPed();
+        bool mine = damager && (damager == me || ((*((uint8_t *)damager + 0x36) & 7) == 2 && Field<void *>(damager, VEH_DRIVER) == me));
+        float damage = *(float *)&calc[1];
+        if (!*((uint8_t *)resp + 10) && mine && damage > 0) SendMissionPedHit(victim, calc[3], calc[2], damage);
+        resp[0] = resp[1] = 0;
+        *((uint8_t *)resp + 8) = 0;
+        *((uint8_t *)resp + 9) = 0;
+        *((uint8_t *)resp + 10) = 1;
+        return;
+    }
     if (victimPlayer < 0) { o_Damage(calc, edx, victim, resp, speak); return; }
     // Pantin touche : rien en local (son joueur fait foi) ; un coup du joueur local est envoye a son joueur.
     bool fresh = !*((uint8_t *)resp + 10);
@@ -135,9 +150,15 @@ static void __fastcall h_Damage(int *calc, void *edx, void *victim, float *resp,
     bool mine = damager && (damager == me || ((*((uint8_t *)damager + 0x36) & 7) == 2 && Field<void *>(damager, VEH_DRIVER) == me));
     float damage = *(float *)&calc[1];
     if (fresh && mine && damage > 0) {
-        MsgDamage d = { MSG_DAMAGE, (uint8_t)(g_localId < 0 ? 0 : g_localId), (uint8_t)victimPlayer, (uint8_t)calc[3], (uint8_t)calc[2], {}, damage };
+        MsgDamage d = { MSG_DAMAGE, (uint8_t)(g_localId < 0 ? 0 : g_localId), (uint8_t)victimPlayer, (uint8_t)calc[3], (uint8_t)calc[2], {}, damage, 0 };
         NetSendToAll(&d, sizeof(d));
         Log("coup sur le joueur %d : %.1f (arme %d, partie %d)", victimPlayer, damage, calc[3], calc[2]);
+    }
+    // Hote : un personnage de mission (ou sa voiture) touche le pantin d'un invite : le coup est pour ce joueur.
+    uint32_t pedId = fresh && damage > 0 && g_cfg.host && !mine ? MissionPedId(damagerPed) : 0;
+    if (pedId) {
+        MsgDamage d = { MSG_DAMAGE, 0, (uint8_t)victimPlayer, (uint8_t)calc[3], (uint8_t)calc[2], {}, damage, pedId };
+        NetSendToAll(&d, sizeof(d));
     }
     resp[0] = resp[1] = 0;
     *((uint8_t *)resp + 8) = 0;
@@ -147,7 +168,7 @@ static void __fastcall h_Damage(int *calc, void *edx, void *victim, float *resp,
 
 // Coup comme celui d'une balle : CWeapon::GenerateDamageEvent (0x73A530 : victime, auteur, arme, degats, partie du
 // corps, direction) calcule la reponse (CPedDamageResponseCalculator) et poste l'evenement (reaction, chute, mort).
-static void ApplyHit(void *victim, void *damager, int weapon, int damage, int bodyPart)
+void ApplyPedHit(void *victim, void *damager, int weapon, int damage, int bodyPart)
 {
     if (weapon < 0 || weapon > 54) weapon = 0;
     if (bodyPart < 3 || bodyPart > 9) bodyPart = 3;
@@ -157,19 +178,20 @@ static void ApplyHit(void *victim, void *damager, int weapon, int damage, int bo
 }
 
 // Le joueur du pantin est mort chez lui : coup fatal sur le pantin, le jeu joue la chute.
-void CombatKillPuppet(void *ped, int weapon) { ApplyHit(ped, nullptr, weapon, 1000, 3); }
+void CombatKillPuppet(void *ped, int weapon) { ApplyPedHit(ped, nullptr, weapon, 1000, 3); }
 
 void *PuppetOf(int id);
 
 static void OnDamage(const MsgDamage &d)
 {
-    if (d.to != g_localId || !g_cfg.friendlyFire) return;
+    if (d.to != g_localId || (!d.pedId && !g_cfg.friendlyFire)) return;
     void *me = FindPlayerPed();
     if (!me || GameState() != 9 || Field<float>(me, PED_HEALTH) <= 0.0f) return;
     int damage = (int)(d.damage + 0.5f);
     if (damage < 1 || damage > 1000) return;
     float before = Field<float>(me, PED_HEALTH) + Field<float>(me, PED_ARMOUR);
-    ApplyHit(me, PuppetOf(d.from), d.weapon, damage, d.bodyPart);   // auteur : le pantin du tireur (mort creditee)
+    void *damager = d.pedId ? MissionCopyById(d.pedId) : PuppetOf(d.from);   // auteur : pantin ou copie (mort creditee)
+    ApplyPedHit(me, damager, d.weapon, damage, d.bodyPart);
     Log("touche par le joueur %d : %d (arme %d, partie %d) -> vie %.0f, gilet %.0f (-%.0f)", d.from, damage, d.weapon, d.bodyPart,
         Field<float>(me, PED_HEALTH), Field<float>(me, PED_ARMOUR), before - Field<float>(me, PED_HEALTH) - Field<float>(me, PED_ARMOUR));
 }
