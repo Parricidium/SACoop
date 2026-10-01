@@ -20,6 +20,7 @@
 #include "entities.h"
 #include "mirror.h"
 #include "conditions.h"
+#include "savesync.h"
 #include "script.h"
 #include <math.h>
 #include <string.h>
@@ -781,6 +782,22 @@ void CoopFrame(bool inGameLoop)
     static bool netTried;
     if (g_cfg.netAuto && !netTried) { netTried = true; NetStart(); }
     if (!NetRunning()) return;
+    SaveSyncFrame();
+    {   // arrivees et departs des joueurs (message a l'ecran)
+        static bool was[MAX_PLAYERS];
+        static const bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+            bool is = g_players[i].connected && i != g_localId;
+            if (is == was[i]) continue;
+            was[i] = is;
+            if (is && !g_players[i].state.name[0]) { was[i] = false; continue; }   // nom pas encore connu
+            char msg[96];
+            const char *name = g_players[i].state.name[0] ? g_players[i].state.name : "?";
+            if (is) wsprintfA(msg, fr ? "%s a rejoint la partie" : "%s joined the game", name);
+            else wsprintfA(msg, fr ? "%s a quitte la partie" : "%s left the game", name);
+            HudToast(msg, 5000);
+        }
+    }
     g_onClothes = OnClothes;
     g_onWorld = OnWorld;
     NetPoll();

@@ -88,10 +88,49 @@ static void DrawNames()
     if (any) font::DrawFonts();
 }
 
+// Messages coop en bas de l'ecran (arrivee d'un joueur, sauvegarde recue...) : texte ASCII, quelques secondes.
+static char g_toast[3][96];
+static uint32_t g_toastUntil[3];
+
+void HudToast(const char *text, unsigned ms)
+{
+    int slot = 0;
+    for (int i = 0; i < 3; i++) if (g_toastUntil[i] < g_toastUntil[slot]) slot = i;
+    lstrcpynA(g_toast[slot], text, sizeof(g_toast[slot]));
+    g_toastUntil[slot] = GetTickCount() + ms;
+    Log("message : %s", text);
+}
+
+static void DrawToasts()
+{
+    if (GameState() != 9) return;
+    int sw = *(int *)0xC17044, sh = *(int *)0xC17048;
+    uint32_t now = GetTickCount();
+    float y = sh * 0.78f;
+    bool any = false;
+    for (int i = 0; i < 3; i++) {
+        if ((int)(g_toastUntil[i] - now) <= 0) continue;
+        font::SetFontStyle(1);
+        font::SetProportional(true);
+        font::SetBackground(false, false);
+        font::SetOrientation(0);
+        font::SetCentreSize((float)sw);
+        font::SetScale(0.5f * sw / 640.0f, 1.1f * sh / 448.0f);
+        font::SetEdge(1);
+        font::SetDropColor(RGBA(0, 0, 0, 255));
+        font::SetColor(RGBA(255, 255, 255, 255));
+        font::Print(sw * 0.5f, y, g_toast[i]);
+        y -= sh * 0.05f;
+        any = true;
+    }
+    if (any) font::DrawFonts();
+}
+
 static void __cdecl h_HudDraw()
 {
     ((void(__cdecl *)())0x58FAE0)();   // CHud::Draw
     DrawNames();
+    DrawToasts();
 }
 
 void InstallHud(void *(*puppetOf)(int))
