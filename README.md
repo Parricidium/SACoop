@@ -72,6 +72,7 @@ game version, and starts the game as host or guest. Options and release notes ar
   mission gets its markers and texts. **Shared save**: when the host saves, the save goes to every player's same slot. Side activities stay local to each player.
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
+- **F5** (held): players board (name, health, distance).
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
 - Settings and saves kept in the game folder, apart from your solo saves.
 - Two copies of the game can run on the same PC (the game normally refuses).
@@ -159,6 +160,7 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
   chaque joueur, au même emplacement. Les activités annexes restent locales à chacun.
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
+- **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance).
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture
   sautés.
 - Réglages et sauvegardes dans le dossier du jeu, à part de vos sauvegardes solo.

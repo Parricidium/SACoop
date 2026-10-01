@@ -64,7 +64,7 @@ static bool g_wasShared;
 
 static void __cdecl h_CarGenerators()
 {
-    if (PopulationShared()) return;
+    if (PopulationShared()) return;   // (voitures garees : jamais, meme recherche)
     ((void(__cdecl *)())0x6F3F40)();
 }
 
@@ -105,19 +105,31 @@ static void RemoveLocalPopulation()
     }
 }
 
+// Niveau de recherche du joueur local : CWorld::Players[0].m_PlayerData.m_pWanted (0xB7CD9C), CWanted +0x2C.
+static int WantedLevel()
+{
+    uint8_t *w = *(uint8_t **)0xB7CD9C;
+    int lvl = w ? *(int *)(w + 0x2C) : 0;
+    return lvl >= 0 && lvl <= 6 ? lvl : 0;
+}
+
 static void GuestFrame()
 {
     float &ped = *(float *)0x8D2530, &car = *(float *)0x8A5B20;
-    bool shared = PopulationShared();
-    if (shared != g_wasShared) {
-        g_wasShared = shared;
-        if (shared) { g_savedPed = ped; g_savedCar = car; }
+    // Recherche : la police de l'hote ne poursuit que lui ; l'invite recherche garde la generation de son jeu (elle
+    // amene sa police), le reste de sa population locale est retire comme d'habitude.
+    bool shared = PopulationShared(), quiet = shared && WantedLevel() == 0;
+    if (quiet != g_wasShared) {
+        g_wasShared = quiet;
+        if (quiet) { g_savedPed = ped; g_savedCar = car; }
         else { ped = g_savedPed; car = g_savedCar; }
-        Log("population %s", shared ? "partagee (celle de l'hote)" : "locale");
+        Log("population %s", quiet ? "partagee (celle de l'hote)" : shared ? "partagee, generation locale (recherche)" : "locale");
     }
     if (!shared) return;
-    if (ped != 0.0f) { g_savedPed = ped; ped = 0.0f; }   // un script a pu la changer : retenue pour la sortie
-    if (car != 0.0f) { g_savedCar = car; car = 0.0f; }
+    if (quiet) {
+        if (ped != 0.0f) { g_savedPed = ped; ped = 0.0f; }   // un script a pu la changer : retenue pour la sortie
+        if (car != 0.0f) { g_savedCar = car; car = 0.0f; }
+    }
     static uint32_t last, lastReport;
     if (GetTickCount() - last < 250) return;
     last = GetTickCount();

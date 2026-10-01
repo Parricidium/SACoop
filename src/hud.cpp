@@ -55,7 +55,7 @@ static void *(*g_puppetOf)(int);
 
 static void DrawNames()
 {
-    if (!g_puppetOf || GameState() != 9) return;
+    if (!g_puppetOf || GameState() != 9 || *(uint8_t *)0xB5F851) return;   // (pas pendant les cinematiques)
     void *me = FindPlayerPed();
     if (!me) return;
     int sw = *(int *)0xC17044, sh = *(int *)0xC17048;   // RsGlobal.maximumWidth / maximumHeight
@@ -126,11 +126,58 @@ static void DrawToasts()
     if (any) font::DrawFonts();
 }
 
+// Tableau des joueurs, touche F5 maintenue (fenetre du jeu active) : pseudo, hote, vie, distance. Tableau force a
+// l'ecran par l'autotest TestTableau=1.
+static void DrawPlayers()
+{
+    bool show = (GameHasFocus() && (GetAsyncKeyState(VK_F5) & 0x8000)) || g_cfg.testBoard;
+    if (!show || GameState() != 9 || !NetRunning()) return;
+    void *me = FindPlayerPed();
+    if (!me) return;
+    static const bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    int sw = *(int *)0xC17044, sh = *(int *)0xC17048;
+    float x = sw * 0.18f, y = sh * 0.22f, line = sh * 0.055f;
+    auto text = [&](float px, float py, uint32_t color, const char *s, int align) {
+        font::SetFontStyle(1);
+        font::SetProportional(true);
+        font::SetBackground(false, false);
+        font::SetOrientation(align);
+        font::SetCentreSize((float)sw);
+        font::SetScale(0.42f * sw / 640.0f, 0.95f * sh / 448.0f);
+        font::SetEdge(1);
+        font::SetDropColor(RGBA(0, 0, 0, 255));
+        font::SetColor(color);
+        font::Print(px, py, s);
+    };
+    text(sw * 0.5f, y, RGBA(255, 255, 255, 255), fr ? "JOUEURS" : "PLAYERS", 0);
+    y += line * 1.3f;
+    const float *mp = EntityPos(me);
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        bool local = i == g_localId;
+        if (!local && !g_players[i].connected) continue;
+        const MsgState &s = g_players[i].state;
+        char left[64], right[64];
+        wsprintfA(left, "%s%s", local ? g_cfg.playerName : (s.name[0] ? s.name : "?"), i == 0 ? (fr ? " (hote)" : " (host)") : "");
+        if (local) wsprintfA(right, fr ? "vie %d  -  vous" : "health %d  -  you", (int)Field<float>(me, PED_HEALTH));
+        else {
+            float dx = s.pos[0] - mp[0], dy = s.pos[1] - mp[1], dz = s.pos[2] - mp[2];
+            int dist = (int)sqrtf(dx * dx + dy * dy + dz * dz);
+            if (s.inGame) wsprintfA(right, fr ? "vie %d  -  %d m" : "health %d  -  %d m", (int)s.health, dist);
+            else lstrcpyA(right, fr ? "au menu" : "in menu");
+        }
+        text(x, y, kNameColor[i], left, 1);
+        text(sw - x, y, RGBA(230, 230, 230, 255), right, 2);
+        y += line;
+    }
+    font::DrawFonts();
+}
+
 static void __cdecl h_HudDraw()
 {
     ((void(__cdecl *)())0x58FAE0)();   // CHud::Draw
     DrawNames();
     DrawToasts();
+    DrawPlayers();
 }
 
 void InstallHud(void *(*puppetOf)(int))
