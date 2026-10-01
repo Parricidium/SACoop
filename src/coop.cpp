@@ -696,15 +696,17 @@ static void Autotest()
         return;
     }
     // "taxi" (hote) : au volant d'un Greenwood pose a 5 m, immobile jusqu'a 45 s, puis avance 2 s.
-    if (_stricmp(g_cfg.autotest, "taxi") == 0) {
+    // "taximoto" (hote) : pareil sur une PCJ-600 (461) : l'invite monte derriere.
+    if (_stricmp(g_cfg.autotest, "taxi") == 0 || _stricmp(g_cfg.autotest, "taximoto") == 0) {
         static bool done;
+        int model = _stricmp(g_cfg.autotest, "taximoto") == 0 ? 461 : 492;
         void *ped = FindPlayerPed();
         if (!done) {
             done = true;
             float pos[3] = { 2485.0f, -1665.0f, 13.3f };   // Grove Street, degage (portieres accessibles des deux cotes)
             PlacePuppet(ped, pos, -1.5708f);
-            if (!ModelLoaded(492)) { RequestModel(492, 2); LoadAllRequestedModels(false); }
-            if (void *car = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(492, 2490.0f, -1665.0f, 13.6f, false)) {
+            if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
+            if (void *car = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(model, 2490.0f, -1665.0f, 13.6f, false)) {
                 if (uint8_t *m = *(uint8_t **)((uint8_t *)car + 0x14)) {
                     float *r = (float *)m, *f = (float *)(m + 0x10);
                     r[0] = 0; r[1] = -1; r[2] = 0; f[0] = 1; f[1] = 0; f[2] = 0;
@@ -798,7 +800,9 @@ static void Autotest()
     }
     // "voiture" (hote) : un Greenwood (492) pose a 5 m, l'hote mis au volant, puis avance 2 s / s'arrete 2 s / recule 2 s
     // (Croix : accelerer, Carre : freiner et reculer, sur la manette 0).
-    if (_stricmp(g_cfg.autotest, "voiture") == 0) {
+    // "moto" (hote) : pareil avec une PCJ-600 (461).
+    bool moto = _stricmp(g_cfg.autotest, "moto") == 0;
+    if (_stricmp(g_cfg.autotest, "voiture") == 0 || moto) {
         static void *car;
         static bool done;
         void *ped = FindPlayerPed();
@@ -806,15 +810,16 @@ static void Autotest()
             done = true;
             float pos[3] = { 2242.0f, -1262.3f, 23.9f };
             PlacePuppet(ped, pos, -1.5708f);
-            if (!ModelLoaded(492)) { RequestModel(492, 2); LoadAllRequestedModels(false); }
-            car = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(492, 2247.0f, -1262.3f, 24.2f, false);
+            int model = moto ? 461 : 492;
+            if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
+            car = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(model, 2247.0f, -1262.3f, 24.2f, false);
             if (car) {
                 if (uint8_t *m = *(uint8_t **)((uint8_t *)car + 0x14)) {   // tournee vers +x
                     float *r = (float *)m, *f = (float *)(m + 0x10);
                     r[0] = 0; r[1] = -1; r[2] = 0; f[0] = 1; f[1] = 0; f[2] = 0;
                 }
                 WarpPuppetIn(ped, car, 0);
-                Log("autotest : au volant d'un Greenwood");
+                Log("autotest : au volant d'un %s", moto ? "PCJ-600" : "Greenwood");
             }
             return;
         }
@@ -827,7 +832,7 @@ static void Autotest()
             return;
         }
         uint32_t c = (t - 20000) % 3200;
-        int phase = c < 1000 ? 0 : c < 2400 ? 1 : 2;
+        int phase = c < (moto ? 350u : 1000u) ? 0 : c < (moto ? 1800u : 2400u) ? 1 : 2;   // (moto : bien plus vive)
         joy[0x20 / 2] = phase == 0 ? 255 : 0;   // Croix
         joy[0x1C / 2] = phase == 2 ? 255 : 0;   // Carre
         static int last = -1;
