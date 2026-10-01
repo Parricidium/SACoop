@@ -7,6 +7,7 @@ uint32_t HostVehicleId(void *veh, bool occupied, bool ambient);   // hote : vehi
 void HostRegisterMissionVehicles();
 void HostRegisterAmbientVehicles();              // hote : vehicules ordinaires pres des invites partages
 bool IsNetVehicle(void *veh);
+bool IsRemoteVehicle(void *veh);   // copie du vehicule d'un autre joueur
 uint32_t LocalVehicleId(void *veh, bool driver); // identifiant reseau du vehicule occupe par le joueur local
 void *NetVehicleByOwnerRef(int owner, int ref);  // copie d'un vehicule par son handle de script chez owner
 int VehicleRef(void *veh);

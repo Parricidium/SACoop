@@ -579,13 +579,15 @@ static void Autotest()
     }
     // "police" (invite) : pose a 6 m de l'hote, puis recherche 2 a 30 s : la police de l'hote doit venir le chercher
     // (police.cpp) et ses coups arriver ici. Vie remise a 100 toutes les 10 s pour durer.
-    if (_stricmp(g_cfg.autotest, "police") == 0 && g_players[0].connected && g_players[0].state.inGame) {
+    // "policeloin" (invite) : pareil a 90 m a l'ouest de l'hote : les voitures de police doivent venir a lui.
+    bool loin = _stricmp(g_cfg.autotest, "policeloin") == 0;
+    if ((_stricmp(g_cfg.autotest, "police") == 0 || loin) && g_players[0].connected && g_players[0].state.inGame) {
         static bool placed, wanted;
         static uint32_t lastHeal;
         void *ped = FindPlayerPed();
         if (!placed && t > 26000) {
             placed = true;
-            float pos[3] = { g_players[0].state.pos[0] + 6.0f, g_players[0].state.pos[1], g_players[0].state.pos[2] };
+            float pos[3] = { g_players[0].state.pos[0] + (loin ? -90.0f : 6.0f), g_players[0].state.pos[1] + (loin ? 8.0f : 0.0f), g_players[0].state.pos[2] + (loin ? 1.0f : 0.0f) };
             PlacePuppet(ped, pos, 1.5708f);
             Log("autotest : place a 6 m de l'hote");
         }
