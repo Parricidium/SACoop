@@ -19,6 +19,7 @@
 #include "peds.h"
 #include "entities.h"
 #include "mirror.h"
+#include "conditions.h"
 #include "script.h"
 #include <math.h>
 #include <string.h>
@@ -84,6 +85,7 @@ void InstallPuppetRender()
     InstallHud(PuppetOf);
     InstallCombat();
     InstallEntities();
+    InstallConditions();
 }
 static uint32_t g_calmSince;   // depuis quand on est en partie sans cinematique (creation des pantins)
 
@@ -581,6 +583,21 @@ static void Autotest()
         }
         return;
     }
+    // "aide" (invite) : des que la mission de l'hote a un vehicule de mission (copie), on se met au volant : la
+    // mission doit avancer comme si l'hote y etait monte (conditions.cpp).
+    if (_stricmp(g_cfg.autotest, "aide") == 0) {
+        static uint32_t seenAt;
+        static bool inside;
+        void *veh = AnyMissionVehicleCopy();
+        if (!veh) { seenAt = 0; return; }
+        if (!seenAt) seenAt = t;
+        if (!inside && t - seenAt > 8000 && !Field<void *>(veh, VEH_DRIVER)) {
+            inside = true;
+            WarpPuppetIn(FindPlayerPed(), veh, 0);
+            Log("autotest : au volant du vehicule de mission");
+        }
+        return;
+    }
     // "tireinv" (invite) : place comme "regarde", un M4, puis tire sur la premiere copie de personnage de mission
     // (a partir de 32 s, un coup toutes les 500 ms) : les coups vont a l'hote.
     if (_stricmp(g_cfg.autotest, "tireinv") == 0) {
@@ -767,6 +784,7 @@ void CoopFrame(bool inGameLoop)
     VehiclesFrame();
     EntitiesFrame();
     MirrorFrame();
+    ConditionsFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
     SyncWorld();

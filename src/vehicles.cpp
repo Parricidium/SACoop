@@ -72,6 +72,14 @@ void *NetVehicleByOwnerRef(int owner, int ref)
 }
 int VehicleRef(void *veh) { return VehRef(veh); }
 
+// Copie d'un vehicule de mission de l'hote (autotests).
+void *AnyMissionVehicleCopy()
+{
+    for (auto &n : g_veh)
+        if (n.id && n.owner != g_localId && (n.last.flags & VF_MISSION) && Alive(n)) return n.veh;
+    return nullptr;
+}
+
 void *NetVehicleById(uint32_t id)
 {
     NetVeh *n = FindById(id);
