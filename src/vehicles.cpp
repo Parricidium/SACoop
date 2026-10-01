@@ -63,6 +63,15 @@ static NetVeh *NewSlot()
     return nullptr;
 }
 
+// Vehicule (copie) dont le handle de script chez le joueur owner vaut ref (miroir des missions).
+void *NetVehicleByOwnerRef(int owner, int ref)
+{
+    for (auto &n : g_veh)
+        if (n.id && n.owner == owner && n.last.ownerRef == ref && Alive(n)) return n.veh;
+    return nullptr;
+}
+int VehicleRef(void *veh) { return VehRef(veh); }
+
 void *NetVehicleById(uint32_t id)
 {
     NetVeh *n = FindById(id);
@@ -169,6 +178,7 @@ static void SendOwned()
         memcpy(m.speed, v + 0x44, 12);
         memcpy(m.turn, v + 0x50, 12);
         m.driven = driving;
+        m.ownerRef = n.ref;
         if (n.mission) m.flags |= VF_MISSION;
         m.health = *(float *)(v + 0x4C0);
         if ((v[0x36] >> 3) == 5) m.flags |= VF_WRECKED;
