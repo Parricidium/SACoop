@@ -915,7 +915,7 @@ static void BuildOptions()
     T2(TAB_VIDEO, "GrandEcran", 1, L"Grand \u00E9cran", L"Widescreen",
        L"La 3D et le HUD gardent leurs proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi.",
        L"The 3D and the HUD keep their proportions on wide screens, with a wider field of view.");
-    C(TAB_VIDEO, "DistanceAffichage", 200, { 100, 150, 200, 250, 300 }, L"Distance d'affichage", L"Draw distance", {}, {}, L" %",
+    C(TAB_VIDEO, "DistanceAffichage", 200, { 100, 125, 150, 200, 250 }, L"Distance d'affichage", L"Draw distance", {}, {}, L" %",
       L"100 % = jeu d'origine. Au-dessus : d\u00E9cor d\u00E9taill\u00E9 et horizon plus loin, brouillard repouss\u00E9 (plus de m\u00E9moire).",
       L"100% = original game. Above it: detailed scenery and horizon farther away, fog pushed back (more memory).");
     C(TAB_VIDEO, "ZonePopulation", 150, { 100, 125, 150, 175, 200 }, L"Zone de population", L"Population area", {}, {}, L" %",

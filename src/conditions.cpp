@@ -6,6 +6,10 @@
 //  - Marqueurs au sol : quand une commande LOCATE / IS_CHAR_IN_AREA de l'hote a son drapeau "sphere", elle est envoyee
 //    aux invites (MSG_MARKER, 5 fois par seconde au plus) ; chacun la rejoue a chaque image avec son propre joueur
 //    (le jeu dessine le marqueur), jusqu'a 600 ms apres le dernier message.
+//  - Un invite fait avancer la mission loin de l'hote (zone ou marqueur, a plus de 40 m ou dans un autre interieur) :
+//    l'hote est pose a cote de lui a l'image suivante, interieur compris. Sinon la suite (cinematique, interieur) se
+//    jouait chez l'hote la ou il etait, sans le decor autour (le jeu ne charge le monde qu'autour de son joueur) :
+//    essai de JD et GG du 01/10, porte du coiffeur passee par l'invite, cinematique avec seulement les personnages.
 #include "util.h"
 #include "sacoop.h"
 #include "net.h"
@@ -15,6 +19,7 @@
 #include "mirror.h"
 #include "conditions.h"
 #include "vehicles.h"
+#include "hud.h"
 #include <string.h>
 #include <math.h>
 
@@ -109,6 +114,9 @@ void ConditionBefore(void *script, int op)
 }
 void ConditionAfter() { g_curCond = nullptr; }
 
+static int g_follow = -1;   // invite a rejoindre (hote)
+static uint32_t g_lastFollow;
+
 typedef void(__thiscall *UpdateCompareFlag_t)(void *script, bool result);
 static UpdateCompareFlag_t o_UpdateCompareFlag;
 static void __fastcall h_UpdateCompareFlag(void *script, void *, bool result)
@@ -116,7 +124,16 @@ static void __fastcall h_UpdateCompareFlag(void *script, void *, bool result)
     if (!result && g_curCond && script == g_curScript && g_valsOk) {
         for (int i = 1; i < MAX_PLAYERS; i++)
             if (void *ped = PuppetOf(i))
-                if (Satisfies(ped, *g_curCond, g_vals)) { result = true; break; }
+                if (Satisfies(ped, *g_curCond, g_vals)) {
+                    result = true;
+                    void *me = FindPlayerPed();
+                    if (me && g_curCond->shape <= 3 && GetTickCount() - g_lastFollow > 15000) {
+                        const float *a = EntityPos(me), *b = EntityPos(ped);
+                        float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+                        if (dx * dx + dy * dy + dz * dz > 40.0f * 40.0f || EntityArea(me) != EntityArea(ped)) g_follow = i;
+                    }
+                    break;
+                }
     }
     o_UpdateCompareFlag(script, result);
 }
@@ -141,9 +158,44 @@ static void OnMarker(const MsgMarker &m)
     slot->until = GetTickCount() + 600;
 }
 
+// Hote : rejoindre l'invite qui vient de faire avancer la mission (voir en tete).
+static void FollowGuest()
+{
+    int i = g_follow;
+    g_follow = -1;
+    void *me = FindPlayerPed(), *ped = PuppetOf(i);
+    if (!me || !ped) return;
+    g_lastFollow = GetTickCount();
+    const float *b = EntityPos(ped);
+    float h = Field<float>(ped, PED_ROTATION);
+    float pos[3] = { b[0] + sinf(h) * 1.5f, b[1] - cosf(h) * 1.5f, b[2] };
+    int area = EntityArea(ped), ref = PedRef(me);
+    if (area != *(int *)0xB72914) {   // CGame::currArea : autre interieur
+        RunScriptCommand(0x04BB, 1, &area);   // SELECT_INTERIOR
+        int link[2] = { ref, area };
+        RunScriptCommand(0x0860, 2, link);    // LINK_CHAR_TO_INTERIOR
+    }
+    int scene[3];
+    memcpy(scene, pos, 12);
+    RunScriptCommandTyped(0x03CB, 3, "fff", scene);   // LOAD_SCENE
+    if (PedVehicle(me)) {
+        int warp[4] = { ref };
+        memcpy(warp + 1, pos, 12);
+        RunScriptCommandTyped(0x0362, 4, "ifff", warp);   // REMOVE_CHAR_FROM_CAR_MAINTAIN_POSITION... pose au point
+    }
+    EntityArea(me) = (uint8_t)area;
+    PlacePuppet(me, pos, h);
+    const char *name = g_players[i].state.name[0] ? g_players[i].state.name : "?";
+    char msg[96];
+    wsprintfA(msg, PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH ? "Mission : tu rejoins %s" : "Mission: joining %s", name);
+    HudToast(msg, 4000);
+    Log("conditions : %s a fait avancer la mission loin de l'hote, hote pose a cote (interieur %d)", name, area);
+}
+
 void ConditionsFrame()
 {
     g_onMarker = OnMarker;
+    if (g_cfg.host && g_follow >= 0 && GameState() == 9) FollowGuest();
     if (g_cfg.host || GameState() != 9 || !FindPlayerPed()) return;
     uint32_t now = GetTickCount();
     for (auto &k : g_markers) {

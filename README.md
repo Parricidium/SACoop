@@ -109,7 +109,7 @@ ready).
 - **60 FPS** (default): the original game's frame-rate bugs (swimming, braking, doors, helicopter rotors, pushing cars...)
   are fixed with the fixes of [Framerate Vigilante](https://github.com/GTAmodding/FramerateVigilante) (MIT), ported into
   SACoop; automatic 30/50 FPS caps where the game still needs them (pool, girlfriend, DRUGS1 indoors).
-- **Original game, further** (launcher VIDEO tab or F10 > DISPLAY, applied right away): draw distance up to 300%
+- **Original game, further** (launcher VIDEO tab or F10 > DISPLAY, applied right away): draw distance up to 250%
   (detailed scenery, horizon and fog further away), population area (how far pedestrians and cars appear) and density,
   anisotropic filtering.
 - **Modern rendering** (optional): ambient occlusion (corners, wall bases, under cars darker) and FXAA anti-aliasing.
@@ -228,7 +228,7 @@ quand un joueur arrive, part ou se met prêt).
   voitures poussées...) sont corrigés avec les correctifs de [Framerate Vigilante](https://github.com/GTAmodding/FramerateVigilante)
   (MIT), portés dans SACoop ; plafonds automatiques à 30/50 là où le jeu en a encore besoin (billard, copine, DRUGS1 en intérieur).
 - **Jeu d'origine, en plus loin** (onglet VIDÉO du lanceur ou F10 > AFFICHAGE, appliqué tout de suite) : distance
-  d'affichage jusqu'à 300 % (décor détaillé, horizon et brouillard plus loin), zone de population (distance d'apparition
+  d'affichage jusqu'à 250 % (décor détaillé, horizon et brouillard plus loin), zone de population (distance d'apparition
   des piétons et des voitures) et densité, filtrage anisotrope.
 - **Rendu moderne** (facultatif) : occlusion ambiante (coins, pieds des murs, dessous des voitures assombris) et
   anticrénelage FXAA.

@@ -195,10 +195,13 @@ static void SendOwned()
     for (auto &n : g_veh) {
         if (!n.id || n.owner != g_localId || !Alive(n)) continue;
         bool driving = now - n.lastDriven < 200;
-        const float *spd = (const float *)((uint8_t *)n.veh + 0x44);
+        uint8_t *v0 = (uint8_t *)n.veh;
+        const float *spd = (const float *)(v0 + 0x44);
         bool moving = spd[0] * spd[0] + spd[1] * spd[1] + spd[2] * spd[2] > 0.0001f;
         bool hosted = n.mission || n.ambient;
         uint32_t every = driving ? 33 : hosted && moving ? 66 : 500;
+        // circulation de l'hote loin de tout invite (80 m) : 5 fois par seconde suffisent
+        if (n.ambient && !driving && g_cfg.host && every < 200 && !NearSharedGuestAnywhere(EntityPos(n.veh), 80.0f)) every = 200;
         if (!driving && !hosted && now - n.lastDriven > 10000) continue;   // gare depuis 10 s : plus rien a envoyer
         if (now - n.lastSend < every) continue;
         n.lastSend = now;

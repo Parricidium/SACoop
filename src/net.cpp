@@ -66,9 +66,12 @@ static void Disconnect(int i);
 
 bool NetRunning() { return g_sock != INVALID_SOCKET; }
 
+static volatile long g_sentPackets, g_sentBytes;   // statistique (journal toutes les 30 s, NetPoll)
 static void SendTo(const sockaddr_in &to, const void *data, int len)
 {
     sendto(g_sock, (const char *)data, len, 0, (const sockaddr *)&to, sizeof(to));
+    InterlockedIncrement(&g_sentPackets);
+    InterlockedExchangeAdd(&g_sentBytes, len);
 }
 
 void NetStop()
@@ -431,6 +434,7 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
     }
 }
 
+static long g_recvPackets, g_recvBytes;
 void NetPoll()
 {
     if (g_sock == INVALID_SOCKET) return;
@@ -441,11 +445,35 @@ void NetPoll()
         fromLen = sizeof(from);
         int len = recvfrom(g_sock, (char *)buf, sizeof(buf), 0, (sockaddr *)&from, &fromLen);
         if (len <= 0) break;
+        g_recvPackets++;
+        g_recvBytes += len;
+        if (buf[0] == MSG_BATCH && len >= 2) {   // paquet regroupe : chaque message a son tour
+            int n = buf[1], p = 2;
+            for (int k = 0; k < n && p + 2 <= len; k++) {
+                int l = *(const uint16_t *)(buf + p);
+                p += 2;
+                if (l <= 0 || p + l > len) break;
+                if (g_cfg.host) HostReceive(buf + p, l, from);
+                else GuestReceive(buf + p, l, from);
+                p += l;
+            }
+            continue;
+        }
         if (g_cfg.host) HostReceive(buf, len, from);
         else GuestReceive(buf, len, from);
     }
 
     uint32_t now = GetTickCount();
+    static uint32_t statSince;
+    if (!statSince) statSince = now;
+    if (now - statSince >= 30000) {   // debit et ping (diagnostic des desynchronisations)
+        float sec = (now - statSince) / 1000.0f;
+        Log("reseau : ping %u ms, recu %.0f paquets/s (%.1f ko/s), envoye %.0f paquets/s (%.1f ko/s)", (unsigned)g_myPing,
+            g_recvPackets / sec, g_recvBytes / sec / 1024.0f, g_sentPackets / sec, g_sentBytes / sec / 1024.0f);
+        g_recvPackets = g_recvBytes = 0;
+        g_sentPackets = g_sentBytes = 0;
+        statSince = now;
+    }
     if (g_cfg.host) { for (int i = 1; i < MAX_PLAYERS; i++) if (g_players[i].connected) RlResend(i, now); }
     else if (g_localId >= 0) RlResend(0, now);
     static uint32_t lastPing;
@@ -481,18 +509,50 @@ void NetKeepAlive()
     else SendTo(g_hostAddr, &p, sizeof(p));
 }
 
+// Regroupement (fil du jeu) : les messages d'etat d'une image vers un meme joueur partent dans un seul paquet
+// MSG_BATCH (jusqu'a 1200 octets), envoye a la fin de l'image (NetFlush) ou quand il est plein. Avec une forte
+// population partagee, c'etaient des centaines de paquets par seconde (un par pieton ou voiture), trop pour un tunnel
+// VPN : pertes, pantins qui se teleportent (essai de JD et GG du 01/10, densite 300 %).
+struct Batch { uint8_t buf[1200]; int len, n; };
+static Batch g_batch[MAX_PLAYERS];   // hote : par invite ; invite : case 0 = l'hote
+static const sockaddr_in &BatchAddr(int i) { return g_cfg.host ? g_peerAddr[i] : g_hostAddr; }
+static void BatchFlush(int i)
+{
+    Batch &b = g_batch[i];
+    if (b.n == 1) SendTo(BatchAddr(i), b.buf + 4, b.len - 4);   // un seul message : tel quel
+    else if (b.n > 1) { b.buf[0] = MSG_BATCH; b.buf[1] = (uint8_t)b.n; SendTo(BatchAddr(i), b.buf, b.len); }
+    b.n = 0;
+    b.len = 2;
+}
+static void BatchAdd(int i, const void *data, int len)
+{
+    if (len > 1000) { SendTo(BatchAddr(i), data, len); return; }
+    Batch &b = g_batch[i];
+    if (b.n == 0) b.len = 2;
+    if (b.len + 2 + len > (int)sizeof(b.buf) || b.n == 255) BatchFlush(i);
+    *(uint16_t *)(b.buf + b.len) = (uint16_t)len;
+    memcpy(b.buf + b.len + 2, data, len);
+    b.len += 2 + len;
+    b.n++;
+}
+void NetFlush()
+{
+    if (g_sock == INVALID_SOCKET) return;
+    for (int i = 0; i < MAX_PLAYERS; i++) if (g_batch[i].n) BatchFlush(i);
+}
+
 void NetSendToGuests(const void *data, int len)
 {
     if (g_sock == INVALID_SOCKET || !g_cfg.host) return;
     for (int i = 1; i < MAX_PLAYERS; i++)
-        if (g_players[i].connected) SendTo(g_peerAddr[i], data, len);
+        if (g_players[i].connected) BatchAdd(i, data, len);
 }
 
 void NetSendToAll(const void *data, int len)
 {
     if (g_sock == INVALID_SOCKET || g_localId < 0) return;
     if (g_cfg.host) NetSendToGuests(data, len);
-    else SendTo(g_hostAddr, data, len);
+    else BatchAdd(0, data, len);
 }
 
 void NetSendBye()
