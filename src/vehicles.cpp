@@ -111,6 +111,7 @@ uint32_t LocalVehicleId(void *veh, bool driver)
 // Hote : vehicule de mission (CreatedBy +0x4A4 == 2) ou occupe par un personnage de mission. Il devient un vehicule
 // reseau de l'hote, envoye tant qu'il existe (chez les invites, sa copie disparait 3 s apres le dernier message).
 bool IsNetVehicle(void *veh) { return FindByVeh(veh) != nullptr; }
+bool IsRemoteVehicle(void *veh) { NetVeh *n = FindByVeh(veh); return n && n->owner != g_localId; }   // copie du vehicule d'un autre joueur
 
 uint32_t HostVehicleId(void *veh, bool occupied, bool ambient)
 {

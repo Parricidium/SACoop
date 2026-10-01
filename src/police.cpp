@@ -17,7 +17,9 @@
 #include "mirror.h"
 #include "population.h"
 #include "police.h"
+#include "vehicles.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 using namespace game;
@@ -131,6 +133,65 @@ static void HostPoliceChasesGuests()
         g_chases[g_numChases++] = { ref, best };
         perPlayer[best]++;
         Log("police : le policier %08X poursuit le joueur %d (recherche %d)", ref, best, g_players[best].state.wanted);
+    }
+    // Voitures de police (bIsLawEnforcer +0x428 bit 0) plus pres d'un invite recherche que de l'hote, a moins de
+    // 150 m : vers lui (CAR_GOTO_COORDINATES 00A7, redonne toutes les 2 s : il bouge) ; a moins de 20 m d'un invite a
+    // pied, les policiers descendent (TASK_LEAVE_ANY_CAR 0633) et la poursuite a pied ci-dessus prend le relais.
+    static uint32_t lastDrive;
+    bool drive = now - lastDrive >= 2000;
+    if (drive) lastDrive = now;
+    Pool *vp = *(Pool **)0xB74494;
+    if (g_cfg.logScripts) {   // releve : voitures des forces de l'ordre (createur, distance a l'hote)
+        static uint32_t lastReport;
+        if (now - lastReport > 10000) {
+            lastReport = now;
+            char line[256] = "";
+            int n = 0;
+            for (int i = 0; i < vp->size && n < 8; i++) {
+                if (vp->flags[i] & 0x80) continue;
+                uint8_t *v = vp->objects + i * 0xA18;
+                if (!(v[0x428] & 1)) continue;
+                char b[48];
+                sprintf(b, " [cree par %d, %.0f m%s]", v[0x4A4], me ? sqrtf(Dist2D(EntityPos(v), EntityPos(me))) : 0.0f, IsNetVehicle(v) ? ", reseau" : "");
+                strcat(line, b);
+                n++;
+            }
+            Log("police : %d voitures des forces de l'ordre%s", n, line);
+        }
+    }
+    for (int i = 0; i < vp->size; i++) {
+        if (vp->flags[i] & 0x80) continue;
+        uint8_t *v = vp->objects + i * 0xA18;
+        if (!(v[0x428] & 1) || v[0x4A4] != 1 || IsRemoteVehicle(v) || (v[0x36] >> 3) == 5) continue;   // aleatoire, a nous, pas une epave
+        void *drv = Field<void *>(v, VEH_DRIVER);
+        if (!drv || Field<int>(drv, 0x598) != 6 || PuppetIndex(drv) >= 0 || Field<float>(drv, PED_HEALTH) <= 0.0f) continue;
+        float dh = me && WantedLevel() ? Dist2D(EntityPos(v), EntityPos(me)) : 1e12f;
+        int who = -1;
+        float bestD = 150.0f * 150.0f;
+        for (int p = 1; p < MAX_PLAYERS; p++) {
+            void *pup = PuppetOf(p);
+            if (!pup || !PlayerUp(p) || !g_players[p].state.wanted) continue;
+            float d = Dist2D(EntityPos(v), EntityPos(pup));
+            if (d < bestD && d < dh) { bestD = d; who = p; }
+        }
+        if (who < 0) continue;
+        const MsgState &st = g_players[who].state;
+        if (!st.vehicleId && bestD < 20.0f * 20.0f) {
+            void *occ[9] = { drv };
+            for (int k = 0; k < 8; k++) occ[k + 1] = Field<void *>(v, VEH_PASSENGERS + k * 4);
+            for (void *c : occ) {
+                if (!c || Field<int>(c, 0x598) != 6 || PuppetIndex(c) >= 0) continue;
+                int ref = PedRef(c);
+                RunScriptCommand(0x0633, 1, &ref);   // TASK_LEAVE_ANY_CAR
+            }
+            if (g_cfg.logScripts) Log("police : voiture %08X arrivee pres du joueur %d, les policiers descendent", VehicleRef(v), who);
+            continue;
+        }
+        if (!drive) continue;
+        int a[4] = { VehicleRef(v) };
+        memcpy(&a[1], st.pos, 12);
+        RunScriptCommandTyped(0x00A7, 4, "ifff", a);   // CAR_GOTO_COORDINATES
+        Log("police : voiture %08X envoyee vers le joueur %d (%.0f m)", a[0], who, sqrtf(bestD));
     }
 }
 
