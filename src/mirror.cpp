@@ -6,6 +6,11 @@
 //    chez l'hote, MsgVehicle.ownerRef) -> sa copie ; marqueurs et spheres crees -> ceux de l'invite.
 //  - Une commande dont l'entite n'existe pas encore chez l'invite attend en tete de file (3 s au plus).
 //  - Debut de mission (START_MISSION de l'hote) : un invite a plus de 40 m est pose derriere l'hote.
+//  - Progression : les variables globales du script (ScriptSpace [8, 43808) dans main.scm 1.0) qui ont change pendant
+//    une mission sont envoyees a la fin (RL_GLOBALS), et chaque invite recoit l'etat complet a son arrivee en partie.
+//    Seules les valeurs -1..255 circulent (drapeaux, compteurs) : pas les references d'entites propres a chaque jeu.
+//  - Arrivee en cours de mission : l'hote garde le dernier texte de mission charge et les marqueurs/spheres actifs
+//    (commandes deja capturees), et les renvoie a l'invite qui arrive, apres l'etat complet.
 //  - Fin de mission (00D8 dans un script de mission) : l'invite retire ses marqueurs et spheres de mission et retablit
 //    l'ecran (fondu, format cinema, controles, camera, textes, sons).
 // Parametres SCM : 1 int32, 2 globale (ScriptSpace 0xA49960 + decalage), 3 locale (mission : 0xA48960, sinon script
@@ -25,7 +30,7 @@
 
 using namespace game;
 
-enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3 };
+enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4 };
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
 // q/Q sphere (entree/sortie). (A l'envoi, un P qui designe le joueur de l'hote devient H : son pantin chez l'invite.)
@@ -68,6 +73,7 @@ static const MirrorOp kOps[] = {
     { 0x02E7, "" },        // START_CUTSCENE (0x5B1460) : attend que la cinematique soit chargee
     { 0x02EA, "" },        // CLEAR_CUTSCENE (0x4D5ED0) : attend que celle de l'invite soit finie
     { 0x0055, "ifff" },    // SET_PLAYER_COORDINATES : l'invite est pose a cote (decale selon son numero)
+    { 0x0109, "ii" },      // ADD_SCORE : l'argent gagne en mission, pour chacun
 };
 
 // Cinematiques : CCutsceneMgr::ms_cutsceneLoadStatus 0xB5F84C (2 = chargee), ms_running 0xB5F851,
@@ -127,9 +133,76 @@ struct Capture { const MirrorOp *op; int n; Param p[8]; };
 static Capture g_cap;
 static bool g_capturing;
 
+// Hote : commandes encore actives (texte de mission, marqueurs, spheres), rejouees pour un invite qui arrive.
+struct Active { int handle; int len; bool persist; uint8_t data[256]; };
+static Active g_active[96];
+static void KeepActive(int op, const uint8_t *buf, int len, int handle)
+{
+    if (op == 0x0164 || op == 0x03BD) {   // retrait
+        for (auto &a : g_active) if (a.len && a.handle == handle) a.len = 0;
+        return;
+    }
+    if (op == 0x054C) handle = -1;   // un seul texte de mission
+    for (auto &a : g_active) if (a.len && a.handle == handle) a.len = 0;
+    for (auto &a : g_active)
+        if (!a.len) { a.handle = handle; a.len = len; a.persist = op == 0x04CE || op == 0x02A7; memcpy(a.data, buf, len); return; }
+}
+static void SendActive(int peer)
+{
+    for (auto &a : g_active) if (a.len && a.handle == -1) NetSendReliableTo(peer, a.data, a.len);   // texte d'abord
+    for (auto &a : g_active) if (a.len && a.handle != -1) NetSendReliableTo(peer, a.data, a.len);
+}
+
+// --- Variables globales ---
+enum { GLOBALS_BEGIN = 8, GLOBALS_END = 43808, GLOBALS_N = (GLOBALS_END - GLOBALS_BEGIN) / 4 };
+static int g_snap[GLOBALS_N];
+static bool g_snapValid;
+static bool g_fullSent[MAX_PLAYERS];
+static int *Globals() { return (int *)(0xA49960 + GLOBALS_BEGIN); }
+static bool Shareable(int v) { return v >= -1 && v <= 255; }
+
+// Envoie les globales (toutes, ou celles qui different de l'instantane) ; peer < 0 : a tous les invites.
+static int SendGlobals(int peer, bool all)
+{
+    uint8_t buf[1 + 2 + 190 * 6];
+    int n = 0, total = 0;
+    const int *g = Globals();
+    auto flush = [&]() {
+        if (!n) return;
+        buf[0] = RL_GLOBALS;
+        *(uint16_t *)(buf + 1) = (uint16_t)n;
+        if (peer < 0) NetSendReliable(buf, 3 + n * 6); else NetSendReliableTo(peer, buf, 3 + n * 6);
+        n = 0;
+    };
+    for (int i = 0; i < GLOBALS_N; i++) {
+        if (!Shareable(g[i]) || (!all && g[i] == g_snap[i])) continue;
+        *(uint16_t *)(buf + 3 + n * 6) = (uint16_t)i;
+        memcpy(buf + 3 + n * 6 + 2, &g[i], 4);
+        n++; total++;
+        if (n == 190) flush();
+    }
+    flush();
+    return total;
+}
+
+// Hote, chaque image : etat complet pour chaque invite arrive en partie.
+static void HostGlobalsFrame()
+{
+    if (GameState() != 9 || !FindPlayerPed()) return;
+    for (int i = 1; i < MAX_PLAYERS; i++) {
+        if (!g_players[i].connected) { g_fullSent[i] = false; continue; }
+        if (g_fullSent[i] || !g_players[i].state.inGame) continue;
+        g_fullSent[i] = true;
+        Log("miroir : etat complet de l'histoire envoye au joueur %d (%d variables)", i, SendGlobals(i, true));
+        SendActive(i);
+    }
+}
+
 // Hote : une mission de l'histoire demarre (script.cpp) : position de l'hote pour le regroupement des invites.
 void MirrorMissionStart()
 {
+    memcpy(g_snap, Globals(), sizeof(g_snap));
+    g_snapValid = true;
     void *me = FindPlayerPed();
     if (!g_cfg.host || !NetRunning() || !me) return;
     uint8_t buf[1 + 16];
@@ -145,6 +218,9 @@ void MirrorBefore(void *script, int op)
     g_capturing = false;
     if (!g_cfg.host || !NetRunning() || !ScriptIsMission(script)) return;
     if (op == 0x00D8) {   // MISSION_HAS_FINISHED
+        if (g_snapValid) Log("miroir : %d variables de l'histoire changees envoyees", SendGlobals(-1, false));
+        for (auto &a : g_active) if (!a.persist) a.len = 0;
+        g_snapValid = false;
         uint8_t m = RL_MISSION_END;
         NetSendReliable(&m, 1);
         Log("miroir : fin de mission envoyee");
@@ -186,21 +262,26 @@ void MirrorAfter(void *script, int op)
     }
     NetSendReliable(buf, len);
     (void)script;
+    // Commandes a garder pour un invite qui arrive : texte de mission, creation/retrait de marqueur ou sphere.
+    int handle = 0;
+    for (int k = 0; k < g_cap.n; k++)
+        if (strchr("BQbq", g_cap.p[k].kind)) handle = (g_cap.p[k].kind == 'B' || g_cap.p[k].kind == 'Q') && g_cap.p[k].out ? *g_cap.p[k].out : g_cap.p[k].value;
+    if (op == 0x054C || handle) KeepActive(op, buf, len, handle);
 }
 
 // --- Invite : rejeu ---
 enum { MAX_MAP = 128 };
-struct HandleMap { int host, guest; };
+struct HandleMap { int host, guest; bool persist; };   // persist : icone radar (04CE, 02A7), gardee apres la mission
 static HandleMap g_blips[MAX_MAP], g_spheres[MAX_MAP];
 static int MapGet(HandleMap *m, int host)
 {
     for (int i = 0; i < MAX_MAP; i++) if (m[i].host == host && host) return m[i].guest;
     return 0;
 }
-static void MapSet(HandleMap *m, int host, int guest)
+static void MapSet(HandleMap *m, int host, int guest, bool persist = false)
 {
-    for (int i = 0; i < MAX_MAP; i++) if (m[i].host == host) { m[i].guest = guest; return; }
-    for (int i = 0; i < MAX_MAP; i++) if (!m[i].host) { m[i].host = host; m[i].guest = guest; return; }
+    for (int i = 0; i < MAX_MAP; i++) if (m[i].host == host) { m[i].guest = guest; m[i].persist = persist; return; }
+    for (int i = 0; i < MAX_MAP; i++) if (!m[i].host) { m[i].host = host; m[i].guest = guest; m[i].persist = persist; return; }
 }
 static void MapDel(HandleMap *m, int host)
 {
@@ -240,7 +321,7 @@ static void RestoreScreen();
 static bool Replay(const uint8_t *d, int len)
 {
     if (d[0] == RL_MISSION_END) {
-        for (auto &b : g_blips) if (b.host) {
+        for (auto &b : g_blips) if (b.host && !b.persist) {
             *(uint16_t *)g_code = 0x0164;
             g_code[2] = 1; memcpy(g_code + 3, &b.guest, 4);
             ExecCommand(0x0164);
@@ -254,6 +335,15 @@ static bool Replay(const uint8_t *d, int len)
         }
         RestoreScreen();
         Log("miroir : fin de mission de l'hote, ecran retabli");
+        return true;
+    }
+    if (d[0] == RL_GLOBALS && len >= 3) {
+        int n = *(const uint16_t *)(d + 1);
+        int *g = Globals();
+        for (int k = 0; k < n && 3 + k * 6 + 6 <= len; k++) {
+            int idx = *(const uint16_t *)(d + 3 + k * 6);
+            if (idx < GLOBALS_N) memcpy(&g[idx], d + 3 + k * 6 + 2, 4);
+        }
         return true;
     }
     if (d[0] == RL_MISSION_START && len >= 17) {
@@ -334,7 +424,7 @@ static bool Replay(const uint8_t *d, int len)
     if (logged < 300) { logged++; Log("miroir : %04X rejouee", op); }
     for (int k = 0; k < out; k++) {
         int guest = *(int *)(g_script + 0x3C + outIdx[k] * 4);
-        MapSet(outKind[k] == 'B' ? g_blips : g_spheres, outHost[k], guest);
+        MapSet(outKind[k] == 'B' ? g_blips : g_spheres, outHost[k], guest, op == 0x04CE || op == 0x02A7);
     }
     if (op == 0x0164) MapDel(g_blips, *(const int *)(d + 5));
     if (op == 0x03BD) MapDel(g_spheres, *(const int *)(d + 5));
@@ -390,7 +480,8 @@ void RunScriptCommand(int op, int nargs, const int *args)
 void MirrorFrame()
 {
     g_onReliable = OnReliable;
-    if (g_cfg.host || GameState() != 9 || !FindPlayerPed()) return;
+    if (g_cfg.host) { if (NetRunning()) HostGlobalsFrame(); return; }
+    if (GameState() != 9 || !FindPlayerPed()) return;
     memcpy(g_script + 8, "sacoop", 7);
     uint32_t now = GetTickCount();
     for (int budget = 0; budget < 64 && g_qHead != g_qTail; budget++) {
