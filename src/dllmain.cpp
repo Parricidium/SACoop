@@ -4,6 +4,7 @@
 #include "sacoop.h"
 #include "camera.h"
 #include "mods.h"
+#include "render.h"
 #include "script.h"
 #include "widescreen.h"
 #include "menu.h"
@@ -56,6 +57,8 @@ static void LoadConfig()
     GetPrivateProfileStringA("SACoop", "Adresse", "127.0.0.1", g_cfg.address, sizeof(g_cfg.address), ini);
     g_cfg.port = GetPrivateProfileIntA("SACoop", "Port", 7800, ini);
     g_cfg.friendlyFire = GetPrivateProfileIntA("SACoop", "TirAmi", 1, ini) != 0;
+    g_cfg.ao = GetPrivateProfileIntA("SACoop", "OcclusionAmbiante", 1, ini) != 0;
+    g_cfg.fxaa = GetPrivateProfileIntA("SACoop", "Anticrenelage", 1, ini) != 0;
     g_cfg.fpsView = GetPrivateProfileIntA("SACoop", "VuePremierePersonne", 1, ini) != 0;
     g_cfg.testFirstPerson = GetPrivateProfileIntA("SACoop", "TestPremierePersonne", 0, ini) != 0;
     {   // ToucheVue : F1-F12 ou une lettre / un chiffre
@@ -156,5 +159,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallMenu();
     InstallCamera();
     InstallMods();
+    InstallRender();
     return TRUE;
 }

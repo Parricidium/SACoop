@@ -8,6 +8,7 @@
 #include "widescreen.h"
 #include "passenger.h"
 #include "camera.h"
+#include "render.h"
 #include "net.h"
 #include <d3d9.h>
 #include <mmsystem.h>
@@ -156,7 +157,9 @@ static HRESULT WINAPI h_Reset(IDirect3DDevice9 *dev, D3DPRESENT_PARAMETERS *pp)
         int w = *(int *)0xC17044, h = *(int *)0xC17048;
         if (w >= 320 && h >= 240) { pp->BackBufferWidth = w; pp->BackBufferHeight = h; }
     }
+    RenderBeforeReset();
     HRESULT hr = o_Reset(dev, pp);
+    if (SUCCEEDED(hr)) RenderAfterReset(dev, pp);
     Log("Reset %ux%u fenetre=%d -> 0x%08lX", pp->BackBufferWidth, pp->BackBufferHeight, pp->Windowed, hr);
     FitWindow(g_hwnd, pp->BackBufferWidth, pp->BackBufferHeight);
     return hr;
@@ -178,6 +181,7 @@ static HRESULT WINAPI h_CreateDevice(IDirect3D9 *d3d, UINT adapter, D3DDEVTYPE t
             o_Present = (Present_t)PatchPointer(&vt[VT_DEV_PRESENT], (void *)h_Present);
         }
         FitWindow(g_hwnd, pp->BackBufferWidth, pp->BackBufferHeight);
+        RenderDeviceCreated(*out, pp);
     }
     return hr;
 }
