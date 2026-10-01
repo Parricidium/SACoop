@@ -1,17 +1,27 @@
 SACoop - GTA San Andreas en coop - PRE-ALPHA
 ============================================
 
-ATTENTION : version tres precoce. Pour l'instant, les joueurs se voient
-marcher et courir dans la meme ville, et c'est tout : pas encore de
-vehicules, de missions partagees, de combat ni de menu coop. Ne vous
-attendez pas a une partie complete. Tout le reste arrive dans les
-prochaines versions.
+ATTENTION : version precoce, encore en test. Il y aura des bugs.
+
+Ce qui marche deja
+- Jusqu'a 4 joueurs dans la meme ville. Chacun voit les autres en CJ avec
+  leurs vetements (ou le personnage choisi), leur pseudo et leur point radar.
+- Vehicules partages (montee, descente, degats, explosion, sirene),
+  armes, tirs, degats entre joueurs (option Tir ami), mort et hopital.
+- Missions de l'histoire jouees ensemble : elles tournent chez l'hote, les
+  autres voient les cinematiques, textes, marqueurs, personnages et
+  vehicules de mission, et peuvent faire avancer la mission. Progression,
+  argent des missions et sauvegarde de l'hote partages.
+- Meme heure, meme meteo, memes passants et circulation pres de l'hote.
+
+Touches
+- F5 (maintenue) : tableau des joueurs.
 
 Il faut
 - GTA San Andreas pour PC, version 1.0 US. La version Steam actuelle
   (3.0) doit etre retrogradee en 1.0 US (un outil de retrogradation fait
   ca). Le mod refuse de se lancer sur une autre version.
-- Le meme zip SACoop chez tous les joueurs.
+- Le meme zip SACoop chez tous les joueurs (le lanceur s'en charge).
 
 Installation
 1. Copier le contenu du zip dans le dossier du jeu (a cote de gta_sa.exe).
@@ -20,11 +30,13 @@ Installation
 3. L'hote clique sur HEBERGER. Les autres tapent l'adresse IP de l'hote,
    puis REJOINDRE. (Les raccourcis "SACoop - Heberger.cmd" et
    "SACoop - Rejoindre.cmd" marchent aussi, sans mise a jour.)
-4. Chacun commence une nouvelle partie. Par Internet, l'hote ouvre le port
-   UDP 7800 sur sa box (ou utilisez un reseau virtuel type Radmin VPN).
+4. Chacun commence une nouvelle partie (ou charge la sauvegarde partagee
+   de l'hote). Par Internet, l'hote ouvre le port UDP 7800 sur sa box (ou
+   utilisez un reseau virtuel type Radmin VPN).
 
-Reglages : sacoop.ini. Pseudo, adresse et port : sacoop-joueur.ini (cree au
-premier lancement). Journaux : sacoop.log et le dossier logs.
+Reglages : sacoop.ini (ou l'onglet du lanceur). Pseudo, adresse et port :
+sacoop-joueur.ini (cree au premier lancement). Journaux : sacoop.log et le
+dossier logs (a joindre a un rapport de bug).
 
 Desinstaller : supprimer dinput8.dll, SACoop.exe, le dossier SACoop, sacoop*.ini,
 sacoop.log et logs.

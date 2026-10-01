@@ -1,33 +1,47 @@
 SACoop - GTA San Andreas co-op - PRE-ALPHA
 ==========================================
 
-WARNING: very early version. For now, players see each other walk and run
-in the same city, and that is all: no vehicles, shared missions, combat or
-co-op menu yet. Do not expect a full game. Everything else comes in the
-next versions.
+WARNING: early version, still being tested. There will be bugs.
+
+What already works
+- Up to 4 players in the same city. Everybody sees the others as CJ with
+  their own clothes (or the chosen character), their name and radar blip.
+- Shared vehicles (getting in and out, damage, explosions, sirens),
+  weapons, shots, damage between players (Friendly fire option), death
+  and hospital.
+- Story missions played together: they run on the host, the others see the
+  cutscenes, texts, markers, mission characters and vehicles, and can move
+  the mission on. Story progress, mission money and the host's save are
+  shared.
+- Same time, same weather, same pedestrians and traffic near the host.
+
+Keys
+- F5 (held): players board.
 
 You need
 - GTA San Andreas for PC, version 1.0 US. The current Steam version (3.0)
-  must be downgraded to 1.0 US (a downgrader tool does it). The mod refuses
-  to run on any other version.
-- The same SACoop zip for every player.
+  must be downgraded to 1.0 US first (a downgrader tool does that). The mod
+  refuses to start on any other version.
+- The same SACoop zip for every player (the launcher takes care of it).
 
 Installation
-1. Copy the zip contents into the game folder (next to gta_sa.exe).
-2. Run SACoop.exe (the launcher). It updates itself on every start: no need
+1. Copy the contents of the zip into the game folder (next to gta_sa.exe).
+2. Run SACoop.exe (the launcher). It updates itself at every start: no need
    to download the zip again.
 3. The host clicks HOST. The others type the host's IP address, then JOIN.
-   (The "SACoop - Heberger.cmd" / "SACoop - Rejoindre.cmd" shortcuts also
-   work, without updates.)
-4. Everybody starts a new game. Over the Internet, the host opens UDP port
-   7800 on their router (or use a virtual LAN such as Radmin VPN).
+   ("SACoop - Heberger.cmd" and "SACoop - Rejoindre.cmd" also work, without
+   updates.)
+4. Everybody starts a new game (or loads the host's shared save). Over the
+   Internet, the host opens UDP port 7800 on their router (or use a virtual
+   network such as Radmin VPN).
 
-Settings: sacoop.ini. Nickname, address and port: sacoop-joueur.ini (created
-on first run). Logs: sacoop.log and the logs folder.
+Settings: sacoop.ini (or the launcher tabs). Name, address and port:
+sacoop-joueur.ini (created at first start). Logs: sacoop.log and the logs
+folder (attach them to a bug report).
 
 Uninstall: delete dinput8.dll, SACoop.exe, the SACoop folder, sacoop*.ini,
 sacoop.log and logs.
 
-Fan project, unofficial, not affiliated with Rockstar Games or Take-Two.
+Unofficial fan project, not affiliated with Rockstar Games or Take-Two.
 No game files are included: you must own the game.
 https://github.com/Parricidium/SACoop

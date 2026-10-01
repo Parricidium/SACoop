@@ -54,6 +54,7 @@ static void LoadConfig()
     g_cfg.friendlyFire = GetPrivateProfileIntA("SACoop", "TirAmi", 1, ini) != 0;
     g_cfg.testMission = GetPrivateProfileIntA("SACoop", "TestMission", 0, ini);
     g_cfg.testSkip = GetPrivateProfileIntA("SACoop", "TestPasser", 0, ini) != 0;
+    g_cfg.testBoard = GetPrivateProfileIntA("SACoop", "TestTableau", 0, ini) != 0;
     g_cfg.skin = GetPrivateProfileIntA("SACoop", "Tenue", 0, ini);
     if (g_cfg.skin < 0 || g_cfg.skin > 299) g_cfg.skin = 0;
 
