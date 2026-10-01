@@ -1,0 +1,184 @@
+// Armes, tirs et degats entre joueurs.
+//  - Arme en main : celle du joueur, donnee a son pantin (CPed::GiveWeapon 0x5E6080 puis SetCurrentWeapon 0x5E61F0,
+//    modele de l'arme charge avant : CWeaponInfo 0x743C60, +0xC).
+//  - Tirs : chaque tir du joueur local est compte (detour de CWeapon::Fire 0x742300) avec le point vise (rayon de la
+//    camera). Chez les autres, chaque nouveau tir est rejoue par son pantin (CWeapon::Fire vers ce point) : flamme,
+//    son, trace.
+//  - Degats : c'est le tireur qui decide. Detour de CPedDamageResponseCalculator::ComputeDamageResponse (0x4B5AC0) :
+//    un coup porte par un pantin (ou sa voiture) ne fait rien en local ; un coup du joueur local sur un pantin est
+//    calcule par le jeu, envoye au joueur touche (MSG_DAMAGE), et le pantin garde sa vie.
+#include "util.h"
+#include "sacoop.h"
+#include "net.h"
+#include "game.h"
+#include "combat.h"
+#include <math.h>
+#include <string.h>
+
+using namespace game;
+
+static uint8_t g_localShots;          // compteur des tirs du joueur local (MsgState.shots)
+static float g_localAim[3];           // point vise au dernier tir
+static bool g_replaying;              // un pantin rejoue un tir : ne pas le compter comme le notre
+static uint8_t g_lastShots[MAX_PLAYERS];
+static bool g_shotsKnown[MAX_PLAYERS];
+
+typedef char(__fastcall *Fire_t)(int *weapon, void *, void *owner, float *origin, float *muzzle, void *targetEnt, float *target, void *driveBy);
+static Fire_t o_Fire;
+
+static char __fastcall h_Fire(int *weapon, void *edx, void *owner, float *origin, float *muzzle, void *targetEnt, float *target, void *driveBy)
+{
+    char r = o_Fire(weapon, edx, owner, origin, muzzle, targetEnt, target, driveBy);
+    if (r && !g_replaying && owner && owner == FindPlayerPed()) {
+        g_localShots++;
+        if (target) memcpy(g_localAim, target, 12);
+        else if (uint8_t *m = *(uint8_t **)(0xB6F028 + 0x14)) {   // TheCamera : position + 80 m dans l'axe de visee
+            const float *pos = (const float *)(m + 0x30), *fwd = (const float *)(m + 0x10);
+            for (int k = 0; k < 3; k++) g_localAim[k] = pos[k] + fwd[k] * 80.0f;
+        }
+    }
+    return r;
+}
+
+void CombatFillState(MsgState &s)
+{
+    s.shots = g_localShots;
+    memcpy(s.aim, g_localAim, 12);
+}
+
+// --- Arme en main du pantin ---
+static int g_puppetWeapon[MAX_PLAYERS] = { -1, -1, -1, -1 };
+
+static void GivePuppetWeapon(int id, void *ped, int type)
+{
+    if (type < 0 || type > 46) type = 0;
+    if (g_puppetWeapon[id] == type) return;
+    uint8_t *info = WeaponInfo(type);
+    if (!info) return;
+    int m1 = *(int *)(info + 0xC), m2 = *(int *)(info + 0x10);
+    const int models[2] = { m1, m2 };
+    for (int m : models)
+        if (m > 0 && !ModelLoaded(m)) { RequestModel(m, 2); LoadAllRequestedModels(false); }
+    if ((m1 > 0 && !ModelLoaded(m1)) || (m2 > 0 && !ModelLoaded(m2))) return;   // on reessaie plus tard
+    int slot = type ? GiveWeapon(ped, type, 9999) : 0;
+    SetCurrentWeapon(ped, slot);
+    g_puppetWeapon[id] = type;
+}
+
+void CombatPuppetCreated(int id) { g_puppetWeapon[id] = -1; g_shotsKnown[id] = false; }
+
+// Rejoue les tirs recus : l'arme du pantin tire vers le point vise (au plus 3 par image).
+void CombatUpdatePuppet(int id, void *ped, const MsgState &s)
+{
+    GivePuppetWeapon(id, ped, s.weapon);
+    if (!g_shotsKnown[id]) { g_shotsKnown[id] = true; g_lastShots[id] = s.shots; return; }
+    int n = (uint8_t)(s.shots - g_lastShots[id]);
+    g_lastShots[id] = s.shots;
+    if (n <= 0 || n > 20 || s.weapon < 22 || s.weapon > 38) return;   // armes a feu seulement
+    if (n > 3) n = 3;
+    int slot = Field<uint8_t>(ped, PED_WEAPONSLOT);
+    int *weapon = (int *)((uint8_t *)ped + PED_WEAPONS + slot * 0x1C);
+    if (weapon[0] != s.weapon) return;
+    float aim[3] = { s.aim[0], s.aim[1], s.aim[2] };
+    // Le pantin se tourne vers sa cible (a pied).
+    if (!PedVehicle(ped)) {
+        const float *p = EntityPos(ped);
+        float h = atan2f(-(aim[0] - p[0]), aim[1] - p[1]);
+        Field<float>(ped, PED_ROTATION) = h;
+        Field<float>(ped, PED_AIMROT) = h;
+    }
+    g_replaying = true;
+    for (int k = 0; k < n; k++) {
+        weapon[1] = 0;        // pret
+        weapon[2] = 50;       // balles dans le chargeur
+        weapon[3] = 9999;
+        o_Fire(weapon, nullptr, ped, nullptr, nullptr, nullptr, aim, nullptr);
+    }
+    g_replaying = false;
+}
+
+void CombatTestShot(void *ped, const float *aim)
+{
+    int slot = Field<uint8_t>(ped, PED_WEAPONSLOT);
+    int *weapon = (int *)((uint8_t *)ped + PED_WEAPONS + slot * 0x1C);
+    float target[3] = { aim[0], aim[1], aim[2] };
+    weapon[1] = 0;
+    if (weapon[2] < 1) weapon[2] = 1;
+    h_Fire(weapon, nullptr, ped, nullptr, nullptr, nullptr, target, nullptr);
+}
+
+// --- Degats ---
+typedef void(__fastcall *Damage_t)(int *calc, void *, void *victim, float *resp, bool speak);
+static Damage_t o_Damage;
+
+static bool g_killing;   // coup voulu (CombatKillPuppet, coup recu d'un joueur) : le jeu l'applique tel quel
+
+static void __fastcall h_Damage(int *calc, void *edx, void *victim, float *resp, bool speak)
+{
+    if (g_killing) { o_Damage(calc, edx, victim, resp, speak); return; }
+    void *damager = (void *)calc[0];
+    // Coup d'un pantin, ou de la voiture qu'il conduit : decide chez son joueur, rien en local.
+    bool fromPuppet = damager && (PuppetIndex(damager) >= 0 ||
+                      ((*((uint8_t *)damager + 0x36) & 7) == 2 && PuppetIndex(Field<void *>(damager, VEH_DRIVER)) >= 0));
+    if (fromPuppet && !*((uint8_t *)resp + 10)) {
+        resp[0] = resp[1] = 0;
+        *((uint8_t *)resp + 8) = 0;
+        *((uint8_t *)resp + 9) = 0;
+        *((uint8_t *)resp + 10) = 1;   // calcule : le jeu ne recommencera pas
+        return;
+    }
+    int victimPlayer = PuppetIndex(victim);
+    if (victimPlayer < 0) { o_Damage(calc, edx, victim, resp, speak); return; }
+    // Pantin touche : rien en local (son joueur fait foi) ; un coup du joueur local est envoye a son joueur.
+    bool fresh = !*((uint8_t *)resp + 10);
+    void *me = FindPlayerPed();
+    bool mine = damager && (damager == me || ((*((uint8_t *)damager + 0x36) & 7) == 2 && Field<void *>(damager, VEH_DRIVER) == me));
+    float damage = *(float *)&calc[1];
+    if (fresh && mine && damage > 0) {
+        MsgDamage d = { MSG_DAMAGE, (uint8_t)(g_localId < 0 ? 0 : g_localId), (uint8_t)victimPlayer, (uint8_t)calc[3], (uint8_t)calc[2], {}, damage };
+        NetSendToAll(&d, sizeof(d));
+        Log("coup sur le joueur %d : %.1f (arme %d, partie %d)", victimPlayer, damage, calc[3], calc[2]);
+    }
+    resp[0] = resp[1] = 0;
+    *((uint8_t *)resp + 8) = 0;
+    *((uint8_t *)resp + 9) = 0;
+    *((uint8_t *)resp + 10) = 1;
+}
+
+// Coup comme celui d'une balle : CWeapon::GenerateDamageEvent (0x73A530 : victime, auteur, arme, degats, partie du
+// corps, direction) calcule la reponse (CPedDamageResponseCalculator) et poste l'evenement (reaction, chute, mort).
+static void ApplyHit(void *victim, void *damager, int weapon, int damage, int bodyPart)
+{
+    if (weapon < 0 || weapon > 54) weapon = 0;
+    if (bodyPart < 3 || bodyPart > 9) bodyPart = 3;
+    g_killing = true;
+    ((char(__cdecl *)(void *, void *, int, int, int, int))0x73A530)(victim, damager, weapon, damage, bodyPart, 0);
+    g_killing = false;
+}
+
+// Le joueur du pantin est mort chez lui : coup fatal sur le pantin, le jeu joue la chute.
+void CombatKillPuppet(void *ped, int weapon) { ApplyHit(ped, nullptr, weapon, 1000, 3); }
+
+void *PuppetOf(int id);
+
+static void OnDamage(const MsgDamage &d)
+{
+    if (d.to != g_localId || !g_cfg.friendlyFire) return;
+    void *me = FindPlayerPed();
+    if (!me || GameState() != 9 || Field<float>(me, PED_HEALTH) <= 0.0f) return;
+    int damage = (int)(d.damage + 0.5f);
+    if (damage < 1 || damage > 1000) return;
+    float before = Field<float>(me, PED_HEALTH) + Field<float>(me, PED_ARMOUR);
+    ApplyHit(me, PuppetOf(d.from), d.weapon, damage, d.bodyPart);   // auteur : le pantin du tireur (mort creditee)
+    Log("touche par le joueur %d : %d (arme %d, partie %d) -> vie %.0f, gilet %.0f (-%.0f)", d.from, damage, d.weapon, d.bodyPart,
+        Field<float>(me, PED_HEALTH), Field<float>(me, PED_ARMOUR), before - Field<float>(me, PED_HEALTH) - Field<float>(me, PED_ARMOUR));
+}
+
+void InstallCombat()
+{
+    static const uint8_t fire[] = { 0x83, 0xEC, 0x3C, 0x53, 0x56 };
+    o_Fire = (Fire_t)MakeDetour(0x742300, fire, sizeof(fire), (void *)h_Fire);
+    static const uint8_t dmg[] = { 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00, 0x6A, 0xFF };
+    o_Damage = (Damage_t)MakeDetour(0x4B5AC0, dmg, sizeof(dmg), (void *)h_Damage);
+    g_onDamage = OnDamage;
+}

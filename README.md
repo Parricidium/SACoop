@@ -54,6 +54,9 @@ game version, and starts the game as host or guest. Options and release notes ar
   wheel (or as a passenger). Getting into someone else's car and driving off hands it over to you.
 - Each player's **name above their head** and a **radar blip** in their colour.
 - **Same time and weather** for everybody (the host's).
+- **Weapons and shots**: everybody sees the weapon in each player's hand and their shots. Players can hurt each
+  other (bullets, punches, cars; *Friendly fire* option, each player chooses), and a player who dies falls for
+  everybody, then comes back at the hospital.
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
@@ -63,11 +66,10 @@ game version, and starts the game as host or guest. Options and release notes ar
 ## Not there yet (roadmap)
 
 1. Vehicles, the rest: enter / exit animations for the other players, damage, radio, lights, sirens.
-2. Weapons, shots and damage.
-3. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
-4. Shared traffic and pedestrians.
-5. A co-op menu in the game, and a lobby in the launcher.
-6. Modern rendering options (as in VCCoop), all optional.
+2. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
+3. Shared traffic and pedestrians.
+4. A co-op menu in the game, and a lobby in the launcher.
+5. Modern rendering options (as in VCCoop), all optional.
 
 ## Installation
 
@@ -126,6 +128,9 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
   joueur au volant (ou en passager). Monter dans la voiture d'un autre et partir avec vous la confie.
 - Le **pseudo de chaque joueur au-dessus de sa tête** et un **point radar** à sa couleur.
 - **Même heure et même météo** pour tout le monde (celles de l'hôte).
+- **Armes et tirs** : chacun voit l'arme en main des autres joueurs et leurs tirs. Les joueurs peuvent se blesser
+  (balles, coups, voitures ; option *Tir ami*, chacun choisit pour lui), et un joueur qui meurt tombe chez tout le
+  monde, puis revient à l'hôpital.
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture
@@ -136,11 +141,10 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 ## Pas encore là (feuille de route)
 
 1. Véhicules, la suite : animations de montée / descente des autres joueurs, dégâts, radio, phares, sirènes.
-2. Armes, tirs et dégâts.
-3. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
-4. Circulation et passants partagés.
-5. Un menu coop dans le jeu, et un salon dans le lanceur.
-6. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
+2. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
+3. Circulation et passants partagés.
+4. Un menu coop dans le jeu, et un salon dans le lanceur.
+5. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
 
 ## Installation
 

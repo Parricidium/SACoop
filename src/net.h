@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 4, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 5, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -18,6 +18,7 @@ enum MsgType : uint8_t {
     MSG_RESYNC,      // hote -> invite : ton flux fiable est perdu, reconnecte-toi (nouvelle session)
     MSG_CLOTHES,     // vetements d'un joueur (CPedClothesDesc), a chaque changement puis toutes les 2 s ; relaye par l'hote
     MSG_VEHICLE,     // etat d'un vehicule, par son proprietaire (vehicles.cpp) ; relaye par l'hote
+    MSG_DAMAGE,      // coup porte par un joueur a un autre (combat.cpp) ; relaye par l'hote
 };
 
 #pragma pack(push, 1)
@@ -44,6 +45,8 @@ struct MsgState {
     uint16_t skin;      // modele de son pantin chez les autres (reglage Tenue)
     uint32_t vehicleId; // vehicule reseau occupe (0 = a pied)
     uint8_t seat;       // 0 : au volant, 1..8 : passager
+    uint8_t shots;      // compteur de tirs (chaque nouveau tir est rejoue par son pantin)
+    float aim[3];       // point vise au dernier tir
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };
@@ -58,6 +61,9 @@ struct MsgVehicle {
     float pos[3], right[3], fwd[3], speed[3], turn[3];
     uint8_t driven;     // un joueur est dedans en ce moment
 };
+// Coup porte par le joueur "from" au joueur "to" : touche decidee chez le tireur, degats appliques par le jeu du joueur
+// touche (regles du joueur, gilet, reaction, mort).
+struct MsgDamage { uint8_t type, from, to, weapon, bodyPart, pad[3]; float damage; };
 struct MsgWorld {
     uint8_t type;
     uint8_t hours, minutes;
@@ -95,4 +101,5 @@ extern void (*g_onJoin)(int peer);                 // hote : un invite vient d'e
 extern uint16_t g_myPing;
 extern void (*g_onClothes)(const MsgClothes &c);   // vetements d'un autre joueur
 extern void (*g_onVehicle)(const MsgVehicle &v);   // etat d'un vehicule d'un autre joueur
+extern void (*g_onDamage)(const MsgDamage &d);     // coup porte par un joueur a un autre
 
