@@ -3,6 +3,7 @@
 #include "util.h"
 #include "sacoop.h"
 #include "chat.h"
+#include "widescreen.h"
 #include "passenger.h"
 #include "net.h"
 #include <d3d9.h>
@@ -130,6 +131,14 @@ static HRESULT WINAPI h_Present(IDirect3DDevice9 *dev, const RECT *src, const RE
     GiveBackForeground();
     static bool inFrame;
     if (!inFrame) { inFrame = true; OnFrame(); inFrame = false; }
+    WidescreenFrame();
+    // Menus resserres (widescreen.cpp) : bandes laterales effacees (sinon des restes d'anciennes images y restent).
+    float barW = MenuBarWidth();
+    if (barW > 0.5f) {
+        int w = *(int *)0xC17044, h = *(int *)0xC17048;
+        D3DRECT bars[2] = { { 0, 0, (LONG)barW, h }, { w - (LONG)barW, 0, w, h } };
+        dev->Clear(2, bars, D3DCLEAR_TARGET, 0, 1.0f, 0);
+    }
     LimitFrameRate();
     return o_Present(dev, src, dst, wnd, dirty);
 }

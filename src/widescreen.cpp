@@ -7,6 +7,9 @@
 //  - HUD et radar : leurs fonctions (CRadar 0x582000-0x587FFF, CHud 0x588000-0x590FFF) mettent a l'echelle en X par
 //    la constante 1/640 (0x859520), etiree sur un ecran large. Leurs references a cette constante sont redirigees
 //    vers g_hudScaleX = 1/640 x (4/3) / format : proportions d'origine, elements ancres a droite toujours a droite.
+//  - Menus : pendant que le menu est ouvert (FrontEndMenuManager +0x5C), les sommets 2D (RwIm2DVertex de 28 octets,
+//    x en tete) passes a Im2DRenderTriangle / Primitive / IndexedPrimitive (RwEngineInstance 0xC97B24, +0x2C/+0x30/
+//    +0x34) sont resserres vers le centre (format 4:3) ; le curseur l'est aussi, les clics restent justes.
 // Option GrandEcran=0 : comportement d'origine.
 //  - Resolution : au premier RwEngineSetVideoMode (0x7F2D50, appele par psSelectDevice), le mode de la taille voulue
 //    est choisi s'il existe (RwEngineGetNumVideoModes 0x7F2CC0, RwEngineGetVideoModeInfo 0x7F2CF0, RwVideoMode de 24 octets {l, h, prof,
@@ -89,6 +92,52 @@ static int __cdecl h_SetVideoMode(int idx)
         }
     }
     return o_SetVideoMode(idx);
+}
+
+// --- Menus resserres ---
+typedef int(__cdecl *Im2DTri_t)(void *verts, int n, int a, int b, int c);
+typedef int(__cdecl *Im2DPrim_t)(int type, void *verts, int n);
+typedef int(__cdecl *Im2DIdx_t)(int type, void *verts, int n, void *idx, int ni);
+static Im2DTri_t o_Tri;
+static Im2DPrim_t o_Prim;
+static Im2DIdx_t o_Idx;
+
+static bool MenuSqueeze() { return *(uint8_t *)(0xBA6748 + 0x5C) && ScreenAspect() > 4.0f / 3.0f + 0.01f; }
+
+// Copie resserree des sommets (au plus 1024 ; au-dela, dessin d'origine).
+static void *Squeeze(void *verts, int n)
+{
+    static uint8_t buf[1024 * 28];
+    if (n <= 0 || n > 1024) return verts;
+    memcpy(buf, verts, n * 28);
+    float w = (float)*(int *)0xC17044, cx = w * 0.5f, k = (4.0f / 3.0f) / ScreenAspect();
+    for (int i = 0; i < n; i++) { float &x = *(float *)(buf + i * 28); x = cx + (x - cx) * k; }
+    return buf;
+}
+static int __cdecl h_Tri(void *v, int n, int a, int b, int c) { return o_Tri(MenuSqueeze() ? Squeeze(v, n) : v, n, a, b, c); }
+static int __cdecl h_Prim(int t, void *v, int n) { return o_Prim(t, MenuSqueeze() ? Squeeze(v, n) : v, n); }
+static int __cdecl h_Idx(int t, void *v, int n, void *idx, int ni) { return o_Idx(t, MenuSqueeze() ? Squeeze(v, n) : v, n, idx, ni); }
+
+// Largeur de chaque bande laterale pendant un menu resserre (0 sinon).
+float MenuBarWidth()
+{
+    if (!g_cfg.widescreen || !o_Prim || !MenuSqueeze()) return 0.0f;
+    float w = (float)*(int *)0xC17044;
+    return w * 0.5f * (1.0f - (4.0f / 3.0f) / ScreenAspect());
+}
+
+// Les pointeurs de RwEngineInstance existent une fois le moteur ouvert : pose a la premiere image.
+void WidescreenFrame()
+{
+    static bool done;
+    if (done || !g_cfg.widescreen) return;
+    uint8_t *rw = *(uint8_t **)0xC97B24;
+    if (!rw) return;
+    done = true;
+    o_Tri = (Im2DTri_t)PatchPointer((void **)(rw + 0x2C), (void *)h_Tri);
+    o_Prim = (Im2DPrim_t)PatchPointer((void **)(rw + 0x30), (void *)h_Prim);
+    o_Idx = (Im2DIdx_t)PatchPointer((void **)(rw + 0x34), (void *)h_Idx);
+    Log("grand ecran : menus resserres au format 4:3");
 }
 
 void InstallResolution()
