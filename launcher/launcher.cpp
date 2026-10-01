@@ -697,7 +697,8 @@ static void UpdateButtons()
         extern bool LobbyCanStartPublic();
         g_btn[B_EXE].enabled = false;
         g_btn[B_JOIN].enabled = menu;
-        g_btn[B_HOST].enabled = menu && (g_lobby == LB_HOST ? LobbyCanStartPublic() : g_lobby == LB_GUEST);
+        extern bool GuestModsReady();
+        g_btn[B_HOST].enabled = menu && (g_lobby == LB_HOST ? LobbyCanStartPublic() : g_lobby == LB_GUEST && GuestModsReady());
     }
     if (g_goWait) g_btn[B_HOST].enabled = g_btn[B_JOIN].enabled = false;
     g_btn[B_CLOSE].enabled = g_btn[B_MIN].enabled = g_btn[B_BUY].enabled = g_btn[B_THEME].enabled = true;
@@ -1376,7 +1377,11 @@ static void Launch(int mode, const std::wstring &extra = L"")
 // par "SAL1", puis des messages [u16 longueur][u8 type][...] : HELLO (version, pseudo, tenue) -> WELCOME (numero) ou
 // REJECT (raison) ; STATE (joueurs : pret, ping ; choix de partie) ; READY ; PING / PONG ; GO (l'hote lance : chaque
 // lanceur demarre son jeu, l'hote avec -sacoop-partie, les invites avec -sacoop invite ; ils suivent ensuite l'hote).
-enum { LB_PROTO = 1, M_HELLO = 1, M_WELCOME, M_REJECT, M_STATE, M_READY, M_GO, M_PING, M_PONG };
+enum { LB_PROTO = 2, M_HELLO = 1, M_WELCOME, M_REJECT, M_STATE, M_READY, M_GO, M_PING, M_PONG, M_MODS, M_GETFILE, M_FILEDATA, M_FILEEND };
+static std::atomic<bool> g_hostModsReady(false);   // hote : manifeste des mods pret (plus bas : mods partages)
+static void SendManifest(SOCKET s);
+static void SendModFile(SOCKET s, int index);
+static DWORD WINAPI HostModsThread(void *);
 struct SaveInfo { int slot; std::string label; };
 static std::vector<SaveInfo> g_saves;
 static SOCKET g_listen = INVALID_SOCKET, g_guestSock = INVALID_SOCKET;
@@ -1539,6 +1544,7 @@ static void LobbySession(SOCKET s)
     { Wr w; w.u8(M_WELCOME); w.u8(id); SendMsg(s, w); }
     TestLog("salon : %s arrive (joueur %d)", name.c_str(), id);
     BroadcastState();
+    SendManifest(s);
     DWORD to = 60000;
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&to, sizeof(to));
     while (RecvMsg(s, m)) {
@@ -1550,6 +1556,7 @@ static void LobbySession(SOCKET s)
         else if (p && t == M_PONG) { uint32_t sent = q.u32(); p->ping = (int)(GetTickCount() - sent); }
         LeaveCriticalSection(&g_lcs);
         if (t == M_READY) BroadcastState();
+        if (t == M_GETFILE) SendModFile(s, q.u16());
     }
     DropConn(s);
     BroadcastState();
@@ -1628,6 +1635,8 @@ static void LobbyHost()
     g_goSent = false;
     g_myId = 0;
     g_myAddresses = LocalAddresses();
+    g_hostModsReady = false;
+    if (HANDLE mt = CreateThread(NULL, 0, HostModsThread, NULL, 0, NULL)) CloseHandle(mt);
     g_lobby = LB_HOST;
     g_tab = TAB_LOBBY;
     LayoutTabs();
@@ -1694,6 +1703,241 @@ static void GuestSend(const Wr &w)
     if (g_guestSock != INVALID_SOCKET) SendMsg(g_guestSock, w);
     LeaveCriticalSection(&g_lcs);
 }
+
+// ---------------------------------------------------------------- mods partages (salon)
+// L'hote envoie a chaque invite le manifeste de son SACoop\mods\ (chemin, taille, empreinte FNV-1a) ; l'invite
+// compare au sien, demande les fichiers manquants ou differents (morceaux de 32 Ko sur la connexion du salon), les
+// range dans son SACoop\mods\, puis ecrit SACoop\cache\mods-liste.txt (la liste de l'hote) : son jeu, lance avec
+// -sacoop-mods, ne charge que ceux-la (mods.cpp). "Pret" attend la fin du telechargement.
+struct ModEntry { std::string rel; uint32_t size, hash; };
+static std::vector<ModEntry> g_hostMods;            // hote : son manifeste
+static uint64_t g_hostModsBytes;
+static std::vector<ModEntry> g_wantMods;            // invite : manifeste de l'hote
+enum { MS_NONE, MS_WAIT, MS_DOWNLOAD, MS_READY, MS_FAILED };
+static std::atomic<int> g_modsState(MS_NONE);
+static std::atomic<uint64_t> g_modsTotal(0), g_modsDone(0);
+static int g_modsCount;
+
+static std::wstring ModsDir() { return g_gameDir + L"SACoop\\mods\\"; }
+static uint32_t FnvFile(const std::wstring &path, uint32_t *size)
+{
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return 0;
+    uint32_t h = 2166136261u, total = 0;
+    static uint8_t buf[1 << 16];
+    DWORD n;
+    while (ReadFile(f, buf, sizeof(buf), &n, NULL) && n) {
+        for (DWORD i = 0; i < n; i++) { h ^= buf[i]; h *= 16777619u; }
+        total += n;
+    }
+    CloseHandle(f);
+    if (size) *size = total;
+    return h;
+}
+static void ScanMods(const std::wstring &dir, const std::string &rel, std::vector<ModEntry> &out)
+{
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((dir + L"*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (fd.cFileName[0] == L'.') continue;
+        std::string r = rel + Narrow(fd.cFileName);
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { ScanMods(dir + fd.cFileName + L"\\", r + "\\", out); continue; }
+        if (!_wcsicmp(fd.cFileName + max(0, (int)wcslen(fd.cFileName) - 5), L".part")) continue;   // telechargement interrompu
+        if (!_wcsicmp(fd.cFileName + max(0, (int)wcslen(fd.cFileName) - 4), L".txt")) continue;    // notes (LISEZMOI-MODS.txt)
+        uint32_t size = 0, hash = FnvFile(dir + fd.cFileName, &size);
+        out.push_back({ r, size, hash });
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+}
+static DWORD WINAPI HostModsThread(void *)
+{
+    std::vector<ModEntry> mods;
+    if (GetPrivateProfileIntA("SACoop", "ModsPartages", 1, Narrow(g_gameDir + L"sacoop.ini").c_str())) ScanMods(ModsDir(), "", mods);
+    uint64_t bytes = 0;
+    for (auto &m : mods) bytes += m.size;
+    EnterCriticalSection(&g_lcs);
+    g_hostMods = mods;
+    g_hostModsBytes = bytes;
+    LeaveCriticalSection(&g_lcs);
+    g_hostModsReady = true;
+    TestLog("mods : %d fichiers (%llu octets)", (int)mods.size(), (unsigned long long)bytes);
+    return 0;
+}
+static bool SafeRel(const std::string &r)
+{
+    return !r.empty() && r.size() < 400 && r.find("..") == std::string::npos && r.find(':') == std::string::npos && r[0] != '\\' && r[0] != '/';
+}
+// Hote : manifeste envoye par paquets de 100 (le dernier marque).
+static void SendManifest(SOCKET s)
+{
+    for (int i = 0; i < 600 && !g_hostModsReady; i++) Sleep(100);
+    EnterCriticalSection(&g_lcs);
+    std::vector<ModEntry> mods = g_hostMods;
+    LeaveCriticalSection(&g_lcs);
+    size_t i = 0;
+    do {
+        Wr w;
+        w.u8(M_MODS);
+        size_t n = min<size_t>(100, mods.size() - i);
+        w.u8(i + n >= mods.size() ? 1 : 0);
+        w.u16((int)n);
+        for (size_t k = 0; k < n; k++) { const ModEntry &m = mods[i + k]; w.u16((int)m.rel.size()); w.d += m.rel; w.u32(m.size); w.u32(m.hash); }
+        EnterCriticalSection(&g_lcs);
+        SendMsg(s, w);
+        LeaveCriticalSection(&g_lcs);
+        i += n;
+    } while (i < mods.size());
+}
+// Hote : un fichier demande, en morceaux de 32 Ko (chaque envoi sous g_lcs : l'etat du salon passe entre deux).
+static void SendModFile(SOCKET s, int index)
+{
+    EnterCriticalSection(&g_lcs);
+    std::string rel = index >= 0 && index < (int)g_hostMods.size() ? g_hostMods[index].rel : "";
+    LeaveCriticalSection(&g_lcs);
+    bool ok = false;
+    HANDLE f = rel.empty() ? INVALID_HANDLE_VALUE : CreateFileW((ModsDir() + Widen(rel, CP_ACP)).c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f != INVALID_HANDLE_VALUE) {
+        static char buf[32768];
+        DWORD n;
+        uint32_t off = 0;
+        ok = true;
+        while (ok && ReadFile(f, buf, sizeof(buf), &n, NULL) && n) {
+            Wr w;
+            w.u8(M_FILEDATA); w.u16(index); w.u32(off);
+            w.d.append(buf, n);
+            EnterCriticalSection(&g_lcs);
+            ok = SendMsg(s, w);
+            LeaveCriticalSection(&g_lcs);
+            off += n;
+        }
+        CloseHandle(f);
+    }
+    Wr e;
+    e.u8(M_FILEEND); e.u16(index); e.u8(ok ? 1 : 0);
+    EnterCriticalSection(&g_lcs);
+    SendMsg(s, e);
+    LeaveCriticalSection(&g_lcs);
+    TestLog("mods : %s envoye au joueur (%s)", rel.c_str(), ok ? "ok" : "echec");
+}
+
+// Invite : apres le manifeste, ce qui manque ; puis un fichier a la fois.
+static std::vector<int> g_need;
+static size_t g_needPos;
+static HANDLE g_partFile = INVALID_HANDLE_VALUE;
+static void WriteModsList()
+{
+    CreateDirectoryW((g_gameDir + L"SACoop\\cache").c_str(), NULL);
+    FILE *f = _wfopen((g_gameDir + L"SACoop\\cache\\mods-liste.txt").c_str(), L"w");
+    if (!f) return;
+    for (auto &m : g_wantMods) fprintf(f, "%s\n", m.rel.c_str());
+    fclose(f);
+}
+static void RequestNextMod()
+{
+    if (g_needPos >= g_need.size()) {
+        WriteModsList();
+        g_modsState = MS_READY;
+        TestLog("mods : a jour (%d fichiers de l'hote)", (int)g_wantMods.size());
+        return;
+    }
+    const ModEntry &m = g_wantMods[g_need[g_needPos]];
+    std::wstring path = ModsDir() + Widen(m.rel, CP_ACP);
+    CreateDirectoryW(ModsDir().c_str(), NULL);
+    for (size_t p = path.find(L'\\', ModsDir().size()); p != std::wstring::npos; p = path.find(L'\\', p + 1))   // sous-dossiers
+        CreateDirectoryW(path.substr(0, p).c_str(), NULL);
+    g_partFile = CreateFileW((path + L".part").c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+    Wr w; w.u8(M_GETFILE); w.u16(g_need[g_needPos]);
+    GuestSend(w);
+}
+static void OnModsMessage(int type, Rd &q)
+{
+    if (type == M_MODS) {
+        int last = q.u8(), n = q.u16();
+        for (int k = 0; k < n && q.ok; k++) {
+            int len = q.u16();
+            if (q.p + len > q.d.size()) { q.ok = false; break; }
+            ModEntry m;
+            m.rel = q.d.substr(q.p, len); q.p += len;
+            m.size = q.u32(); m.hash = q.u32();
+            if (q.ok && SafeRel(m.rel)) g_wantMods.push_back(m);
+        }
+        if (!last) return;
+        g_need.clear();
+        g_needPos = 0;
+        uint64_t total = 0;
+        for (size_t i = 0; i < g_wantMods.size(); i++) {
+            uint32_t size = 0;
+            std::wstring p = ModsDir() + Widen(g_wantMods[i].rel, CP_ACP);
+            WIN32_FILE_ATTRIBUTE_DATA a;
+            bool same = GetFileAttributesExW(p.c_str(), GetFileExInfoStandard, &a) && a.nFileSizeLow == g_wantMods[i].size &&
+                        FnvFile(p, &size) == g_wantMods[i].hash;
+            if (!same) { g_need.push_back((int)i); total += g_wantMods[i].size; }
+        }
+        g_modsCount = (int)g_wantMods.size();
+        g_modsTotal = total;
+        g_modsDone = 0;
+        TestLog("mods : manifeste de l'hote, %d fichiers, %d a recevoir (%llu octets)", (int)g_wantMods.size(), (int)g_need.size(), (unsigned long long)total);
+        g_modsState = g_need.empty() ? MS_READY : MS_DOWNLOAD;
+        if (g_need.empty()) WriteModsList(); else RequestNextMod();
+    } else if (type == M_FILEDATA) {
+        q.u16(); q.u32();
+        if (!q.ok || g_partFile == INVALID_HANDLE_VALUE) return;
+        DWORD n = (DWORD)(q.d.size() - q.p), w = 0;
+        WriteFile(g_partFile, q.d.data() + q.p, n, &w, NULL);
+        g_modsDone += n;
+    } else if (type == M_FILEEND) {
+        int index = q.u16(), ok = q.u8();
+        if (g_partFile != INVALID_HANDLE_VALUE) { CloseHandle(g_partFile); g_partFile = INVALID_HANDLE_VALUE; }
+        if (g_needPos >= g_need.size() || index != g_need[g_needPos]) return;
+        std::wstring path = ModsDir() + Widen(g_wantMods[index].rel, CP_ACP);
+        if (!ok || !MoveFileExW((path + L".part").c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            DeleteFileW((path + L".part").c_str());
+            g_modsState = MS_FAILED;
+            TestLog("mods : echec de %s", g_wantMods[index].rel.c_str());
+            return;
+        }
+        g_needPos++;
+        RequestNextMod();
+    }
+}
+static void ModsReset()
+{
+    g_wantMods.clear();
+    g_need.clear();
+    g_needPos = 0;
+    if (g_partFile != INVALID_HANDLE_VALUE) { CloseHandle(g_partFile); g_partFile = INVALID_HANDLE_VALUE; }
+    g_modsState = MS_WAIT;
+    g_modsTotal = g_modsDone = 0;
+    g_modsCount = 0;
+}
+static std::wstring ModsLine()
+{
+    wchar_t b[160];
+    if (g_lobby == LB_HOST) {
+        if (!g_hostModsReady) return T(L"Mods partag\u00E9s : lecture\u2026", L"Shared mods: reading\u2026");
+        EnterCriticalSection(&g_lcs);
+        int n = (int)g_hostMods.size();
+        uint64_t bytes = g_hostModsBytes;
+        LeaveCriticalSection(&g_lcs);
+        if (!n) return T(L"Mods partag\u00E9s : aucun (dossier SACoop\\mods)", L"Shared mods: none (SACoop\\mods folder)");
+        swprintf_s(b, T(L"Mods partag\u00E9s : %d fichiers (%.1f Mo), envoy\u00E9s aux invit\u00E9s", L"Shared mods: %d files (%.1f MB), sent to the guests"), n, bytes / 1048576.0);
+        return b;
+    }
+    switch ((int)g_modsState) {
+    case MS_WAIT: return T(L"Mods de l'h\u00F4te : en attente\u2026", L"Host's mods: waiting\u2026");
+    case MS_DOWNLOAD:
+        swprintf_s(b, T(L"Mods de l'h\u00F4te : t\u00E9l\u00E9chargement %.1f / %.1f Mo", L"Host's mods: downloading %.1f / %.1f MB"), g_modsDone / 1048576.0, g_modsTotal / 1048576.0);
+        return b;
+    case MS_READY:
+        if (!g_modsCount) return T(L"Mods de l'h\u00F4te : aucun", L"Host's mods: none");
+        swprintf_s(b, T(L"Mods de l'h\u00F4te : %d fichiers, \u00E0 jour", L"Host's mods: %d files, up to date"), g_modsCount);
+        return b;
+    case MS_FAILED: return T(L"Mods de l'h\u00F4te : t\u00E9l\u00E9chargement impossible", L"Host's mods: download failed");
+    }
+    return L"";
+}
+
 static SOCKET ConnectTo(const std::wstring &addr, int port, int timeoutMs)
 {
     addrinfo hints = {}, *res = NULL;
@@ -1742,6 +1986,7 @@ static DWORD WINAPI GuestThread(void *)
     EnterCriticalSection(&g_lcs);
     g_guestSock = s;
     LeaveCriticalSection(&g_lcs);
+    ModsReset();
     g_lobby = LB_GUEST;
     SetStatus(K_OK, T(L"Dans le salon de %s", L"In %s's lobby"), g_lobbyAddr.c_str());
     TestLog("salon : entre (joueur %d)", g_myId);
@@ -1764,6 +2009,8 @@ static DWORD WINAPI GuestThread(void *)
         } else if (type == M_PING) {
             Wr w; w.u8(M_PONG); w.u32(q.u32());
             GuestSend(w);
+        } else if (type == M_MODS || type == M_FILEDATA || type == M_FILEEND) {
+            OnModsMessage(type, q);
         } else if (type == M_GO) {
             go = true;
             TestLog("salon : GO recu");
@@ -1800,6 +2047,7 @@ static void LobbyJoin()
 }
 static void GuestToggleReady()
 {
+    if (g_modsState != MS_READY) return;   // mods de l'hote pas encore recus
     g_meReady = !g_meReady;
     Wr w; w.u8(M_READY); w.u8(g_meReady ? 1 : 0);
     GuestSend(w);
@@ -1923,6 +2171,8 @@ static void DrawLobby(Graphics &g)
         Text(g, L"\u203A", RectF(kChoiceR.X + kChoiceR.Width - 26, kChoiceR.Y - 2, 20, kChoiceR.Height), 20, FontStyleBold, kInk);
     }
     Text(g, choice.empty() ? L"\u2026" : Widen(choice, CP_UTF8), RectF(kChoiceR.X + 28, kChoiceR.Y, kChoiceR.Width - 56, kChoiceR.Height), 13, FontStyleBold, kInk);
+    Text(g, ModsLine(), RectF(460, 490, 476, 18), 11.5f, g_modsState == MS_FAILED && !host ? FontStyleBold : FontStyleRegular, kGrey, StringAlignmentNear);
+    if (!host && g_modsState == MS_DOWNLOAD && g_modsTotal > 0) DrawBar(g, RectF(460, 512, 476, 5), (float)((double)g_modsDone / (double)g_modsTotal));
     Pen sep(WithA(kGrey, 0.4f), 1);
     g.DrawLine(&sep, kOptPanel.X + 18, 532.0f, kOptPanel.X + kOptPanel.Width - 18, 532.0f);
     const wchar_t *hint = host ? T(L"Quand tout le monde est pr\u00EAt, \u00AB Lancer \u00BB d\u00E9marre le jeu de chacun ; les invit\u00E9s suivent ta partie.",
@@ -1967,12 +2217,14 @@ static void TestSalonStep()
         else if (!allReadySince) allReadySince = GetTickCount();
         else if (GetTickCount() - allReadySince > 2000) HostStart();
     } else {
-        if (g_lobby == LB_NONE && t > 3000 && !g_joinFallback) LobbyJoin();
-        if (g_lobby == LB_GUEST && !g_meReady && t > 6000) { TestLog("test : pret"); GuestToggleReady(); }
+        static bool tried;
+        if (g_lobby == LB_NONE && t > 3000 && !tried) { tried = true; LobbyJoin(); }
+        if (g_lobby == LB_GUEST && !g_meReady && t > 6000 && g_modsState == MS_READY) { TestLog("test : pret"); GuestToggleReady(); }
     }
 }
 
 bool LobbyCanStartPublic() { return LobbyCanStart(); }
+bool GuestModsReady() { return g_modsState == MS_READY; }
 
 static void OnButton(int id)
 {
@@ -2069,7 +2321,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_TIMER:
         if (wp == 3) { if (!g_busy) { KillTimer(h, 3); Launch(g_testLaunch); } return 0; }
         if (wp == 2) { WriteTestLog(h); DestroyWindow(h); return 0; }
-        if (wp == 4) { KillTimer(h, 4); g_goWait = false; Launch(2); return 0; }
+        if (wp == 4) { KillTimer(h, 4); g_goWait = false; Launch(2, g_modsState == MS_READY ? L" -sacoop-mods" : L""); return 0; }
         Tick();
         return 0;
     case WM_MOUSEMOVE: {
@@ -2299,6 +2551,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
             g_lobbyAddr = L"192.168.1.20";
             g_lobbyPort = 7800;
             g_myAddresses = L"192.168.1.20";
+            g_hostMods = { { "voitures\\infernus.dff", 2400000, 1 }, { "voitures\\infernus.txd", 3100000, 2 }, { "handling.cfg", 900, 3 } };
+            g_hostModsBytes = 5500900;
+            g_hostModsReady = true;
+            g_modsState = MS_DOWNLOAD; g_modsTotal = 5500900; g_modsDone = 3300000; g_modsCount = 3;
             g_tab = TAB_LOBBY;
             LayoutTabs();
             if (g_localVer.empty()) g_localVer = L"0.27.0-prealpha";

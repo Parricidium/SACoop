@@ -1,0 +1,22 @@
+SACoop - mods partages / shared mods
+====================================
+
+Posez ici vos mods (sous-dossiers libres) :
+- nom.dff, nom.txd, nom.col, nom.ifp : remplacent le fichier du meme nom de
+  gta3.img (voiture, arme, personnage...) ;
+- handling.cfg, carcols.dat : seulement les lignes des vehicules modifies
+  (elles remplacent celles du jeu de meme nom).
+
+L'hote les envoie aux invites dans le salon du lanceur : ils les recoivent
+avant de pouvoir cliquer sur PRET, et leur jeu ne charge que ceux de l'hote.
+Reglages : ModsPartages, MemoireStreaming (sacoop.ini).
+
+Put your mods here (any subfolders):
+- name.dff, name.txd, name.col, name.ifp: replace the gta3.img file with the
+  same name (car, weapon, character...);
+- handling.cfg, carcols.dat: only the lines of the changed vehicles (they
+  replace the game's lines with the same name).
+
+The host sends them to the guests in the launcher lobby: they get them before
+they can click READY, and their game only loads the host's mods.
+Settings: ModsPartages, MemoireStreaming (sacoop.ini).

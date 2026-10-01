@@ -3,6 +3,7 @@
 #include "util.h"
 #include "sacoop.h"
 #include "camera.h"
+#include "mods.h"
 #include "script.h"
 #include "widescreen.h"
 #include "menu.h"
@@ -154,5 +155,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallResolution();
     InstallMenu();
     InstallCamera();
+    InstallMods();
     return TRUE;
 }
