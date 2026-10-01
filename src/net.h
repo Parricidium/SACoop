@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 14, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 15, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -26,6 +26,9 @@ enum MsgType : uint8_t {
 };
 
 #pragma pack(push, 1)
+// Animation d'action en cours (anims.cpp) : groupe et numero du jeu, temps, poids (0-255).
+struct NetAnim { int16_t group, id; float time; uint8_t blend; };
+enum { ANIMS_MAX = 3 };
 // Refus : reason 1 = partie pleine, 2 = version differente (hostVersion = la sienne).
 struct MsgFull { uint8_t type, reason, hostVersion; };
 struct MsgPing { uint8_t type; uint32_t time; };
@@ -59,6 +62,8 @@ struct MsgState {
     uint8_t meleeSeq;   // compteur de coups au corps a corps (chaque nouveau coup est rejoue par le pantin)
     uint8_t meleeAnim;  // animation du dernier coup (coop.cpp, kMeleeAnims)
     uint8_t aiming;     // vise avec une arme a feu (CTaskSimpleUseGun, type 1017, tache secondaire 0) ; aim = point vise
+    uint8_t animCount;  // animations d'action en cours (sauts, accroupi, coups, nage...), rejouees par le pantin
+    NetAnim anims[ANIMS_MAX];
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };
@@ -95,9 +100,11 @@ struct MsgPed {
     uint32_t vehicleId;         // vehicule reseau (0 : a pied)
     char special[8];            // modele special (290-299) : son nom (CStreaming::RequestSpecialModel)
     uint8_t shots;              // compteur de tirs (chaque nouveau tir est rejoue par la copie)
-    float aim[3];               // point vise au dernier tir
+    float aim[3];               // point vise au dernier tir (PF_AIMING : point vise maintenant)
+    uint8_t animCount;          // animations d'action en cours (anims.cpp)
+    NetAnim anims[2];
 };
-enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */, PF_DRIVEBY = 4 /* tire par la fenetre d'un vehicule */ };
+enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */, PF_DRIVEBY = 4 /* tire par la fenetre d'un vehicule */, PF_AIMING = 8 /* vise (CTaskSimpleUseGun) */ };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 // Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).
 struct MsgMarker { uint8_t type, n; uint16_t op; int vals[8]; };

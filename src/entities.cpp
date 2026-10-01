@@ -16,6 +16,7 @@
 #include "entities.h"
 #include "population.h"
 #include "mirror.h"
+#include "anims.h"
 #include <string.h>
 
 using namespace game;
@@ -84,6 +85,7 @@ static void HostSend()
         if (IsDead(ped)) m.flags |= PF_DEAD;
         if (ambient) m.flags |= PF_AMBIENT;
         if (PedVehicle(ped) && HasTaskType(ped, 1022)) m.flags |= PF_DRIVEBY;   // CTaskSimpleGangDriveBy (tir par la fenetre)
+        m.animCount = (uint8_t)AnimsCollect(ped, m.anims, 2);
         if (void *veh = PedVehicle(ped)) {
             m.vehicleId = HostVehicleId(veh, true, ambient);
             if (Field<void *>(veh, VEH_DRIVER) != ped)
@@ -91,6 +93,8 @@ static void HostSend()
         }
         if (m.model >= 290 && m.model <= 299) memcpy(m.special, g_special[m.model - 290], 8);
         CombatNpcShots(ped, m.shots, m.aim);
+        float aimNow[3];
+        if (!PedVehicle(ped) && AimOf(ped, aimNow)) { m.flags |= PF_AIMING; memcpy(m.aim, aimNow, 12); }   // vise : arme levee chez l'invite
         NetSendToGuests(&m, sizeof(m));
     }
 }
@@ -118,6 +122,7 @@ struct Copy {
     uint8_t lastShots;
     bool shotsKnown;
     bool driveby;        // tir par la fenetre en cours (TASK_DRIVE_BY donnee a la copie)
+    AnimMirror anims;    // animations d'action donnees a la copie (anims.cpp)
 };
 static Copy g_copies[MAX_COPIES];
 
@@ -277,6 +282,9 @@ static void UpdateCopy(Copy &c, uint32_t now)
         return;
     }
     if (inVeh) { WarpPuppetOut(ped, m.pos); c.moveState = 0; return; }
+    // Visee (policiers, gangs : arme levee vers leur cible) et animations d'action, comme les pantins des joueurs.
+    AimMirror(ped, (m.flags & PF_AIMING) && m.weapon >= 22 && m.weapon <= 38, m.aim);
+    // (animations d'action des PNJ : pas encore, plantage 0x4D1750 avec leurs gestes de discussion 0:126/137/138)
     FollowOnFoot(ped, m.pos, m.speed, m.heading, m.moveState, now - c.lastRecv, c.moveState);
 }
 
