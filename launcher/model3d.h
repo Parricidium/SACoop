@@ -13,6 +13,8 @@ struct Model3D;
 bool ImgOpen(const std::wstring &gameDir);
 // Nom du modele d'un numero de personnage (peds.ide), "" si inconnu.
 std::string PedModelName(int id);
+bool ModelExists(const std::string &name);   // .dff et .txd presents (jeu ou mods)
+std::vector<int> PedIds();                    // pietons de peds.ide (1-288) presents dans le jeu
 // Modele et textures du meme nom ("player" : CJ assemble de ses vetements). NULL si introuvable ou illisible.
 Model3D *ModelLoad(const std::string &name);
 // Modele d'un fichier .dff (mod), textures du .txd donne ou, a defaut, celles du jeu du meme nom.

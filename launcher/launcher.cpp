@@ -36,6 +36,7 @@ using std::max;
 #include <vector>
 #include <atomic>
 #include <map>
+#include "skins.h"
 #include "model3d.h"
 #include <stdio.h>
 #include <math.h>
@@ -940,12 +941,7 @@ static void BuildOptions()
     T2(TAB_VIDEO, "SauvegardesLocales", 1, L"Sauvegardes \u00E0 part", L"Separate saves",
        L"R\u00E9glages et sauvegardes du jeu dans son dossier, s\u00E9par\u00E9s de vos sauvegardes solo.",
        L"Game settings and saves in its folder, apart from your solo saves.");
-    // COOP
-    C(TAB_COOP, "Tenue", 0, { 0, 105, 106, 107, 102, 103, 104, 108, 109, 110, 114, 115, 116 }, L"Personnage vu par les autres", L"Character others see",
-      { L"CJ (tes v\u00EAtements)", L"Grove Street 1", L"Grove Street 2", L"Grove Street 3", L"Ballas 1", L"Ballas 2", L"Ballas 3", L"Vagos 1", L"Vagos 2", L"Vagos 3", L"Aztecas 1", L"Aztecas 2", L"Aztecas 3" },
-      { L"CJ (your clothes)", L"Grove Street 1", L"Grove Street 2", L"Grove Street 3", L"Ballas 1", L"Ballas 2", L"Ballas 3", L"Vagos 1", L"Vagos 2", L"Vagos 3", L"Aztecas 1", L"Aztecas 2", L"Aztecas 3" }, L"",
-      L"CJ : les autres joueurs vous voient avec vos v\u00EAtements (magasins compris). Sinon, sous le personnage choisi.",
-      L"CJ: the other players see you with your clothes (shops included). Otherwise, as the chosen character.");
+    // COOP  (la tenue : onglet TENUE)
     T2(TAB_COOP, "TirAmi", 1, L"Tir ami", L"Friendly fire",
        L"Les autres joueurs peuvent vous blesser (balles, coups, voitures). Chacun choisit pour lui.",
        L"The other players can hurt you (bullets, hits, cars). Each player chooses for themselves.");
@@ -1551,13 +1547,10 @@ static int LobbyPort()
     int port = GetPrivateProfileIntA("SACoop", "Port", 7800, main.c_str());
     return GetPrivateProfileIntA("SACoop", "Port", port, pj.c_str());
 }
-static std::string MySkin()   // tenue lisible (meme liste que l'onglet COOP et le panneau F10 du jeu)
+static std::string MySkin()   // tenue lisible (skins.h, meme liste que le menu F10 du jeu)
 {
     int v = GetPrivateProfileIntA("SACoop", "Tenue", 0, Narrow(g_gameDir + L"sacoop.ini").c_str());
-    static const int ids[] = { 0, 105, 106, 107, 102, 103, 104, 108, 109, 110, 114, 115, 116 };
-    static const char *names[] = { "CJ", "Grove 1", "Grove 2", "Grove 3", "Ballas 1", "Ballas 2", "Ballas 3", "Vagos 1", "Vagos 2", "Vagos 3", "Aztecas 1", "Aztecas 2", "Aztecas 3" };
-    for (int i = 0; i < 13; i++) if (ids[i] == v) return names[i];
-    return "CJ";
+    return SkinLabel(v, v ? PedModelName(v) : std::string());
 }
 static std::string MyName() { std::wstring n = Trim(g_fields[0].text); return Narrow(n.empty() ? L"CJ" : n); }
 
@@ -2609,12 +2602,13 @@ static bool LogsMouseDown(float x, float y)
 // ---------------------------------------------------------------- tenues et mods : apercus 3D (portes de VCCoop)
 // Les modeles viennent du jeu du joueur (model3d.cpp : gta3.img, player.img, SACoop\mods). Deux fils : l'apercu (le
 // modele choisi qui tourne, onglets TENUE et MODS) et les portraits / vignettes (une fois chacun).
-// Tenues : celles du reglage Tenue (sacoop.ini, comme le panneau F10 du jeu) : CJ et douze membres de gangs.
-static const int kSkinIds[] = { 0, 105, 106, 107, 102, 103, 104, 108, 109, 110, 114, 115, 116 };
-static const char *const kSkinNames[] = { "CJ", "Grove 1", "Grove 2", "Grove 3", "Ballas 1", "Ballas 2", "Ballas 3", "Vagos 1", "Vagos 2", "Vagos 3", "Aztecas 1", "Aztecas 2", "Aztecas 3" };
-static const int kSkinCount = 13;
-static std::atomic<int> g_skinSel(0);
+// Tenues : CJ puis tous les pietons du jeu (skins.h : gangs, forces de l'ordre et secours, puis les autres) ; reglage
+// Tenue de sacoop.ini (numero du modele), comme le menu F10 du jeu. Liste refaite au choix du jeu (SkinsInit).
 static CRITICAL_SECTION g_scs;
+static std::vector<int> g_skinIds = { 0 };           // sous g_scs
+static std::vector<std::string> g_skinNames = { "CJ" };
+static int SkinCount() { EnterCriticalSection(&g_scs); int n = (int)g_skinIds.size(); LeaveCriticalSection(&g_scs); return n; }
+static std::atomic<int> g_skinSel(0);
 struct Portrait { int size; std::vector<uint32_t> px; };
 static std::map<int, Portrait> g_portraits;         // par numero de tenue
 static std::atomic<float> g_prevYaw(0.0f);
@@ -2627,9 +2621,29 @@ static const RectF kPrevR(452, 150, 250, 376), kGridR(712, 150, 228, 376);
 static const float kTile = 68, kTileStepX = 80, kTileStepY = 78;
 static const int kPortraitPx = 104, kThumbPx = 64;
 
-static int SkinIndexOfName(const std::string &name) { for (int i = 0; i < kSkinCount; i++) if (name == kSkinNames[i]) return i; return 0; }
-static std::string SkinModel(int i) { return kSkinIds[i] == 0 ? std::string("player") : PedModelName(kSkinIds[i]); }
-static std::wstring SkinDisplay(int i) { return i == 0 ? std::wstring(T(L"CJ (tes v\u00EAtements)", L"CJ (your clothes)")) : Widen(kSkinNames[i]); }
+static int SkinIndexOfName(const std::string &name)
+{
+    EnterCriticalSection(&g_scs);
+    int r = 0;
+    for (int i = 0; i < (int)g_skinNames.size(); i++) if (name == g_skinNames[i]) { r = i; break; }
+    LeaveCriticalSection(&g_scs);
+    return r;
+}
+static std::string SkinModel(int i)
+{
+    EnterCriticalSection(&g_scs);
+    int id = i >= 0 && i < (int)g_skinIds.size() ? g_skinIds[i] : 0;
+    LeaveCriticalSection(&g_scs);
+    return id == 0 ? std::string("player") : PedModelName(id);
+}
+static std::wstring SkinDisplay(int i)
+{
+    if (i == 0) return T(L"CJ (tes v\u00EAtements)", L"CJ (your clothes)");
+    EnterCriticalSection(&g_scs);
+    std::string n = i < (int)g_skinNames.size() ? g_skinNames[i] : "";
+    LeaveCriticalSection(&g_scs);
+    return Widen(n);
+}
 
 // Mods : un dossier de SACoop\mods (ou mods-off) = une entree ; apercu = son premier .dff, avec son .txd.
 struct ModRow { std::wstring name, dff, txd; int files; uint64_t bytes; bool on, root; std::vector<uint32_t> thumb; bool thumbDone; };
@@ -2683,7 +2697,10 @@ static DWORD WINAPI PortraitThread(void *)
         if (!g_imgOk) { Sleep(200); continue; }
         int next = -1;
         EnterCriticalSection(&g_scs);
-        for (int i = 0; i < kSkinCount && next < 0; i++) if (!g_portraits.count(i)) next = i;
+        // d'abord la tenue choisie et celles autour (grille visible), puis toutes dans l'ordre
+        int n = (int)g_skinIds.size(), sel = g_skinSel;
+        for (int d = 0; d < 24 && next < 0; d++) { int i = sel - 6 + d; if (i >= 0 && i < n && !g_portraits.count(i)) next = i; }
+        for (int i = 0; i < n && next < 0; i++) if (!g_portraits.count(i)) next = i;
         LeaveCriticalSection(&g_scs);
         if (next >= 0) {
             Portrait pr;
@@ -2713,17 +2730,25 @@ static DWORD WINAPI PortraitThread(void *)
 
 static void ModsTabScan();
 // Catalogue du jeu choisi ; selection = Tenue de sacoop.ini.
+static void SkinScrollTo(int i);
 static void SkinsInit()
 {
     static bool threads;
     bool ok = !g_gameDir.empty() && ImgOpen(g_gameDir);
     EnterCriticalSection(&g_scs);
     g_portraits.clear();
+    g_skinIds = { 0 };
+    if (ok) { std::vector<int> peds = PedIds(); g_skinIds.insert(g_skinIds.end(), peds.begin(), peds.end()); }
+    SkinSort(g_skinIds);
+    g_skinNames.clear();
+    for (int id : g_skinIds) g_skinNames.push_back(SkinLabel(id, id ? PedModelName(id) : std::string()));
     int v = g_gameDir.empty() ? 0 : GetPrivateProfileIntA("SACoop", "Tenue", 0, Narrow(g_gameDir + L"sacoop.ini").c_str()), sel = 0;
-    for (int i = 0; i < kSkinCount; i++) if (kSkinIds[i] == v) sel = i;
+    for (int i = 0; i < (int)g_skinIds.size(); i++) if (g_skinIds[i] == v) sel = i;
     g_skinSel = sel;
     LeaveCriticalSection(&g_scs);
     g_imgOk = ok;
+    g_scroll[TAB_SKIN] = 0;
+    SkinScrollTo(sel);
     if (!g_gameDir.empty()) ModsTabScan();
     if (ok && !threads) {
         threads = true;
@@ -2736,20 +2761,35 @@ static void SkinsInit()
 
 static void SkinSelect(int i)
 {
-    if (i < 0 || i >= kSkinCount) return;
+    EnterCriticalSection(&g_scs);
+    bool okIdx = i >= 0 && i < (int)g_skinIds.size();
+    int id = okIdx ? g_skinIds[i] : 0;
+    std::string name = okIdx ? g_skinNames[i] : "";
+    LeaveCriticalSection(&g_scs);
+    if (!okIdx) return;
     g_skinSel = i;
     char b[16];
-    wsprintfA(b, "%d", kSkinIds[i]);
+    wsprintfA(b, "%d", id);
     WritePrivateProfileStringA("SACoop", "Tenue", b, Narrow(g_gameDir + L"sacoop.ini").c_str());   // celle du jeu (F10)
-    if (g_lobby == LB_GUEST) { Wr w; w.u8(M_SKIN); w.str(kSkinNames[i]); GuestSend(w); }
+    if (g_lobby == LB_GUEST) { Wr w; w.u8(M_SKIN); w.str(name); GuestSend(w); }
     else if (g_lobby == LB_HOST) {
         EnterCriticalSection(&g_lcs);
-        if (LobbyPeer *p = PeerById(0)) p->skin = kSkinNames[i];
+        if (LobbyPeer *p = PeerById(0)) p->skin = name;
         LeaveCriticalSection(&g_lcs);
         BroadcastState();
     }
 }
-static float SkinMaxScroll() { int rows = (kSkinCount + 2) / 3; return max(0.0f, rows * kTileStepY - 10 - kGridR.Height); }
+static float SkinMaxScroll() { int rows = (SkinCount() + 2) / 3; return max(0.0f, rows * kTileStepY - 10 - kGridR.Height); }
+// Grille : la tenue i rendue visible (a l'ouverture, fleches de l'apercu).
+static void SkinScrollTo(int i)
+{
+    float top = (i / 3) * kTileStepY, &sc = g_scroll[TAB_SKIN];
+    if (top < sc) sc = top;
+    else if (top + kTile > sc + kGridR.Height) sc = top + kTile - kGridR.Height;
+    float ms = SkinMaxScroll();
+    if (sc > ms) sc = ms;
+    if (sc < 0) sc = 0;
+}
 
 // Portrait d'une tenue dans un cercle (salon) ; initiale si le portrait n'est pas (encore) la.
 static void DrawAvatar(Graphics &g, RectF r, const std::string &skin, const std::wstring &name, Color col)
@@ -2820,12 +2860,13 @@ static void DrawSkin(Graphics &g)
     int sel = g_skinSel;
     Text(g, T(L"TENUE", L"OUTFIT"), RectF(460, 122, 200, 26), 17, FontStyleBold, kInk, StringAlignmentNear);
     wchar_t cnt[32];
-    swprintf_s(cnt, L"%d / %d", sel + 1, kSkinCount);
+    int skinCount = SkinCount();
+    swprintf_s(cnt, L"%d / %d", sel + 1, skinCount);
     Text(g, cnt, RectF(700, 122, 236, 26), 13, FontStyleBold, kGrey, StringAlignmentFar);
     DrawPreview(g, SkinDisplay(sel), true);
     float sc = g_scroll[TAB_SKIN];
     g.SetClip(kGridR);
-    for (int i = 0; i < kSkinCount; i++) {
+    for (int i = 0; i < skinCount; i++) {
         RectF t(kGridR.X + (i % 3) * kTileStepX, kGridR.Y + (i / 3) * kTileStepY - sc, kTile, kTile);
         if (t.Y + t.Height < kGridR.Y || t.Y > kGridR.Y + kGridR.Height) continue;
         GraphicsPath tp;
@@ -2864,7 +2905,7 @@ static int SkinTileAt(float x, float y)
     int col = (int)(gx / kTileStepX), row = (int)(gy / kTileStepY);
     if (col > 2 || gx - col * kTileStepX > kTile || gy - row * kTileStepY > kTile) return -1;
     int i = row * 3 + col;
-    return i < kSkinCount ? i : -1;
+    return i < SkinCount() ? i : -1;
 }
 static int SkinArrowAt(float x, float y)
 {
@@ -2875,7 +2916,7 @@ static int SkinArrowAt(float x, float y)
 static void RenderModelsNow()
 {
     if (!g_imgOk) return;
-    for (int i = 0; i < kSkinCount; i++) {
+    for (int i = 0; i < SkinCount() && i < 40; i++) {   // (captures : les premieres seulement)
         Portrait pr;
         pr.size = kPortraitPx;
         pr.px.assign((size_t)kPortraitPx * kPortraitPx, 0);
@@ -2902,7 +2943,7 @@ static void RenderModelsNow()
 static bool SkinMouseDown(float x, float y)
 {
     int a = SkinArrowAt(x, y);
-    if (a) { SkinSelect((g_skinSel + a + kSkinCount) % kSkinCount); return true; }
+    if (a) { int n = SkinCount(); SkinSelect((g_skinSel + a + n) % n); SkinScrollTo(g_skinSel); return true; }
     int t = SkinTileAt(x, y);
     if (t >= 0) { SkinSelect(t); return true; }
     if (kPrevR.Contains(x, y)) { g_skinDrag = true; g_skinDragX = x; return true; }
@@ -3395,7 +3436,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
         else if (st == L"notes") { NotesOnlyThread(NULL); g_tab = TAB_NOTES; }
         else if (st == L"journaux") { g_tab = TAB_LOGS; LogsScan(); g_logRowHot = 1; g_logPart = 2; g_btn[B_LOGS].hover = 1; }
         else if (st == L"mods") { g_tab = TAB_MODS; ModsTabScan(); g_modHot = 0; g_prevYaw = 0.6f; }
-        else if (st.compare(0, 5, L"tenue") == 0) { g_tab = TAB_SKIN; g_skinSel = st.size() > 5 ? _wtoi(st.c_str() + 5) : 0; g_prevYaw = 0.35f; g_tileHot = 4; }   // tenueN : la tenue N
+        else if (st.compare(0, 5, L"tenue") == 0) { g_tab = TAB_SKIN; g_skinSel = st.size() > 5 ? _wtoi(st.c_str() + 5) : 0; SkinScrollTo(g_skinSel); g_prevYaw = 0.35f; g_tileHot = 4; }   // tenueN : la tenue N
         else if (st == L"rendu") { g_tab = TAB_RENDER; g_optHot = TabRows(TAB_RENDER)[0]; g_optPart = 1; }
         else if (st == L"salon" || st == L"salon-invite") {   // salon a 3 joueurs (faux), vu par l'hote ou par un invite
             bool host = st == L"salon";

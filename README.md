@@ -55,7 +55,7 @@ the story, friends join the same world and the same missions, with modern option
 ## The launcher
 
 `SACoop.exe` updates the mod by itself from this page on every start (no need to download the zip again), checks your
-game version, and starts the game as host or guest. Its tabs hold the lobby, your outfit (3D preview), your mods (on/off,
+game version, and starts the game as host or guest. Its tabs hold the lobby, your outfit (3D preview; CJ with his clothes or any of the game's ~265 pedestrians: gangs, police, everyone in the streets), your mods (on/off,
 3D preview), the options and the release notes; the round button at the top right of the left panel opens the logs of your last 50 sessions (to send
 when something goes wrong).
 
@@ -173,7 +173,7 @@ l'histoire, ses amis rejoignent le même monde et les mêmes missions, avec des 
 ## Le lanceur
 
 `SACoop.exe` met le mod à jour tout seul depuis cette page à chaque démarrage (plus besoin de retélécharger le zip),
-vérifie la version du jeu et lance la partie en hôte ou en invité. Ses onglets : le salon, votre tenue (aperçu 3D), vos
+vérifie la version du jeu et lance la partie en hôte ou en invité. Ses onglets : le salon, votre tenue (aperçu 3D ; CJ avec ses vêtements ou l'un des ~265 piétons du jeu : gangs, police, tous ceux de la rue), vos
 mods (activer / désactiver, aperçu 3D), les options et les notes de version ; le bouton rond en haut à droite du panneau de gauche ouvre les
 journaux de vos 50 dernières parties (à envoyer en cas de souci).
 
