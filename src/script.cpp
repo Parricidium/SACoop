@@ -40,7 +40,7 @@ static char Dispatch(int index, void *script, int op)
     if (op == 0x417) {   // START_MISSION
         uint8_t *ip = *(uint8_t **)((uint8_t *)script + 0x14);
         int mission = ip[0] == 4 ? (int8_t)ip[1] : ip[0] == 5 ? *(int16_t *)(ip + 1) : ip[0] == 1 ? *(int32_t *)(ip + 1) : -1;
-        bool testSkip = g_cfg.host && mission == 2 && _stricmp(g_cfg.autotest, "mission") == 0;
+        bool testSkip = g_cfg.host && mission == 2 && (_stricmp(g_cfg.autotest, "mission") == 0 || _stricmp(g_cfg.autotest, "sauve") == 0);
         if (NetRunning() && (testSkip || (!g_cfg.host && IsStoryMission(mission)))) {
             CollectParameters(script, 1);
             static int lastBlocked = -1;

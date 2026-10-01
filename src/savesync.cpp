@@ -3,13 +3,12 @@
 //  - Hote : les 8 emplacements sont surveilles toutes les 2 s ; une sauvegarde plus recente que le lancement du jeu et
 //    stable (taille et date inchangees depuis 2 s) est envoyee en morceaux (RL_SAVE_BEGIN / DATA / END + empreinte).
 //  - Invite : les morceaux sont assembles, verifies, ecrits dans un fichier temporaire puis mis a la place.
-//  - Dossier : "<jeu>\GTA San Andreas User Files" (SauvegardesLocales=1) ou "Mes documents\GTA San Andreas User Files".
+//  - Dossier : celui du jeu (0xC16F18) : "<jeu>\GTA San Andreas User Files" (SauvegardesLocales=1) ou Mes documents.
 #include "util.h"
 #include "sacoop.h"
 #include "net.h"
 #include "savesync.h"
 #include "hud.h"
-#include <shlobj.h>
 #include <stdio.h>
 #include <string.h>
 #include <vector>
@@ -19,23 +18,16 @@ enum { CHUNK = 1100, MAX_SAVE = 2 * 1024 * 1024 };
 
 static bool g_frLang = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
 
+// Base des sauvegardes du jeu lui-meme ("<dossier>\\GTASAsf" en 0xC16F18, cf. files.cpp) : dossier et fichiers.
 static void SaveDir(char *out)
 {
-    if (g_cfg.localUserFiles) {
-        lstrcpynA(out, GameDir(), MAX_PATH);
-    } else {
-        out[0] = 0;
-        SHGetFolderPathA(NULL, CSIDL_PERSONAL, NULL, 0, out);
-    }
-    size_t n = strlen(out);
-    if (n && out[n - 1] == '\\') out[--n] = 0;
-    lstrcatA(out, "\\GTA San Andreas User Files");
+    lstrcpynA(out, (const char *)0xC16F18, MAX_PATH);
+    char *slash = strrchr(out, '\\');
+    if (slash) *slash = 0;
 }
 static void SlotPath(int slot, char *out)
 {
-    char dir[MAX_PATH];
-    SaveDir(dir);
-    wsprintfA(out, "%s\\GTASAsf%d.b", dir, slot + 1);
+    wsprintfA(out, "%s%d.b", (const char *)0xC16F18, slot + 1);
 }
 
 static uint32_t Fnv(const uint8_t *d, size_t n)

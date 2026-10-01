@@ -30,8 +30,8 @@ Installation
 3. L'hote clique sur HEBERGER. Les autres tapent l'adresse IP de l'hote,
    puis REJOINDRE. (Les raccourcis "SACoop - Heberger.cmd" et
    "SACoop - Rejoindre.cmd" marchent aussi, sans mise a jour.)
-4. Chacun commence une nouvelle partie (ou charge la sauvegarde partagee
-   de l'hote). Par Internet, l'hote ouvre le port UDP 7800 sur sa box (ou
+4. L'hote lance sa partie (nouvelle ou sauvegarde). Les invites restes au
+   menu la suivent tout seuls (meme sauvegarde s'ils l'ont recue). Par Internet, l'hote ouvre le port UDP 7800 sur sa box (ou
    utilisez un reseau virtuel type Radmin VPN).
 
 Reglages : sacoop.ini (ou l'onglet du lanceur). Pseudo, adresse et port :

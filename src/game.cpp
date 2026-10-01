@@ -5,6 +5,7 @@
 #include "util.h"
 #include "sacoop.h"
 #include "net.h"
+#include "game.h"
 
 typedef int(__cdecl *RsEventHandler_t)(int ev, void *arg);
 static const RsEventHandler_t RsEventHandler = (RsEventHandler_t)0x619B60;
@@ -20,31 +21,71 @@ enum : uintptr_t {
 // Comme l'action "Nouvelle partie" du menu (0x57D731 et ProcessMenuOptions) : CGame::bMissionPackGame = 0, puis
 // CMenuManager::DoSettingsBeforeStartingAGame (0x573330, thiscall), puis m_bDontDrawFrontEnd (+0x32) = 1. Le menu
 // se ferme, WinMain passe a l'etat 8 (chargement de DATA\GTA.DAT) puis 9.
+// Demarrage depuis le menu : nouvelle partie (slot -1) ou chargement de l'emplacement slot (0-7). Chargement :
+// chemin du fichier dans 0xC15FC8 (base "<dossier>\GTASAsf" en 0xC16F18 + numero + ".b", comme 0x5D0D20) et
+// m_bLoadingData (FrontEndMenuManager +0x60), lu par CGame::InitialiseWhenRestarting (0x53C680).
+static int g_startSlot = -2;   // -2 : rien de demande
+static int g_startFrames;
+
+bool RequestGameStart(int slot)
+{
+    if (g_startSlot != -2 || game::GameState() != 7 || !*(uint8_t *)MenuActive) return false;
+    g_startSlot = slot;
+    g_startFrames = 0;
+    return true;
+}
+
+static void ProcessGameStart()
+{
+    if (g_startSlot == -2) return;
+    if (g_startFrames++ == 0) {
+        if (g_startSlot >= 0) {
+            wsprintfA((char *)0xC15FC8, "%s%i.b", (const char *)0xC16F18, g_startSlot + 1);
+            *(uint8_t *)(FrontEndMenuManager + 0x60) = 1;
+            Log("demarrage : chargement de %s", (const char *)0xC15FC8);
+        } else {
+            Log("demarrage : nouvelle partie");
+        }
+        *(uint8_t *)bMissionPackGame = 0;
+        ((void(__thiscall *)(void *))0x573330)((void *)FrontEndMenuManager);
+        *(uint8_t *)(FrontEndMenuManager + 0x32) = 1;
+        return;
+    }
+    if (!*(uint8_t *)MenuActive || game::GameState() != 7) { g_startSlot = -2; return; }
+    if (g_startFrames == 30) {   // le menu ne s'est pas ferme de lui-meme
+        Log("demarrage : menu ferme a la main");
+        *(uint8_t *)MenuActive = 0;
+        g_startSlot = -2;
+    }
+}
+
+// Partie choisie par le joueur local au menu (hote : annoncee aux invites) : emplacement charge, sinon -1.
+int MenuLoadingSlot()
+{
+    if (!*(uint8_t *)(FrontEndMenuManager + 0x60)) return -1;
+    const char *p = (const char *)0xC15FC8;
+    int n = lstrlenA(p);
+    if (n < 3 || p[n - 2] != '.') return -1;
+    int i = n - 3, slot = 0, mul = 1;
+    while (i >= 0 && p[i] >= '0' && p[i] <= '9') { slot += (p[i] - '0') * mul; mul *= 10; i--; }
+    return slot >= 1 && slot <= 8 ? slot - 1 : -1;
+}
+
 static void AutoStart()
 {
     static int frames;
     static bool done;
     if (!g_cfg.autoStart || done) return;
     if (++frames < 15) return;   // quelques images de menu d'abord (musique, textures chargees)
-    if (frames == 15) {
-        Log("demarrage auto : nouvelle partie");
-        *(uint8_t *)bMissionPackGame = 0;
-        ((void(__thiscall *)(void *))0x573330)((void *)FrontEndMenuManager);
-        *(uint8_t *)(FrontEndMenuManager + 0x32) = 1;
-        return;
-    }
-    if (!*(uint8_t *)MenuActive) { done = true; return; }
-    if (frames == 45) {   // le menu ne s'est pas ferme de lui-meme
-        Log("demarrage auto : menu ferme a la main");
-        *(uint8_t *)MenuActive = 0;
-        done = true;
-    }
+    done = true;
+    if (g_startSlot == -2) RequestGameStart(g_cfg.testLoadSlot - 1);   // ChargerEmplacement (tests), sinon nouvelle partie
 }
 
 static int __cdecl h_FrontendIdle(int ev, void *arg)
 {
     int r = RsEventHandler(ev, arg);
     AutoStart();
+    ProcessGameStart();
     CoopFrame(false);
     return r;
 }

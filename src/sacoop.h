@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.15.0-prealpha"
+#define SACOOP_VERSION "0.16.0-prealpha"
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)
@@ -20,6 +20,7 @@ struct Config {
     int port;
     char playerName[24];
     int testMission;        // TestMission : mission lancee par l'autotest "mission"
+    int testLoadSlot;       // ChargerEmplacement : le demarrage auto charge cet emplacement (1-8, tests)
     bool testBoard;         // TestTableau : tableau des joueurs toujours affiche (captures)
     bool testSkip;          // TestPasser : l'autotest "mission" passe la cinematique
     bool friendlyFire;      // TirAmi : les joueurs peuvent se blesser entre eux (chacun decide pour lui)
@@ -46,4 +47,6 @@ void InstallPuppetRender();   // coop.cpp : rendu des pantins (faces arriere)
 void StartWatchdog();
 void WatchdogFrame();
 void OnFrame();             // une fois par image, sur le fil du jeu (window.cpp, juste avant Present)
-void CoopFrame(bool inGameLoop);   // chaque tour de la boucle du jeu (game.cpp) : menu (false) ou partie (true)
+void CoopFrame(bool inGameLoop);
+bool RequestGameStart(int slot);   // game.cpp : depuis le menu, nouvelle partie (-1) ou chargement (0-7)
+int MenuLoadingSlot();             // game.cpp : emplacement en cours de chargement depuis le menu, sinon -1   // chaque tour de la boucle du jeu (game.cpp) : menu (false) ou partie (true)

@@ -31,7 +31,8 @@ Installation
 3. The host clicks HOST. The others type the host's IP address, then JOIN.
    ("SACoop - Heberger.cmd" and "SACoop - Rejoindre.cmd" also work, without
    updates.)
-4. Everybody starts a new game (or loads the host's shared save). Over the
+4. The host starts their game (new or a save). Guests still in the menu
+   follow automatically (same save if they received it). Over the
    Internet, the host opens UDP port 7800 on their router (or use a virtual
    network such as Radmin VPN).
 

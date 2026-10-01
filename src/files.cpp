@@ -26,6 +26,25 @@ static LSTATUS WINAPI h_RegQueryValueExA(HKEY key, LPCSTR name, LPDWORD reserved
     return o_RegQueryValueExA(key, name, reserved, type, data, size);
 }
 
+// Le jeu a deja calcule son dossier au demarrage, avant le chargement du mod (dinput8.dll arrive tard) : dossier
+// "...\GTA San Andreas User Files" en cache en 0xC92368 (256 octets) et base des sauvegardes "<dossier>\GTASAsf" en
+// 0xC16F18 (C_PcSave, completee par numero + ".b"). On les refait sur le dossier du jeu, sinon les sauvegardes
+// partiraient quand meme dans Mes documents.
+static void LocalUserFilesNow()
+{
+    if (!g_cfg.localUserFiles) return;
+    char dir[MAX_PATH];
+    lstrcpynA(dir, GameDir(), MAX_PATH);
+    size_t n = strlen(dir);
+    if (n && dir[n - 1] == '\\') dir[--n] = 0;
+    lstrcatA(dir, "\\GTA San Andreas User Files");
+    if (strlen(dir) >= 255) return;
+    CreateDirectoryA(dir, NULL);
+    lstrcpyA((char *)0xC92368, dir);
+    wsprintfA((char *)0xC16F18, "%s\\GTASAsf", dir);
+    Log("sauvegardes : %s<n>.b", (const char *)0xC16F18);
+}
+
 // CdStreamInit (0x4068F0) cree un semaphore NOMME "CdStream" (gCdStreamSema, 0x8E4004) : deux instances du jeu
 // partagent alors le meme objet systeme, se volent leurs signaux et se figent ensemble au chargement (vu le 30/09).
 // dinput8.dll est charge apres CdStreamInit : on ne peut pas changer le nom a la creation. Au chargement du mod, le fil
@@ -82,6 +101,7 @@ static void CloseSingleInstanceEvent()
 
 void InstallFileHooks()
 {
+    LocalUserFilesNow();
     CloseSingleInstanceEvent();
     PrivateCdStreamSemaphore();
     o_RegQueryValueExA = (decltype(o_RegQueryValueExA))HookImport("advapi32.dll", "RegQueryValueExA", (void *)h_RegQueryValueExA);
