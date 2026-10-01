@@ -35,6 +35,8 @@ using std::max;
 #include <string>
 #include <vector>
 #include <atomic>
+#include <map>
+#include "model3d.h"
 #include <stdio.h>
 #include <math.h>
 #include <stdarg.h>
@@ -81,7 +83,7 @@ static std::wstring g_launchInfo;
 
 // Salon : etat partage entre la fenetre et les fils reseau (sous g_lcs)
 enum { LB_NONE, LB_HOST, LB_CONNECTING, LB_GUEST };
-struct LobbyPeer { int id; std::string name, skin; bool ready; int ping; };
+struct LobbyPeer { int id; std::string name, skin; bool ready; int ping; int mods = -1; };   // mods : 0-100 %, 255 echec, -1 inconnu
 static std::atomic<int> g_lobby(LB_NONE);
 static CRITICAL_SECTION g_lcs;
 static std::vector<LobbyPeer> g_peers;
@@ -593,15 +595,26 @@ static DWORD WINAPI UpdateThread(void *)
 
     wchar_t tmp[MAX_PATH];
     GetTempPathW(MAX_PATH, tmp);
-    std::wstring work = std::wstring(tmp) + L"SACoop-maj";
+    // Dossier propre a ce lanceur (un reste verrouille d'une tentative precedente faisait echouer le telechargement)
+    std::wstring work = std::wstring(tmp) + L"SACoop-maj-" + std::to_wstring(GetCurrentProcessId());
     DeleteTree(work);
     CreateDirectoryW(work.c_str(), NULL);
     std::wstring zip = work + L"\\SACoop.zip", ext = work + L"\\x";
     SetStatus(K_NORMAL, T(L"T\u00E9l\u00E9chargement de SACoop %s\u2026", L"Downloading SACoop %s\u2026"), remote.c_str());
-    g_progress = 0;
-    if (!HttpGet(zipUrl, NULL, zip, true)) {
+    bool got = false;
+    DWORD err = 0;
+    for (int attempt = 0; attempt < 3 && !got; attempt++) {   // trois essais (serveurs de GitHub parfois lents a repondre)
+        if (attempt) {
+            SetStatus(K_NORMAL, T(L"T\u00E9l\u00E9chargement de SACoop %s\u2026 (essai %d / 3)", L"Downloading SACoop %s\u2026 (try %d / 3)"), remote.c_str(), attempt + 1);
+            Sleep(1500);
+        }
+        g_progress = 0;
+        got = HttpGet(zipUrl, NULL, zip, true);
+        if (!got) err = GetLastError();
+    }
+    if (!got) {
         g_progress = -1;
-        SetStatus(K_ERR, T(L"Mise \u00E0 jour impossible (t\u00E9l\u00E9chargement)", L"Update failed (download)"));
+        SetStatus(K_ERR, T(L"Mise \u00E0 jour impossible (t\u00E9l\u00E9chargement, erreur %lu)", L"Update failed (download, error %lu)"), err);
         DeleteTree(work);
         g_busy = false;
         return 0;
@@ -855,7 +868,7 @@ static void DrawBar(Graphics &g, RectF r, float p)
 
 // ---------------------------------------------------------------- options (sacoop.ini du jeu)
 // Les memes cles et valeurs par defaut que dllmain.cpp LoadConfig ; ecrites tout de suite, prises au prochain lancement.
-enum { TAB_VIDEO, TAB_COOP, TAB_NOTES, TAB_LOBBY, TAB_LOGS, TAB_RENDER, TAB_MODS, TAB_COUNT };   // (TAB_LOGS : page du bouton journaux, pas d'onglet)   // (TAB_LOBBY : seulement pendant un salon)
+enum { TAB_VIDEO, TAB_COOP, TAB_NOTES, TAB_LOBBY, TAB_LOGS, TAB_RENDER, TAB_MODS, TAB_SKIN, TAB_COUNT };   // (TAB_LOGS : page du bouton journaux, pas d'onglet)   // (TAB_LOBBY : seulement pendant un salon)
 enum { O_TOGGLE, O_CHOICE };
 struct Opt {
     int tab; const char *key; int def; int kind; std::vector<int> vals;
@@ -930,12 +943,14 @@ static void OptSet(const Opt &o, int v) { char b[16]; wsprintfA(b, "%d", v); Wri
 
 static const wchar_t *TabName(int t)
 {
-    static const wchar_t *fr[] = { L"VID\u00C9O", L"COOP", L"NOUVEAUT\u00C9S", L"SALON", L"JOURNAUX", L"RENDU", L"MODS" }, *en[] = { L"VIDEO", L"CO-OP", L"UPDATES", L"LOBBY", L"LOGS", L"RENDERING", L"MODS" };
+    static const wchar_t *fr[] = { L"VID\u00C9O", L"COOP", L"NOUVEAUT\u00C9S", L"SALON", L"JOURNAUX", L"RENDU", L"MODS", L"TENUE" }, *en[] = { L"VIDEO", L"CO-OP", L"UPDATES", L"LOBBY", L"LOGS", L"RENDERING", L"MODS", L"OUTFIT" };
     return g_fr ? fr[t] : en[t];
 }
+static std::atomic<bool> g_imgOk(false);   // modeles du jeu lisibles (onglet TENUE, apercus : model3d.cpp)
 static bool TabVisible(int t)
 {
     if (t == TAB_LOBBY) return g_lobby != LB_NONE;
+    if (t == TAB_SKIN) return g_imgOk;
     if (t == TAB_MODS) return g_lobby != LB_GUEST && g_lobby != LB_CONNECTING;   // (l'invite prend ceux de l'hote)
     return t != TAB_LOGS;
 }
@@ -945,7 +960,7 @@ static float g_tabFont = 11.5f;   // police des onglets (plus petite quand ils n
 static void LayoutTabs()
 {
     float x = 440;
-    static const int order[] = { TAB_LOBBY, TAB_MODS, TAB_VIDEO, TAB_RENDER, TAB_COOP, TAB_NOTES };
+    static const int order[] = { TAB_LOBBY, TAB_SKIN, TAB_MODS, TAB_VIDEO, TAB_RENDER, TAB_COOP, TAB_NOTES };
     float tw[TAB_COUNT] = {}, total = 0, pad = 12, gap = 6;
     int n = 0;
     {
@@ -970,11 +985,18 @@ static void LayoutTabs()
     }
     if (g_tab >= 0 && g_tab != TAB_LOGS && !TabVisible(g_tab)) g_tab = -1;
 }
-static std::vector<int> TabRows(int t) { std::vector<int> r; for (int i = 0; i < (int)g_opts.size(); i++) if (g_opts[i].tab == t) r.push_back(i); return r; }
+static std::vector<int> TabRows(int t)
+{
+    std::vector<int> r;
+    for (int i = 0; i < (int)g_opts.size(); i++)
+        if (g_opts[i].tab == t && !(g_imgOk && !strcmp(g_opts[i].key, "Tenue"))) r.push_back(i);   // (onglet TENUE)
+    return r;
+}
 static float NotesMaxScroll();
 static float LogsMaxScroll();
 static float ModsMaxScroll();
-static float MaxScroll(int t) { return t == TAB_LOBBY ? 0.0f : t == TAB_LOGS ? LogsMaxScroll() : t == TAB_MODS ? ModsMaxScroll() : t == TAB_NOTES ? NotesMaxScroll() : max(0.0f, TabRows(t).size() * kRowH - kOptList.Height); }
+static float SkinMaxScroll();
+static float MaxScroll(int t) { return t == TAB_LOBBY ? 0.0f : t == TAB_LOGS ? LogsMaxScroll() : t == TAB_MODS ? ModsMaxScroll() : t == TAB_SKIN ? SkinMaxScroll() : t == TAB_NOTES ? NotesMaxScroll() : max(0.0f, TabRows(t).size() * kRowH - kOptList.Height); }
 
 static int ValueIndex(const Opt &o, int v)
 {
@@ -1037,6 +1059,8 @@ static void DrawNotes(Graphics &g);
 static void DrawLobby(Graphics &g);
 static void DrawLogs(Graphics &g);
 static void DrawMods(Graphics &g);
+static void DrawSkin(Graphics &g);
+static void DrawAvatar(Graphics &g, RectF r, const std::string &skin, const std::wstring &name, Color col);
 
 static void DrawOptions(Graphics &g)
 {
@@ -1045,6 +1069,7 @@ static void DrawOptions(Graphics &g)
     if (g_tab == TAB_LOBBY) { DrawLobby(g); return; }
     if (g_tab == TAB_LOGS) { DrawLogs(g); return; }
     if (g_tab == TAB_MODS) { DrawMods(g); return; }
+    if (g_tab == TAB_SKIN) { DrawSkin(g); return; }
     DrawPanel(g);
     std::vector<int> rows = TabRows(g_tab);
     float sc = g_scroll[g_tab];
@@ -1094,7 +1119,7 @@ static void DrawOptions(Graphics &g)
 static void HitOption(float x, float y, int *row, int *part)
 {
     *row = -1; *part = 0;
-    if (g_tab < 0 || g_tab == TAB_NOTES || g_tab == TAB_LOBBY || g_tab == TAB_LOGS || g_tab == TAB_MODS || !kOptList.Contains(x, y)) return;
+    if (g_tab < 0 || g_tab == TAB_NOTES || g_tab == TAB_LOBBY || g_tab == TAB_LOGS || g_tab == TAB_MODS || g_tab == TAB_SKIN || !kOptList.Contains(x, y)) return;
     std::vector<int> rows = TabRows(g_tab);
     int k = (int)((y - kOptList.Y + g_scroll[g_tab]) / kRowH);
     if (k < 0 || k >= (int)rows.size()) return;
@@ -1357,6 +1382,7 @@ static void Present()
 }
 
 // ---------------------------------------------------------------- actions
+static void SkinsInit();
 static void ChooseExe()
 {
     wchar_t file[MAX_PATH] = L"gta_sa.exe";
@@ -1372,6 +1398,7 @@ static void ChooseExe()
     if (!GetOpenFileNameW(&of)) return;
     if (CheckExe(file) != EXE_OK) { BadExeMessage(); return; }
     SetExe(file);
+    SkinsInit();
     WritePrivateProfileStringW(L"Lanceur", L"Exe", file, g_iniLauncher.c_str());
     StartUpdate();
 }
@@ -1431,7 +1458,7 @@ static void Launch(int mode, const std::wstring &extra = L"")
 // par "SAL1", puis des messages [u16 longueur][u8 type][...] : HELLO (version, pseudo, tenue) -> WELCOME (numero) ou
 // REJECT (raison) ; STATE (joueurs : pret, ping ; choix de partie) ; READY ; PING / PONG ; GO (l'hote lance : chaque
 // lanceur demarre son jeu, l'hote avec -sacoop-partie, les invites avec -sacoop invite ; ils suivent ensuite l'hote).
-enum { LB_PROTO = 2, M_HELLO = 1, M_WELCOME, M_REJECT, M_STATE, M_READY, M_GO, M_PING, M_PONG, M_MODS, M_GETFILE, M_FILEDATA, M_FILEEND };
+enum { LB_PROTO = 3, M_HELLO = 1, M_WELCOME, M_REJECT, M_STATE, M_READY, M_GO, M_PING, M_PONG, M_MODS, M_GETFILE, M_FILEDATA, M_FILEEND, M_MODSTATE, M_SKIN };
 static std::atomic<bool> g_hostModsReady(false);   // hote : manifeste des mods pret (plus bas : mods partages)
 static void SendManifest(SOCKET s);
 static void SendModFile(SOCKET s, int index);
@@ -1558,7 +1585,7 @@ static void BroadcastState()
     w.u8(M_STATE);
     EnterCriticalSection(&g_lcs);
     w.u8((int)g_peers.size());
-    for (auto &p : g_peers) { w.u8(p.id); w.str(p.name); w.str(p.skin); w.u8(p.ready); w.u16(min(p.ping, 9999)); }
+    for (auto &p : g_peers) { w.u8(p.id); w.str(p.name); w.str(p.skin); w.u8(p.ready); w.u16(min(p.ping, 9999)); w.u8(p.mods < 0 ? 254 : p.mods); }
     w.str(ChosenSave());
     for (auto &c : g_conns) SendMsg(c.s, w);
     LeaveCriticalSection(&g_lcs);
@@ -1608,8 +1635,10 @@ static void LobbySession(SOCKET s)
         LobbyPeer *p = PeerById(id);
         if (p && t == M_READY) { p->ready = q.u8() != 0; TestLog("salon : joueur %d pret=%d", id, (int)p->ready); }
         else if (p && t == M_PONG) { uint32_t sent = q.u32(); p->ping = (int)(GetTickCount() - sent); }
+        else if (p && t == M_MODSTATE) p->mods = q.u8();
+        else if (p && t == M_SKIN) p->skin = q.str();
         LeaveCriticalSection(&g_lcs);
-        if (t == M_READY) BroadcastState();
+        if (t == M_READY || t == M_MODSTATE || t == M_SKIN) BroadcastState();
         if (t == M_GETFILE) SendModFile(s, q.u16());
     }
     DropConn(s);
@@ -1887,11 +1916,25 @@ static void WriteModsList()
     for (auto &m : g_wantMods) fprintf(f, "%s\n", m.rel.c_str());
     fclose(f);
 }
+static void SendModState(int pct)   // invite -> hote : avancement des mods (0-100, 255 echec), seulement quand il change
+{
+    static int last = -1;
+    if (pct == last) return;
+    last = pct;
+    Wr w; w.u8(M_MODSTATE); w.u8(pct);
+    GuestSend(w);
+}
+static void SendModProgress()
+{
+    int pct = g_modsTotal ? (int)(g_modsDone * 100 / g_modsTotal) : 0;
+    SendModState(min(99, pct / 5 * 5));   // par 5 %
+}
 static void RequestNextMod()
 {
     if (g_needPos >= g_need.size()) {
         WriteModsList();
         g_modsState = MS_READY;
+        SendModState(100);
         TestLog("mods : a jour (%d fichiers de l'hote)", (int)g_wantMods.size());
         return;
     }
@@ -1933,6 +1976,7 @@ static void OnModsMessage(int type, Rd &q)
         g_modsDone = 0;
         TestLog("mods : manifeste de l'hote, %d fichiers, %d a recevoir (%llu octets)", (int)g_wantMods.size(), (int)g_need.size(), (unsigned long long)total);
         g_modsState = g_need.empty() ? MS_READY : MS_DOWNLOAD;
+        SendModState(g_need.empty() ? 100 : 0);
         if (g_need.empty()) WriteModsList(); else RequestNextMod();
     } else if (type == M_FILEDATA) {
         q.u16(); q.u32();
@@ -1940,6 +1984,7 @@ static void OnModsMessage(int type, Rd &q)
         DWORD n = (DWORD)(q.d.size() - q.p), w = 0;
         WriteFile(g_partFile, q.d.data() + q.p, n, &w, NULL);
         g_modsDone += n;
+        SendModProgress();
     } else if (type == M_FILEEND) {
         int index = q.u16(), ok = q.u8();
         if (g_partFile != INVALID_HANDLE_VALUE) { CloseHandle(g_partFile); g_partFile = INVALID_HANDLE_VALUE; }
@@ -1948,6 +1993,7 @@ static void OnModsMessage(int type, Rd &q)
         if (!ok || !MoveFileExW((path + L".part").c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
             DeleteFileW((path + L".part").c_str());
             g_modsState = MS_FAILED;
+            SendModState(255);
             TestLog("mods : echec de %s", g_wantMods[index].rel.c_str());
             return;
         }
@@ -2056,6 +2102,7 @@ static DWORD WINAPI GuestThread(void *)
             for (int i = 0; i < n; i++) {
                 LobbyPeer p;
                 p.id = q.u8(); p.name = q.str(); p.skin = q.str(); p.ready = q.u8() != 0; p.ping = q.u16();
+                p.mods = q.u8(); if (p.mods == 254) p.mods = -1;
                 peers.push_back(p);
             }
             std::string label = q.str();
@@ -2196,15 +2243,21 @@ static void DrawLobby(Graphics &g)
         // pastille a la couleur du joueur en jeu, avec son initiale
         std::wstring nm = Widen(p.name, CP_UTF8);
         RectF av(r.X + 10, r.Y + 8, 40, 40);
-        SolidBrush ab(kPlayerCol[p.id & 3]);
-        g.FillEllipse(&ab, av);
-        Text(g, nm.empty() ? L"?" : nm.substr(0, 1), av, 18, FontStyleBold, Color(255, 20, 20, 20));
+        DrawAvatar(g, av, p.skin, nm, kPlayerCol[p.id & 3]);   // portrait de sa tenue (initiale en attendant)
         Text(g, nm, RectF(r.X + 60, r.Y + 7, 230, 22), 15, FontStyleBold, kInk, StringAlignmentNear);
         std::wstring line;
         if (p.id == 0) line = T(L"H\u00F4te", L"Host");
         else line = p.ready ? T(L"Pr\u00EAt \u2713", L"Ready \u2713") : T(L"Pas pr\u00EAt", L"Not ready");
         Text(g, line, RectF(r.X + 60, r.Y + 29, 90, 20), 12, FontStyleBold, p.id == 0 || p.ready ? kInk : kGrey, StringAlignmentNear);
-        Text(g, Widen(p.skin, CP_UTF8), RectF(r.X + 160, r.Y + 29, 140, 20), 12, FontStyleRegular, kGrey, StringAlignmentNear);
+        Text(g, Widen(p.skin, CP_UTF8), RectF(r.X + 160, r.Y + 29, 100, 20), 12, FontStyleRegular, kGrey, StringAlignmentNear);
+        if (p.id != 0 && p.mods >= 0) {   // mods de l'hote chez cet invite
+            wchar_t mb[48];
+            if (p.mods == 255) wcscpy_s(mb, T(L"Mods : \u00E9chec", L"Mods: failed"));
+            else if (p.mods >= 100) wcscpy_s(mb, T(L"Mods \u00E0 jour", L"Mods up to date"));
+            else swprintf_s(mb, L"Mods %d %%", p.mods);
+            Text(g, mb, RectF(r.X + 260, r.Y + 29, 90, 20), 12, p.mods == 255 ? FontStyleBold : FontStyleRegular, kGrey, StringAlignmentNear);
+            if (p.mods < 100) DrawBar(g, RectF(r.X + 260, r.Y + 47, 80, 4), p.mods / 100.0f);
+        }
         if (p.id != 0) {
             wchar_t pb[32];
             swprintf_s(pb, L"%d ms", p.ping);
@@ -2533,27 +2586,329 @@ static bool LogsMouseDown(float x, float y)
 }
 
 
-// ---------------------------------------------------------------- onglet MODS (comme VCCoop, sans l'apercu 3D)
+// ---------------------------------------------------------------- tenues et mods : apercus 3D (portes de VCCoop)
+// Les modeles viennent du jeu du joueur (model3d.cpp : gta3.img, player.img, SACoop\mods). Deux fils : l'apercu (le
+// modele choisi qui tourne, onglets TENUE et MODS) et les portraits / vignettes (une fois chacun).
+// Tenues : celles du reglage Tenue (sacoop.ini, comme le panneau F10 du jeu) : CJ et douze membres de gangs.
+static const int kSkinIds[] = { 0, 105, 106, 107, 102, 103, 104, 108, 109, 110, 114, 115, 116 };
+static const char *const kSkinNames[] = { "CJ", "Grove 1", "Grove 2", "Grove 3", "Ballas 1", "Ballas 2", "Ballas 3", "Vagos 1", "Vagos 2", "Vagos 3", "Aztecas 1", "Aztecas 2", "Aztecas 3" };
+static const int kSkinCount = 13;
+static std::atomic<int> g_skinSel(0);
+static CRITICAL_SECTION g_scs;
+struct Portrait { int size; std::vector<uint32_t> px; };
+static std::map<int, Portrait> g_portraits;         // par numero de tenue
+static std::atomic<float> g_prevYaw(0.0f);
+static std::atomic<int> g_prevW(0), g_prevH(0);
+static std::vector<uint32_t> g_prevFrame;
+static int g_prevFrameW, g_prevFrameH;
+static bool g_skinDrag;
+static float g_skinDragX;
+static const RectF kPrevR(452, 150, 250, 376), kGridR(712, 150, 228, 376);
+static const float kTile = 68, kTileStepX = 80, kTileStepY = 78;
+static const int kPortraitPx = 104, kThumbPx = 64;
+
+static int SkinIndexOfName(const std::string &name) { for (int i = 0; i < kSkinCount; i++) if (name == kSkinNames[i]) return i; return 0; }
+static std::string SkinModel(int i) { return kSkinIds[i] == 0 ? std::string("player") : PedModelName(kSkinIds[i]); }
+static std::wstring SkinDisplay(int i) { return i == 0 ? std::wstring(T(L"CJ (tes v\u00EAtements)", L"CJ (your clothes)")) : Widen(kSkinNames[i]); }
+
+// Mods : un dossier de SACoop\mods (ou mods-off) = une entree ; apercu = son premier .dff, avec son .txd.
+struct ModRow { std::wstring name, dff, txd; int files; uint64_t bytes; bool on, root; std::vector<uint32_t> thumb; bool thumbDone; };
+static std::vector<ModRow> g_modRows;                // sous g_scs
+static std::atomic<int> g_modSel(0), g_modGen(0);
+static int g_modHot = -1, g_modPart = 0;              // g_modPart : 1 = interrupteur
+static const RectF kModsFolderR(826, 124, 110, 22);
+static const float kModRowH = 58;
+
+static DWORD WINAPI PreviewThread(void *)
+{
+    std::wstring loaded;
+    Model3D *model = NULL;
+    int gen = -1, style = 0;
+    std::vector<uint32_t> buf;
+    for (;;) {
+        bool skins = g_tab == TAB_SKIN && g_imgOk, mods = g_tab == TAB_MODS && g_imgOk;
+        if ((!skins && !mods) || g_state != ST_IDLE) { Sleep(60); continue; }
+        std::wstring want, txd;
+        int wantGen;
+        EnterCriticalSection(&g_scs);
+        if (skins) { want = L"t:" + Widen(SkinModel(g_skinSel)); wantGen = 0; }
+        else {
+            int sel = g_modSel;
+            if (sel >= 0 && sel < (int)g_modRows.size() && !g_modRows[sel].dff.empty()) { want = L"m:" + g_modRows[sel].dff; txd = g_modRows[sel].txd; }
+            wantGen = 1000000 + g_modGen;
+        }
+        LeaveCriticalSection(&g_scs);
+        if (want != loaded || gen != wantGen) {
+            ModelFree(model);
+            model = want.empty() ? NULL : want[0] == L't' ? ModelLoad(Narrow(want.substr(2))) : ModelLoadPath(want.substr(2), txd);
+            loaded = want; gen = wantGen; style = skins ? 0 : 2;
+        }
+        int w = g_prevW, h = g_prevH;
+        if (w <= 0 || h <= 0) { Sleep(30); continue; }
+        buf.resize((size_t)w * h);
+        DWORD t0 = GetTickCount();
+        ModelRender(model, buf.data(), w, h, g_prevYaw, style);
+        DWORD spent = GetTickCount() - t0;
+        EnterCriticalSection(&g_scs);
+        g_prevFrame.swap(buf);
+        g_prevFrameW = w; g_prevFrameH = h;
+        LeaveCriticalSection(&g_scs);
+        Sleep(spent < 25 ? 33 - spent : 8);   // ~30 images/s au plus
+    }
+}
+
+static DWORD WINAPI PortraitThread(void *)
+{
+    for (;;) {
+        if (!g_imgOk) { Sleep(200); continue; }
+        int next = -1;
+        EnterCriticalSection(&g_scs);
+        for (int i = 0; i < kSkinCount && next < 0; i++) if (!g_portraits.count(i)) next = i;
+        LeaveCriticalSection(&g_scs);
+        if (next >= 0) {
+            Portrait pr;
+            pr.size = kPortraitPx;
+            pr.px.assign((size_t)kPortraitPx * kPortraitPx, 0);
+            Model3D *m = ModelLoad(SkinModel(next));
+            if (m) ModelRender(m, pr.px.data(), kPortraitPx, kPortraitPx, 0.3f, 1);
+            ModelFree(m);
+            EnterCriticalSection(&g_scs);
+            g_portraits[next] = std::move(pr);
+            LeaveCriticalSection(&g_scs);
+            continue;
+        }
+        std::wstring dff, txd;   // portraits faits : vignettes des mods
+        int idx = -1, mg = g_modGen;
+        EnterCriticalSection(&g_scs);
+        for (int i = 0; i < (int)g_modRows.size(); i++) if (!g_modRows[i].thumbDone) { idx = i; dff = g_modRows[i].dff; txd = g_modRows[i].txd; break; }
+        LeaveCriticalSection(&g_scs);
+        if (idx < 0) { Sleep(200); continue; }
+        std::vector<uint32_t> px((size_t)kThumbPx * kThumbPx, 0);
+        if (!dff.empty()) { Model3D *m = ModelLoadPath(dff, txd); if (m) ModelRender(m, px.data(), kThumbPx, kThumbPx, 0.7f, 2); ModelFree(m); }
+        EnterCriticalSection(&g_scs);
+        if (mg == g_modGen && idx < (int)g_modRows.size()) { g_modRows[idx].thumb.swap(px); g_modRows[idx].thumbDone = true; }
+        LeaveCriticalSection(&g_scs);
+    }
+}
+
+static void ModsTabScan();
+// Catalogue du jeu choisi ; selection = Tenue de sacoop.ini.
+static void SkinsInit()
+{
+    static bool threads;
+    bool ok = !g_gameDir.empty() && ImgOpen(g_gameDir);
+    EnterCriticalSection(&g_scs);
+    g_portraits.clear();
+    int v = g_gameDir.empty() ? 0 : GetPrivateProfileIntA("SACoop", "Tenue", 0, Narrow(g_gameDir + L"sacoop.ini").c_str()), sel = 0;
+    for (int i = 0; i < kSkinCount; i++) if (kSkinIds[i] == v) sel = i;
+    g_skinSel = sel;
+    LeaveCriticalSection(&g_scs);
+    g_imgOk = ok;
+    if (!g_gameDir.empty()) ModsTabScan();
+    if (ok && !threads) {
+        threads = true;
+        HANDLE a = CreateThread(NULL, 0, PreviewThread, NULL, 0, NULL), b = CreateThread(NULL, 0, PortraitThread, NULL, 0, NULL);
+        if (a) { SetThreadPriority(a, THREAD_PRIORITY_BELOW_NORMAL); CloseHandle(a); }
+        if (b) { SetThreadPriority(b, THREAD_PRIORITY_LOWEST); CloseHandle(b); }
+    }
+    LayoutTabs();
+}
+
+static void SkinSelect(int i)
+{
+    if (i < 0 || i >= kSkinCount) return;
+    g_skinSel = i;
+    char b[16];
+    wsprintfA(b, "%d", kSkinIds[i]);
+    WritePrivateProfileStringA("SACoop", "Tenue", b, Narrow(g_gameDir + L"sacoop.ini").c_str());   // celle du jeu (F10)
+    if (g_lobby == LB_GUEST) { Wr w; w.u8(M_SKIN); w.str(kSkinNames[i]); GuestSend(w); }
+    else if (g_lobby == LB_HOST) {
+        EnterCriticalSection(&g_lcs);
+        if (LobbyPeer *p = PeerById(0)) p->skin = kSkinNames[i];
+        LeaveCriticalSection(&g_lcs);
+        BroadcastState();
+    }
+}
+static float SkinMaxScroll() { int rows = (kSkinCount + 2) / 3; return max(0.0f, rows * kTileStepY - 10 - kGridR.Height); }
+
+// Portrait d'une tenue dans un cercle (salon) ; initiale si le portrait n'est pas (encore) la.
+static void DrawAvatar(Graphics &g, RectF r, const std::string &skin, const std::wstring &name, Color col)
+{
+    int i = SkinIndexOfName(skin);
+    EnterCriticalSection(&g_scs);
+    auto it = g_portraits.find(i);
+    bool have = it != g_portraits.end() && g_imgOk;
+    SolidBrush bg(have ? TH(card) : col);
+    g.FillEllipse(&bg, r);
+    if (have) {
+        GraphicsPath clip;
+        clip.AddEllipse(r);
+        g.SetClip(&clip);
+        Bitmap b(it->second.size, it->second.size, it->second.size * 4, PixelFormat32bppPARGB, (BYTE *)it->second.px.data());
+        g.DrawImage(&b, RectF(r.X - r.Width * 0.08f, r.Y - r.Height * 0.02f, r.Width * 1.16f, r.Height * 1.16f));
+        g.ResetClip();
+    }
+    LeaveCriticalSection(&g_scs);
+    if (have) { Pen ring(col, 2.4f); g.DrawEllipse(&ring, r); }
+    else Text(g, name.empty() ? L"?" : name.substr(0, 1), r, 18, FontStyleBold, Color(255, 20, 20, 20));
+}
+
+static int g_tileHot = -1, g_arrowHot = 0;
+
+// Apercu : fond doux, ombre au sol, modele rendu a la taille de l'ecran (fil PreviewThread).
+static void DrawPreview(Graphics &g, const std::wstring &label, bool arrows)
+{
+    GraphicsPath vp;
+    RoundRect(vp, kPrevR, 14);
+    LinearGradientBrush vb(kPrevR, TH(card), TH(panel), LinearGradientModeVertical);
+    g.FillPath(&vb, &vp);
+    SolidBrush shadow(WithA(kInk, 0.12f));
+    g.FillEllipse(&shadow, kPrevR.X + kPrevR.Width / 2 - 52, kPrevR.Y + kPrevR.Height - 34, 104.0f, 16.0f);
+    g_prevW = (int)(kPrevR.Width * g_scale);
+    g_prevH = (int)((kPrevR.Height - 34) * g_scale);
+    EnterCriticalSection(&g_scs);
+    if (!g_prevFrame.empty() && g_prevFrameW > 0) {
+        Bitmap b(g_prevFrameW, g_prevFrameH, g_prevFrameW * 4, PixelFormat32bppPARGB, (BYTE *)g_prevFrame.data());
+        g.DrawImage(&b, RectF(kPrevR.X, kPrevR.Y + 8, kPrevR.Width, kPrevR.Height - 34));
+    }
+    LeaveCriticalSection(&g_scs);
+    Text(g, label, RectF(kPrevR.X + 30, kPrevR.Y + kPrevR.Height - 30, kPrevR.Width - 60, 24), 14, FontStyleBold, kInk);
+    if (!arrows) return;
+    for (int side = -1; side <= 1; side += 2) {   // tenue precedente / suivante
+        RectF a(side < 0 ? kPrevR.X + 6 : kPrevR.X + kPrevR.Width - 34, kPrevR.Y + kPrevR.Height - 34, 28, 28);
+        SolidBrush ab(g_arrowHot == side ? kInk : TH(card));
+        g.FillEllipse(&ab, a);
+        Text(g, side < 0 ? L"\u2039" : L"\u203A", RectF(a.X, a.Y - 2, a.Width, a.Height), 20, FontStyleBold, g_arrowHot == side ? TH(panel) : kInk);
+    }
+}
+
+static void DrawHint(Graphics &g, const wchar_t *hint)
+{
+    Pen sep(WithA(kGrey, 0.4f), 1);
+    g.DrawLine(&sep, kOptPanel.X + 18, 532.0f, kOptPanel.X + kOptPanel.Width - 18, 532.0f);
+    FontFamily fam(L"Segoe UI");
+    Font font(&fam, 12, FontStyleRegular, UnitPixel);
+    StringFormat sf;
+    sf.SetLineAlignment(StringAlignmentCenter);
+    SolidBrush db(kGrey);
+    g.DrawString(hint, -1, &font, RectF(kOptPanel.X + 20, 536, kOptPanel.Width - 40, 44), &sf, &db);
+}
+
+static void DrawSkin(Graphics &g)
+{
+    DrawPanel(g);
+    int sel = g_skinSel;
+    Text(g, T(L"TENUE", L"OUTFIT"), RectF(460, 122, 200, 26), 17, FontStyleBold, kInk, StringAlignmentNear);
+    wchar_t cnt[32];
+    swprintf_s(cnt, L"%d / %d", sel + 1, kSkinCount);
+    Text(g, cnt, RectF(700, 122, 236, 26), 13, FontStyleBold, kGrey, StringAlignmentFar);
+    DrawPreview(g, SkinDisplay(sel), true);
+    float sc = g_scroll[TAB_SKIN];
+    g.SetClip(kGridR);
+    for (int i = 0; i < kSkinCount; i++) {
+        RectF t(kGridR.X + (i % 3) * kTileStepX, kGridR.Y + (i / 3) * kTileStepY - sc, kTile, kTile);
+        if (t.Y + t.Height < kGridR.Y || t.Y > kGridR.Y + kGridR.Height) continue;
+        GraphicsPath tp;
+        RoundRect(tp, t, 12);
+        SolidBrush tb(i == sel ? TH(cardSel) : TH(card));
+        g.FillPath(&tb, &tp);
+        EnterCriticalSection(&g_scs);
+        auto it = g_portraits.find(i);
+        if (it != g_portraits.end()) {
+            Region old;
+            g.GetClip(&old);
+            g.SetClip(&tp, CombineModeIntersect);
+            Bitmap b(it->second.size, it->second.size, it->second.size * 4, PixelFormat32bppPARGB, (BYTE *)it->second.px.data());
+            g.DrawImage(&b, t);
+            g.SetClip(&old);
+        }
+        LeaveCriticalSection(&g_scs);
+        Pen tpen(i == sel ? kInk : i == g_tileHot ? WithA(kInk, 0.6f) : TH(choiceBorder), i == sel ? 2.4f : 1.2f);
+        g.DrawPath(&tpen, &tp);
+    }
+    g.ResetClip();
+    float ms = SkinMaxScroll();
+    if (ms > 0) {
+        float h = kGridR.Height * kGridR.Height / (kGridR.Height + ms), y = kGridR.Y + (kGridR.Height - h) * sc / ms;
+        GraphicsPath sp; RoundRect(sp, RectF(kGridR.X + kGridR.Width + 4, y, 4, h), 2);
+        SolidBrush sb(WithA(kInk, 0.4f)); g.FillPath(&sb, &sp);
+    }
+    DrawHint(g, T(L"Ta tenue en jeu (la m\u00EAme que dans le panneau F10). Clique sur un portrait ; fais tourner le mod\u00E8le \u00E0 la souris.",
+                  L"Your in-game outfit (same as the F10 panel). Click a portrait; drag the model to turn it."));
+}
+
+static int SkinTileAt(float x, float y)
+{
+    if (!kGridR.Contains(x, y)) return -1;
+    float gx = x - kGridR.X, gy = y - kGridR.Y + g_scroll[TAB_SKIN];
+    int col = (int)(gx / kTileStepX), row = (int)(gy / kTileStepY);
+    if (col > 2 || gx - col * kTileStepX > kTile || gy - row * kTileStepY > kTile) return -1;
+    int i = row * 3 + col;
+    return i < kSkinCount ? i : -1;
+}
+static int SkinArrowAt(float x, float y)
+{
+    RectF l(kPrevR.X + 6, kPrevR.Y + kPrevR.Height - 34, 28, 28), r(kPrevR.X + kPrevR.Width - 34, kPrevR.Y + kPrevR.Height - 34, 28, 28);
+    return l.Contains(x, y) ? -1 : r.Contains(x, y) ? 1 : 0;
+}
+// Captures (/capture) : portraits, vignettes et apercu rendus tout de suite (les fils n'ont pas le temps).
+static void RenderModelsNow()
+{
+    if (!g_imgOk) return;
+    for (int i = 0; i < kSkinCount; i++) {
+        Portrait pr;
+        pr.size = kPortraitPx;
+        pr.px.assign((size_t)kPortraitPx * kPortraitPx, 0);
+        Model3D *m = ModelLoad(SkinModel(i));
+        if (m) ModelRender(m, pr.px.data(), kPortraitPx, kPortraitPx, 0.3f, 1);
+        ModelFree(m);
+        g_portraits[i] = std::move(pr);
+    }
+    for (auto &r : g_modRows) {
+        r.thumb.assign((size_t)kThumbPx * kThumbPx, 0);
+        if (!r.dff.empty()) { Model3D *m = ModelLoadPath(r.dff, r.txd); if (m) ModelRender(m, r.thumb.data(), kThumbPx, kThumbPx, 0.7f, 2); ModelFree(m); }
+        r.thumbDone = true;
+    }
+    g_prevFrameW = (int)(kPrevR.Width * g_scale);
+    g_prevFrameH = (int)((kPrevR.Height - 34) * g_scale);
+    g_prevFrame.assign((size_t)g_prevFrameW * g_prevFrameH, 0);
+    Model3D *m = NULL;
+    if (g_tab == TAB_SKIN) m = ModelLoad(SkinModel(g_skinSel));
+    else if (g_tab == TAB_MODS && g_modSel < (int)g_modRows.size() && !g_modRows[g_modSel].dff.empty()) m = ModelLoadPath(g_modRows[g_modSel].dff, g_modRows[g_modSel].txd);
+    ModelRender(m, g_prevFrame.data(), g_prevFrameW, g_prevFrameH, g_prevYaw, g_tab == TAB_SKIN ? 0 : 2);
+    ModelFree(m);
+}
+
+static bool SkinMouseDown(float x, float y)
+{
+    int a = SkinArrowAt(x, y);
+    if (a) { SkinSelect((g_skinSel + a + kSkinCount) % kSkinCount); return true; }
+    int t = SkinTileAt(x, y);
+    if (t >= 0) { SkinSelect(t); return true; }
+    if (kPrevR.Contains(x, y)) { g_skinDrag = true; g_skinDragX = x; return true; }
+    return kOptPanel.Contains(x, y);
+}
+
+// ---------------------------------------------------------------- onglet MODS
 // Un mod = un sous-dossier de SACoop\mods (les fichiers poses a la racine forment "(fichiers isoles)"). Interrupteur :
 // le dossier passe dans SACoop\mods-off (desactive : ni charge, ni envoye aux invites) et revient.
-struct ModRow { std::wstring name; int files; uint64_t bytes; bool on, root; };
-static std::vector<ModRow> g_modRows;
-static int g_modHot = -1, g_modPart = 0;   // g_modPart : 1 = interrupteur
-static const RectF kModsFolderR(826, 124, 110, 22), kModsR(452, 152, 488, 374);
-static const float kModRowH = 50;
-
-static void CountDir(const std::wstring &dir, int &files, uint64_t &bytes)
+static void CountDir(const std::wstring &dir, ModRow &r)
 {
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileW((dir + L"*").c_str(), &fd);
     if (h == INVALID_HANDLE_VALUE) return;
     do {
         if (fd.cFileName[0] == L'.') continue;
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { CountDir(dir + fd.cFileName + L"\\", files, bytes); continue; }
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { CountDir(dir + fd.cFileName + L"\\", r); continue; }
         size_t n = wcslen(fd.cFileName);
         if (n > 4 && !_wcsicmp(fd.cFileName + n - 4, L".txt")) continue;
-        files++;
-        bytes += ((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+        r.files++;
+        r.bytes += ((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+        if (n > 4 && !_wcsicmp(fd.cFileName + n - 4, L".dff") && r.dff.empty()) {
+            r.dff = dir + fd.cFileName;
+            std::wstring t = r.dff.substr(0, r.dff.size() - 4) + L".txd";
+            if (GetFileAttributesW(t.c_str()) != INVALID_FILE_ATTRIBUTES) r.txd = t;
+        }
     } while (FindNextFileW(h, &fd));
     FindClose(h);
 }
@@ -2562,64 +2917,76 @@ static void ModsTabScan()
     std::vector<ModRow> rows;
     for (int pass = 0; pass < 2; pass++) {
         std::wstring base = g_gameDir + (pass ? L"SACoop\\mods-off\\" : L"SACoop\\mods\\");
-        ModRow root = { T(L"(fichiers isol\u00E9s)", L"(loose files)"), 0, 0, true, true };
+        ModRow root = { T(L"(fichiers isol\u00E9s)", L"(loose files)"), L"", L"", 0, 0, true, true, {}, false };
         WIN32_FIND_DATAW fd;
         HANDLE h = FindFirstFileW((base + L"*").c_str(), &fd);
         if (h == INVALID_HANDLE_VALUE) continue;
         do {
             if (fd.cFileName[0] == L'.') continue;
             if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                ModRow r = { fd.cFileName, 0, 0, pass == 0, false };
-                CountDir(base + fd.cFileName + L"\\", r.files, r.bytes);
+                ModRow r = { fd.cFileName, L"", L"", 0, 0, pass == 0, false, {}, false };
+                CountDir(base + fd.cFileName + L"\\", r);
                 rows.push_back(r);
             } else if (pass == 0) {
                 size_t n = wcslen(fd.cFileName);
                 if (n > 4 && !_wcsicmp(fd.cFileName + n - 4, L".txt")) continue;
                 root.files++;
                 root.bytes += ((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+                if (n > 4 && !_wcsicmp(fd.cFileName + n - 4, L".dff") && root.dff.empty()) root.dff = base + fd.cFileName;
             }
         } while (FindNextFileW(h, &fd));
         FindClose(h);
         if (root.files) rows.push_back(root);
     }
     std::sort(rows.begin(), rows.end(), [](const ModRow &a, const ModRow &b) { return a.root != b.root ? b.root : _wcsicmp(a.name.c_str(), b.name.c_str()) < 0; });
+    EnterCriticalSection(&g_scs);
     g_modRows.swap(rows);
+    if (g_modSel >= (int)g_modRows.size()) g_modSel = 0;
+    g_modGen++;
+    LeaveCriticalSection(&g_scs);
 }
-static float ModsMaxScroll() { return max(0.0f, g_modRows.size() * kModRowH - kModsR.Height); }
-static RectF ModRowRect(int i) { return RectF(kModsR.X, kModsR.Y + i * kModRowH - g_scroll[TAB_MODS], kModsR.Width - 10, kModRowH - 6); }
-static RectF ModToggleRect(const RectF &r) { return RectF(r.X + r.Width - 58, r.Y + 12, 44, 20); }
+static float ModsMaxScroll() { EnterCriticalSection(&g_scs); size_t n = g_modRows.size(); LeaveCriticalSection(&g_scs); return max(0.0f, n * kModRowH - kGridR.Height); }
+static RectF ModRowRect(int i) { return RectF(kGridR.X, kGridR.Y + i * kModRowH - g_scroll[TAB_MODS], kGridR.Width, kModRowH - 6); }
+static RectF ModToggleRect(const RectF &r) { return RectF(r.X + r.Width - 46, r.Y + 15, 38, 20); }
 
 static void DrawMods(Graphics &g)
 {
     DrawPanel(g);
-    int on = 0;
-    for (auto &m : g_modRows) on += m.on;
+    std::vector<ModRow> rows;
+    EnterCriticalSection(&g_scs);
+    rows = g_modRows;
+    LeaveCriticalSection(&g_scs);
+    int on = 0, sel = g_modSel;
+    for (auto &m : rows) on += m.on;
     Text(g, L"MODS", RectF(460, 122, 120, 26), 17, FontStyleBold, kInk, StringAlignmentNear);
     wchar_t cnt[64];
-    swprintf_s(cnt, T(L"%d actif(s) / %d", L"%d active / %d"), on, (int)g_modRows.size());
+    swprintf_s(cnt, T(L"%d actif(s) / %d", L"%d active / %d"), on, (int)rows.size());
     Text(g, cnt, RectF(540, 122, 160, 26), 12.5f, FontStyleBold, kGrey, StringAlignmentNear);
     Text(g, T(L"Ouvrir le dossier", L"Open folder"), kModsFolderR, 12, FontStyleUnderline, kInk, StringAlignmentFar);
-    if (g_modRows.empty())
-        Text(g, T(L"Aucun mod : posez-les dans SACoop\\mods (un dossier par mod).", L"No mods: put them in SACoop\\mods (one folder per mod)."), kModsR, 13, FontStyleRegular, kGrey);
-    g.SetClip(kModsR);
-    for (int i = 0; i < (int)g_modRows.size(); i++) {
-        const ModRow &m = g_modRows[i];
+    DrawPreview(g, sel >= 0 && sel < (int)rows.size() ? rows[sel].name : std::wstring(T(L"Aucun mod", L"No mods")), false);
+    if (rows.empty())
+        Text(g, T(L"Pose tes mods dans SACoop\\mods\n(un dossier par mod).", L"Put your mods in SACoop\\mods\n(one folder per mod)."), kGridR, 12.5f, FontStyleRegular, kGrey);
+    g.SetClip(kGridR);
+    for (int i = 0; i < (int)rows.size(); i++) {
+        const ModRow &m = rows[i];
         RectF r = ModRowRect(i);
-        if (r.Y + r.Height < kModsR.Y || r.Y > kModsR.Y + kModsR.Height) continue;
-        bool hot = i == g_modHot;
+        if (r.Y + r.Height < kGridR.Y || r.Y > kGridR.Y + kGridR.Height) continue;
         GraphicsPath rp;
         RoundRect(rp, r, 10);
-        SolidBrush rb(hot ? TH(cardSel) : TH(card));
+        SolidBrush rb(i == sel || i == g_modHot ? TH(cardSel) : TH(card));
         g.FillPath(&rb, &rp);
-        Pen rpen(m.on ? kInk : TH(choiceBorder), m.on ? 1.4f : 1.2f);
+        Pen rpen(i == sel ? kInk : TH(choiceBorder), i == sel ? 1.6f : 1.2f);
         g.DrawPath(&rpen, &rp);
-        Text(g, m.name, RectF(r.X + 16, r.Y + 4, r.Width - 100, 20), 12.5f, FontStyleBold, m.on ? kInk : kGrey, StringAlignmentNear);
+        if (m.thumbDone && !m.thumb.empty()) {
+            Bitmap b(kThumbPx, kThumbPx, kThumbPx * 4, PixelFormat32bppPARGB, (BYTE *)m.thumb.data());
+            g.DrawImage(&b, RectF(r.X + 4, r.Y + 3, 46, 46));
+        }
+        Text(g, m.name, RectF(r.X + 54, r.Y + 6, r.Width - 104, 20), 12, FontStyleBold, m.on ? kInk : kGrey, StringAlignmentNear);
         wchar_t info[96];
-        swprintf_s(info, T(L"%d fichier(s) \u00B7 %.1f Mo%s", L"%d file(s) \u00B7 %.1f MB%s"), m.files, m.bytes / 1048576.0,
-                   m.on ? L"" : T(L" \u00B7 d\u00E9sactiv\u00E9", L" \u00B7 off"));
-        Text(g, info, RectF(r.X + 16, r.Y + 23, r.Width - 100, 18), 10.5f, FontStyleRegular, kGrey, StringAlignmentNear);
+        swprintf_s(info, T(L"%d fichier(s) \u00B7 %.1f Mo", L"%d file(s) \u00B7 %.1f MB"), m.files, m.bytes / 1048576.0);
+        Text(g, info, RectF(r.X + 54, r.Y + 26, r.Width - 104, 18), 10.5f, FontStyleRegular, kGrey, StringAlignmentNear);
         if (m.root) continue;
-        RectF t = ModToggleRect(r);   // interrupteur, comme les options
+        RectF t = ModToggleRect(r);   // interrupteur
         GraphicsPath tp;
         RoundRect(tp, t, t.Height / 2);
         if (m.on) { SolidBrush tb(kInk); g.FillPath(&tb, &tp); }
@@ -2628,27 +2995,23 @@ static void DrawMods(Graphics &g)
         g.FillEllipse(&knob, m.on ? t.X + t.Width - 18 : t.X + 2, t.Y + 2, 16.0f, 16.0f);
     }
     g.ResetClip();
-    Pen sep(WithA(kGrey, 0.4f), 1);
-    g.DrawLine(&sep, kOptPanel.X + 18, 532.0f, kOptPanel.X + kOptPanel.Width - 18, 532.0f);
-    FontFamily fam(L"Segoe UI");
-    Font font(&fam, 12, FontStyleRegular, UnitPixel);
-    StringFormat sf;
-    sf.SetLineAlignment(StringAlignmentCenter);
-    SolidBrush db(kGrey);
-    g.DrawString(T(L"Les mods actifs remplacent ceux du jeu et sont envoy\u00E9s aux invit\u00E9s. D\u00E9sactiv\u00E9s : rang\u00E9s dans SACoop\\mods-off.",
-                   L"Active mods replace the game's files and are sent to the guests. Disabled: moved to SACoop\\mods-off."),
-                 -1, &font, RectF(kOptPanel.X + 20, 536, kOptPanel.Width - 40, 44), &sf, &db);
+    DrawHint(g, T(L"Les mods actifs remplacent ceux du jeu et sont envoy\u00E9s aux invit\u00E9s. D\u00E9sactiv\u00E9s : rang\u00E9s dans SACoop\\mods-off.",
+                  L"Active mods replace the game's files and are sent to the guests. Disabled: moved to SACoop\\mods-off."));
 }
 
 static int ModRowAt(float x, float y, int *part)
 {
     *part = 0;
-    if (!kModsR.Contains(x, y)) return -1;
-    int i = (int)((y - kModsR.Y + g_scroll[TAB_MODS]) / kModRowH);
-    if (i < 0 || i >= (int)g_modRows.size() || !ModRowRect(i).Contains(x, y)) return -1;
+    if (!kGridR.Contains(x, y)) return -1;
+    int i = (int)((y - kGridR.Y + g_scroll[TAB_MODS]) / kModRowH);
+    EnterCriticalSection(&g_scs);
+    int n = (int)g_modRows.size();
+    bool root = i >= 0 && i < n && g_modRows[i].root;
+    LeaveCriticalSection(&g_scs);
+    if (i < 0 || i >= n || !ModRowRect(i).Contains(x, y)) return -1;
     RectF t = ModToggleRect(ModRowRect(i));
     t.Inflate(4, 4);
-    *part = !g_modRows[i].root && t.Contains(x, y) ? 1 : 0;
+    *part = !root && t.Contains(x, y) ? 1 : 0;
     return i;
 }
 
@@ -2659,9 +3022,12 @@ static bool ModsMouseDown(float x, float y)
         ShellExecuteW(g_wnd, L"open", (g_gameDir + L"SACoop\\mods").c_str(), NULL, NULL, SW_SHOWNORMAL);
         return true;
     }
+    if (kPrevR.Contains(x, y)) { g_skinDrag = true; g_skinDragX = x; return true; }   // le modele tourne a la souris
     int part, i = ModRowAt(x, y, &part);
     if (i < 0) return kOptPanel.Contains(x, y);
-    const ModRow &m = g_modRows[i];
+    EnterCriticalSection(&g_scs);
+    ModRow m = g_modRows[i];
+    LeaveCriticalSection(&g_scs);
     if (part == 1) {
         std::wstring on = g_gameDir + L"SACoop\\mods\\" + m.name, off = g_gameDir + L"SACoop\\mods-off\\" + m.name;
         CreateDirectoryW((g_gameDir + (m.on ? L"SACoop\\mods-off" : L"SACoop\\mods")).c_str(), NULL);
@@ -2669,10 +3035,7 @@ static bool ModsMouseDown(float x, float y)
             SetStatus(K_OK, m.on ? T(L"%s d\u00E9sactiv\u00E9", L"%s disabled") : T(L"%s activ\u00E9", L"%s enabled"), m.name.c_str());
         else SetStatus(K_ERR, T(L"Impossible de d\u00E9placer %s (jeu lanc\u00E9 ?)", L"Could not move %s (game running?)"), m.name.c_str());
         ModsTabScan();
-    } else {
-        std::wstring path = g_gameDir + (m.on ? L"SACoop\\mods\\" : L"SACoop\\mods-off\\") + (m.root ? L"" : m.name);
-        ShellExecuteW(g_wnd, L"open", path.c_str(), NULL, NULL, SW_SHOWNORMAL);
-    }
+    } else g_modSel = i;
     return true;
 }
 
@@ -2705,6 +3068,7 @@ static void Tick()
     float dt = min((now - last) / 1000.0f, 0.1f);
     last = now;
     g_time += dt;
+    if (!g_skinDrag && (g_tab == TAB_SKIN || g_tab == TAB_MODS)) g_prevYaw = g_prevYaw + dt * 0.5f;
     LobbyTick();
     LobbySoundsTick();
     if (!g_testSalon.empty()) TestSalonStep();
@@ -2782,9 +3146,12 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         HitOption(x, y, &g_optHot, &g_optPart);
         g_logRowHot = g_tab == TAB_LOGS ? LogRowAt(x, y, &g_logPart) : -1;
         g_modHot = g_tab == TAB_MODS ? ModRowAt(x, y, &g_modPart) : -1;
+        g_tileHot = g_tab == TAB_SKIN ? SkinTileAt(x, y) : -1;
+        g_arrowHot = g_tab == TAB_SKIN ? SkinArrowAt(x, y) : 0;
+        if (g_skinDrag) { g_prevYaw = g_prevYaw + (x - g_skinDragX) * 0.02f; g_skinDragX = x; }   // le modele tourne a la souris
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, h, 0 };
         TrackMouseEvent(&tme);
-        SetCursor(LoadCursor(NULL, ((g_hot >= 0 && g_btn[g_hot].enabled) || g_tabHot >= 0 || g_optHot >= 0 || g_logRowHot >= 0 || g_modHot >= 0) ? IDC_HAND
+        SetCursor(LoadCursor(NULL, ((g_hot >= 0 && g_btn[g_hot].enabled) || g_tabHot >= 0 || g_optHot >= 0 || g_logRowHot >= 0 || g_modHot >= 0 || g_tileHot >= 0 || g_arrowHot) ? IDC_HAND
                                    : HitField(x, y) >= 0 ? IDC_IBEAM : IDC_ARROW));
         return 0;
     }
@@ -2809,7 +3176,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         if (t >= 0) { g_tab = g_tab == t ? -1 : t; g_optHot = -1; if (g_tab == TAB_NOTES) NotesMarkSeen(); if (g_tab == TAB_LOGS) LogsScan(); if (g_tab == TAB_MODS) ModsTabScan(); return 0; }   // un 2e clic referme
         if (g_tab == TAB_LOBBY && LobbyClick(x, y)) return 0;
         if (g_tab == TAB_LOGS && LogsMouseDown(x, y)) return 0;
-        if (g_tab == TAB_MODS && ModsMouseDown(x, y)) return 0;
+        if ((g_tab == TAB_MODS && ModsMouseDown(x, y)) || (g_tab == TAB_SKIN && SkinMouseDown(x, y))) { if (g_skinDrag) SetCapture(h); return 0; }
         int row, part;
         HitOption(x, y, &row, &part);
         if (row >= 0) { OptStep(row, part < 0 ? -1 : 1); return 0; }
@@ -2819,6 +3186,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_LBUTTONUP: {
+        if (g_skinDrag) { g_skinDrag = false; ReleaseCapture(); return 0; }
         int p = g_pressed;
         g_pressed = -1;
         ReleaseCapture();
@@ -2921,6 +3289,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
 {
     InitializeCriticalSection(&g_cs);
     InitializeCriticalSection(&g_lcs);
+    InitializeCriticalSection(&g_scs);
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
     g_fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
@@ -2949,6 +3318,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
     int argc = 0;
     wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (argc >= 3 && !_wcsicmp(argv[1], L"/check")) return (int)CheckExe(argv[2]);
+    if (argc >= 5 && !_wcsicmp(argv[1], L"/infomodele")) {   // diagnostic : /infomodele <dossier du jeu avec \> <modele> <sortie.txt>
+        ImgOpen(argv[2]);
+        Model3D *m = ModelLoad(Narrow(argv[3]));
+        FILE *f = _wfopen(argv[4], L"w");
+        if (f) { fputs(m ? ModelInfo(m).c_str() : "introuvable\n", f); fclose(f); }
+        ModelFree(m);
+        return 0;
+    }
     for (int i = 1; i + 1 < argc; i++) {
         if (!_wcsicmp(argv[i], L"/lang")) g_fr = !_wcsicmp(argv[i + 1], L"fr");
         if (!_wcsicmp(argv[i], L"/theme")) g_dark = !_wcsicmp(argv[i + 1], L"sombre");
@@ -2969,6 +3346,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
     GetPrivateProfileStringW(L"Lanceur", L"Exe", L"", saved, MAX_PATH, g_iniLauncher.c_str());
     std::wstring start = (saved[0] && FileExists(saved)) ? saved : g_dir + L"gta_sa.exe";
     SetExe(start);
+    SkinsInit();
     g_bg = LoadPng(L"launcher.png");
     g_bgDark = LoadPng(L"launcher-sombre.png");
     if (g_exeKind == EXE_MISSING) SetStatus(K_ERR, T(L"Choisis ton gta_sa.exe (version 1.0 US)", L"Choose your gta_sa.exe (version 1.0 US)"));
@@ -2996,13 +3374,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
         else if (st == L"options" || st == L"coop") { g_tab = st == L"coop" ? TAB_COOP : TAB_VIDEO; g_optHot = TabRows(g_tab)[0]; g_optPart = 1; }
         else if (st == L"notes") { NotesOnlyThread(NULL); g_tab = TAB_NOTES; }
         else if (st == L"journaux") { g_tab = TAB_LOGS; LogsScan(); g_logRowHot = 1; g_logPart = 2; g_btn[B_LOGS].hover = 1; }
-        else if (st == L"mods") { g_tab = TAB_MODS; ModsTabScan(); g_modHot = 0; }
+        else if (st == L"mods") { g_tab = TAB_MODS; ModsTabScan(); g_modHot = 0; g_prevYaw = 0.6f; }
+        else if (st == L"tenue") { g_tab = TAB_SKIN; g_skinSel = 0; g_prevYaw = 0.35f; g_tileHot = 4; }
         else if (st == L"rendu") { g_tab = TAB_RENDER; g_optHot = TabRows(TAB_RENDER)[0]; g_optPart = 1; }
         else if (st == L"salon" || st == L"salon-invite") {   // salon a 3 joueurs (faux), vu par l'hote ou par un invite
             bool host = st == L"salon";
             ReadSaves();
             g_lobby = host ? LB_HOST : LB_GUEST;
-            g_peers = { { 0, "Joueur1", "CJ", true, 0 }, { 1, "Joueur2", "Grove 1", true, 38 }, { 2, "Joueur3", "Ballas 2", false, 71 } };
+            g_peers = { { 0, "Joueur1", "CJ", true, 0 }, { 1, "Joueur2", "Grove 1", true, 38, 100 }, { 2, "Joueur3", "Ballas 2", false, 71, 40 } };
             g_myId = host ? 0 : 2;
             g_lobbyChoice = (int)g_saves.size();
             g_lobbyChoiceLabel = g_saves.empty() ? "" : g_saves.back().label;
@@ -3021,6 +3400,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
         }
         else if (st == L"maj") { g_busy = true; g_progress = 0.42f; SetStatus(K_NORMAL, T(L"T\u00E9l\u00E9chargement de SACoop %s\u2026", L"Downloading SACoop %s\u2026"), L"0.1.1-prealpha"); g_focus = 0; g_time = 0.2f; }
         else { if (g_localVer.empty()) g_localVer = L"0.1.0-prealpha"; SetStatus(K_OK, T(L"SACoop %s \u00B7 \u00E0 jour", L"SACoop %s \u00B7 up to date"), g_localVer.c_str()); g_hot = B_HOST; g_btn[B_HOST].hover = 1; }
+        if (st == L"tenue" || st == L"mods" || st == L"salon" || st == L"salon-invite") RenderModelsNow();
         int rc = 1;
         {
             Bitmap out((INT)(kImgW * g_scale), (INT)(kImgH * g_scale), PixelFormat32bppPARGB);
