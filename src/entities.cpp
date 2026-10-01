@@ -236,6 +236,7 @@ static void UpdateCopy(Copy &c, uint32_t now)
     Field<float>(ped, PED_HEALTH) = m.health > 1.0f ? m.health : 1.0f;
     EnsurePedWeapon(ped, m.weapon, c.weapon);
     CombatReplayCopyShots(ped, m.weapon, m.shots, m.aim, c.lastShots, c.shotsKnown);
+    ClearEventResponses(ped);   // (pas d'IA locale : la copie suit le personnage de l'hote, voir coop.cpp)
     void *inVeh = PedVehicle(ped);
     if (m.vehicleId) {
         void *veh = NetVehicleById(m.vehicleId);

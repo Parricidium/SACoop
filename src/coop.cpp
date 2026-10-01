@@ -385,6 +385,20 @@ static void UpdatePuppet(int id)
     }
     if (puppetDead) { DestroyPuppet(id); return; }
     CombatUpdatePuppet(id, ped, s);
+    // Le pantin n'a pas d'IA a lui : frappe ou menace, le jeu lui donnait une reaction de PNJ (riposte, fuite) qui
+    // passait avant sa tache de suivi, il partait de son cote puis etait replace d'un coup (teleportations vues par JD
+    // apres un coup de poing, 01/10).
+    static int keepAi = -1;   // TestGarderIA=1 : comparaison, reactions laissees au jeu
+    if (keepAi < 0) keepAi = GetPrivateProfileIntA("SACoop", "TestGarderIA", 0, IniPath());
+    {
+        void **t = PrimaryTasks(ped);
+        void *r = t[1] ? t[1] : t[2];
+        int type = r ? ((int(__thiscall *)(void *))(*(void ***)r)[4])(r) : 0;   // CTask::GetTaskType
+        if (r && (keepAi > 0 || ClearEventResponses(ped))) {
+            static int said;
+            if (said < 12) { said++; Log("pantin du joueur %d : reaction de PNJ (tache %d) %s", id, type, keepAi > 0 ? "laissee (test)" : "retiree, le pantin suit son joueur"); }
+        }
+    }
 
     // Montee / descente : le pantin joue la tache du jeu (marche jusqu'a la portiere, ouverture, assise ; ou sortie).
     // Pendant ce temps sa position n'est plus suivie ; s'il n'a pas fini a temps, il est place d'un coup.
@@ -793,6 +807,45 @@ static void Autotest()
     }
     // "tireinv" (invite) : place comme "regarde", un M4, puis tire sur la premiere copie de personnage de mission
     // (a partir de 32 s, un coup toutes les 500 ms) : les coups vont a l'hote.
+    // "frappe" (hote) : tire 8 s sur le pantin de l'invite 1 (degats, panique) et note chaque seconde l'ecart entre le
+    // pantin et la position recue de son joueur (un pantin qui reagit comme un PNJ part de son cote).
+    if (_stricmp(g_cfg.autotest, "frappe") == 0) {
+        static bool armed;
+        static uint32_t lastShot, lastLog;
+        void *ped = FindPlayerPed(), *target = PuppetOf(1);
+        if (!target) return;
+        if (!armed) {
+            armed = true;
+            const float *b = EntityPos(target);
+            float pos[3] = { b[0] + 6.0f, b[1], b[2] };
+            PlacePuppet(ped, pos, 1.5708f);
+            uint8_t *info = WeaponInfo(22);
+            int m1 = *(int *)(info + 0xC);
+            if (m1 > 0 && !ModelLoaded(m1)) { RequestModel(m1, 2); LoadAllRequestedModels(false); }
+            SetCurrentWeapon(ped, GiveWeapon(ped, 22, 900));
+            Log("autotest : pres du pantin de l'invite, pistolet");
+            return;
+        }
+        static uint32_t t0;
+        if (!t0) t0 = t;
+        uint32_t e = t - t0;
+        joy[0xC / 2] = e > 2000 && e < 10000 ? 255 : 0;
+        const float *a = EntityPos(ped), *b = EntityPos(target);
+        float h = atan2f(-(b[0] - a[0]), b[1] - a[1]);
+        if (e > 2000 && e < 10000) { Field<float>(ped, PED_ROTATION) = h; Field<float>(ped, PED_AIMROT) = h; }
+        if (e > 3000 && e < 10000 && t - lastShot > 600) {
+            lastShot = t;
+            float aim[3] = { b[0], b[1], b[2] + 0.3f };
+            CombatTestShot(ped, aim);
+        }
+        if (e < 20000 && t - lastLog > 1000) {
+            lastLog = t;
+            const float *r = g_players[1].state.pos;
+            float dx = b[0] - r[0], dy = b[1] - r[1];
+            Log("autotest : pantin a %.1f m de son joueur, tache %p", sqrtf(dx * dx + dy * dy), ActiveTask(target));
+        }
+        return;
+    }
     if (_stricmp(g_cfg.autotest, "tireinv") == 0) {
         static bool armed;
         void *ped = FindPlayerPed();
