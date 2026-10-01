@@ -255,7 +255,31 @@ static void Create(IDirect3DDevice9 *dev, const D3DPRESENT_PARAMETERS *pp)
     Log("rendu : profondeur lisible %ux%u, occlusion %d, FXAA %d", g_w, g_h, (int)g_cfg.ao, (int)g_cfg.fxaa);
 }
 
-void RenderDeviceCreated(IDirect3DDevice9 *dev, const D3DPRESENT_PARAMETERS *pp) { Create(dev, pp); }
+// Filtrage anisotrope : le filtre de reduction lineaire que RenderWare demande devient anisotrope (au plus 16x, selon
+// la carte) ; textures du sol et des murs nettes de biais. Lu a chaque appel : se regle en jeu (F10).
+typedef HRESULT(WINAPI *SetSS_t)(IDirect3DDevice9 *, DWORD, D3DSAMPLERSTATETYPE, DWORD);
+static SetSS_t o_SetSS;
+static DWORD g_maxAniso = 1;
+static HRESULT WINAPI h_SetSS(IDirect3DDevice9 *dev, DWORD s, D3DSAMPLERSTATETYPE t, DWORD v)
+{
+    if (t == D3DSAMP_MINFILTER && v == D3DTEXF_LINEAR && g_cfg.aniso && g_maxAniso > 1) {
+        o_SetSS(dev, s, D3DSAMP_MAXANISOTROPY, g_maxAniso);
+        v = D3DTEXF_ANISOTROPIC;
+    }
+    return o_SetSS(dev, s, t, v);
+}
+static void InstallAniso(IDirect3DDevice9 *dev)
+{
+    if (o_SetSS) return;
+    D3DCAPS9 caps;
+    if (FAILED(dev->GetDeviceCaps(&caps)) || !(caps.TextureFilterCaps & D3DPTFILTERCAPS_MINFANISOTROPIC)) { Log("rendu : filtrage anisotrope non gere"); return; }
+    g_maxAniso = caps.MaxAnisotropy > 16 ? 16 : caps.MaxAnisotropy;
+    void **vt = *(void ***)dev;
+    o_SetSS = (SetSS_t)PatchPointer(&vt[45], (void *)h_SetSS);
+    Log("rendu : filtrage anisotrope %ux pret", g_maxAniso);
+}
+
+void RenderDeviceCreated(IDirect3DDevice9 *dev, const D3DPRESENT_PARAMETERS *pp) { InstallAniso(dev); Create(dev, pp); }
 void RenderBeforeReset() { UiRelease(); ThumbRelease(); Release(); }
 IDirect3DDevice9 *GameDevice() { return g_dev; }
 void RenderAfterReset(IDirect3DDevice9 *dev, const D3DPRESENT_PARAMETERS *pp) { Create(dev, pp); }

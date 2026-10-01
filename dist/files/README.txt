@@ -35,6 +35,8 @@ Keys
   money, repair, clear wanted level, jetpack), outfit; time, weather and police
   for the host. Escape or F10 to close.
 - F1: help (keys, tips).
+- Draw distance, population area and density, anisotropic filtering:
+  launcher VIDEO tab or F10 > DISPLAY (applied right away).
 
 You need
 - GTA San Andreas for PC, version 1.0 US. The current Steam version (3.0)

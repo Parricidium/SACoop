@@ -10,6 +10,7 @@
 #include "menu.h"
 #include "net.h"
 #include "panel.h"
+#include "gfx.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -128,6 +129,16 @@ static void LoadConfig()
     g_cfg.friendlyFire = GetPrivateProfileIntA("SACoop", "TirAmi", 1, ini) != 0;
     g_cfg.ao = GetPrivateProfileIntA("SACoop", "OcclusionAmbiante", 1, ini) != 0;
     g_cfg.fxaa = GetPrivateProfileIntA("SACoop", "Anticrenelage", 1, ini) != 0;
+    g_cfg.drawDistance = GetPrivateProfileIntA("SACoop", "DistanceAffichage", 200, ini);
+    if (g_cfg.drawDistance < 100) g_cfg.drawDistance = 100;
+    if (g_cfg.drawDistance > 300) g_cfg.drawDistance = 300;
+    g_cfg.zonePop = GetPrivateProfileIntA("SACoop", "ZonePopulation", 150, ini);
+    if (g_cfg.zonePop < 100) g_cfg.zonePop = 100;
+    if (g_cfg.zonePop > 200) g_cfg.zonePop = 200;
+    g_cfg.popDensity = GetPrivateProfileIntA("SACoop", "DensitePopulation", 150, ini);
+    if (g_cfg.popDensity < 50) g_cfg.popDensity = 50;
+    if (g_cfg.popDensity > 300) g_cfg.popDensity = 300;
+    g_cfg.aniso = GetPrivateProfileIntA("SACoop", "FiltrageAnisotrope", 1, ini) != 0;
     g_cfg.fpsView = GetPrivateProfileIntA("SACoop", "VuePremierePersonne", 1, ini) != 0;
     g_cfg.testFirstPerson = GetPrivateProfileIntA("SACoop", "TestPremierePersonne", 0, ini) != 0;
     {   // ToucheVue : F1-F12 ou une lettre / un chiffre
@@ -229,5 +240,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallCamera();
     InstallMods();
     InstallRender();
+    InstallGfx();
     return TRUE;
 }

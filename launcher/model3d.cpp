@@ -10,6 +10,7 @@
 #include <windows.h>
 #include "model3d.h"
 #include <map>
+#include <array>
 #include <algorithm>
 #include <math.h>
 #include <string.h>
@@ -27,7 +28,11 @@ std::map<std::string, Entry> g_playerImg;        // player.img (vetements de CJ)
 std::vector<std::string> g_dffOrder;             // modeles dans l'ordre de gta3.img
 std::map<std::string, std::wstring> g_mods;      // SACoop\mods : nom en minuscules -> chemin
 std::vector<std::string> g_pedNames;             // peds.ide : index = numero du modele
-std::map<std::string, float> g_wheelScale;       // vehicles.ide : taille des roues de chaque vehicule
+std::map<std::string, std::pair<float, float>> g_wheelScale;   // vehicles.ide : taille des roues avant / arriere de chaque vehicule
+struct Paint { uint8_t c[4][3]; };
+std::map<std::string, Paint> g_paint;            // carcols.dat : premieres couleurs de chaque vehicule
+struct Tex;
+std::vector<Tex> *g_genericTex;                  // models\generic\vehicle.txd : textures communes a tous les vehicules
 
 std::string Lower(std::string s) { for (auto &c : s) c = (char)tolower((unsigned char)c); return s; }
 std::string Narrow(const std::wstring &w)
@@ -491,7 +496,64 @@ bool ImgOpen(const std::wstring &gameDir)
     }
     rows.clear();
     IdeSection(gameDir + L"data\\vehicles.ide", "cars", rows);   // "..., roue, echelle avant, echelle arriere, ..."
-    for (auto &f : rows) if (f.size() >= 14) { float sc = (float)atof(f[12].c_str()); if (sc > 0.1f && sc < 3.0f) g_wheelScale[Lower(f[1])] = sc; }
+    for (auto &f : rows) if (f.size() >= 14) {
+        float sf = (float)atof(f[12].c_str()), sr = (float)atof(f[13].c_str());
+        if (sf > 0.1f && sf < 3.0f) g_wheelScale[Lower(f[1])] = { sf, sr > 0.1f && sr < 3.0f ? sr : sf };
+    }
+    // Textures communes des vehicules (vehiclegeneric256 : calandres, jantes ; vehiclegrunge256 : la carrosserie,
+    // teintee par la peinture ; vehiclelights128, vehicletyres128...) : un modele n'a dans son .txd que les siennes.
+    {
+        std::vector<uint8_t> gen;
+        if (!g_genericTex) g_genericTex = new std::vector<Tex>();
+        g_genericTex->clear();
+        if (ReadRange(gameDir + L"models\\generic\\vehicle.txd", 0, 0xFFFFFFFF, gen)) ParseTxd(gen, *g_genericTex);
+    }
+    // Peinture : data\carcols.dat, section col (palette "r,g,b") puis car / car4 ("modele, c1,c2, c1,c2, ...") ; on
+    // prend le premier jeu de couleurs, celui que le jeu tire le plus souvent.
+    g_paint.clear();
+    {
+        std::vector<uint8_t> cc;
+        if (ReadRange(gameDir + L"data\\carcols.dat", 0, 0xFFFFFFFF, cc)) {
+            std::vector<std::array<uint8_t, 3>> pal;
+            std::string text(cc.begin(), cc.end()), sect;
+            size_t a = 0;
+            while (a < text.size()) {
+                size_t e = text.find('\n', a);
+                if (e == std::string::npos) e = text.size();
+                std::string line = text.substr(a, e - a);
+                a = e + 1;
+                size_t h = line.find('#');
+                if (h != std::string::npos) line.resize(h);
+                for (char &ch : line) if (ch == '\r' || ch == '\t') ch = ' ';
+                size_t b0 = line.find_first_not_of(' ');
+                if (b0 == std::string::npos) continue;
+                line = line.substr(b0);
+                if (line == "col" || line.rfind("col ", 0) == 0) { sect = "col"; continue; }
+                if (line.rfind("car4", 0) == 0) { sect = "car4"; continue; }
+                if (line.rfind("car", 0) == 0 && line.find(',') == std::string::npos) { sect = "car"; continue; }
+                if (line.rfind("end", 0) == 0) { sect.clear(); continue; }
+                if (sect == "col") {
+                    for (char &ch : line) if (ch == '.') ch = ',';
+                    int r, g, b;
+                    if (sscanf(line.c_str(), "%d , %d , %d", &r, &g, &b) == 3) pal.push_back({ (uint8_t)r, (uint8_t)g, (uint8_t)b });
+                } else if (sect == "car" || sect == "car4") {
+                    size_t c = line.find(',');
+                    if (c == std::string::npos) continue;
+                    std::string name = Lower(line.substr(0, c));
+                    while (!name.empty() && name.back() == ' ') name.pop_back();
+                    int idx[4] = { -1, -1, -1, -1 };
+                    sscanf(line.c_str() + c + 1, "%d , %d , %d , %d", &idx[0], &idx[1], &idx[2], &idx[3]);
+                    Paint pt;
+                    for (int k = 0; k < 4; k++) {
+                        int i = idx[k] >= 0 && idx[k] < (int)pal.size() ? idx[k] : (k ? 1 : 0);
+                        if (i >= (int)pal.size()) { pt.c[k][0] = pt.c[k][1] = pt.c[k][2] = 200; continue; }
+                        memcpy(pt.c[k], pal[i].data(), 3);
+                    }
+                    if (sect == "car" || !g_paint.count(name)) g_paint[name] = pt;
+                }
+            }
+        }
+    }
     return true;
 }
 
@@ -501,7 +563,9 @@ static bool g_lowerArms = true;   // bras baisses ; pas pour les vetements de CJ
 static Model3D *ModelFromData(const std::vector<uint8_t> &dff, const std::vector<uint8_t> &txd, const std::string &modelName)
 {
     auto ws = g_wheelScale.find(Lower(modelName));
-    float wheelScale = ws != g_wheelScale.end() ? ws->second : 0.7f;
+    float wheelScale = ws != g_wheelScale.end() ? ws->second.first : 0.7f, wheelScaleRear = ws != g_wheelScale.end() ? ws->second.second : 0.7f;
+    auto pi = g_paint.find(Lower(modelName));
+    const Paint *paint = pi != g_paint.end() ? &pi->second : nullptr;
     Rd r(dff.data(), dff.data() + dff.size());
     Chunk clump;
     if (!r.chunk(clump) || clump.type != 0x10) return NULL;
@@ -599,7 +663,26 @@ static Model3D *ModelFromData(const std::vector<uint8_t> &dff, const std::vector
     Model3D *m = new Model3D();
     ParseTxd(txd, m->texs);
     bool haveWheel = false;
-    for (auto &at : atomics) {
+    // San Andreas : une seule roue ("wheel", sous wheel_rf_dummy) que le jeu recopie sur chaque wheel_*_dummy, a la
+    // taille donnee par vehicles.ide (avant / arriere). Ici : une copie par emplacement, mise a l'echelle de la meme
+    // facon (taille voulue / diametre du modele de roue).
+    std::vector<int> wheelAt(atomics.size(), 0);   // 1 roue avant, 2 roue arriere (copies)
+    {
+        int wheelGeo = -1;
+        for (auto &at : atomics)
+            if (at.first >= 0 && at.first < (int)frames.size() && frames[at.first].name == "wheel" && at.second >= 0) { wheelGeo = at.second; at.second = -1; }
+        if (wheelGeo >= 0 && wheelGeo < (int)geos.size()) {
+            haveWheel = true;
+            for (size_t f = 0; f < frames.size(); f++) {
+                const std::string &fn = frames[f].name;
+                if (fn.size() < 14 || fn.compare(0, 6, "wheel_") || fn.compare(fn.size() - 6, 6, "_dummy")) continue;
+                atomics.push_back({ (int)f, wheelGeo });
+                wheelAt.push_back(fn[7] == 'b' ? 2 : 1);   // wheel_lb / wheel_rb : arriere (lm / rm : milieu, comme l'avant)
+            }
+        }
+    }
+    for (size_t ai = 0; ai < atomics.size(); ai++) {
+        auto &at = atomics[ai];
         if (at.second < 0 || at.second >= (int)geos.size()) continue;
         Geo &g = geos[at.second];
         if (g.pos.empty()) continue;
@@ -633,8 +716,15 @@ static Model3D *ModelFromData(const std::vector<uint8_t> &dff, const std::vector
         // tournees d'un demi-tour (le modele de roue est fait pour la droite).
         if (!g.skinned && at.first >= 0 && at.first < (int)frames.size()) {
             const std::string &fn = frames[at.first].name;
-            if (!fn.compare(0, 6, "wheel_") && fn.find("dummy") == std::string::npos) {
+            if (wheelAt[ai] || (!fn.compare(0, 6, "wheel_") && fn.find("dummy") == std::string::npos)) {
                 float k = wheelScale, flip = (fn.size() > 6 && fn[6] == 'l') ? -1.0f : 1.0f;
+                if (wheelAt[ai]) {   // roue de SA : diametre du modele -> taille de vehicles.ide
+                    float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
+                    for (size_t v = 0; v + 2 < g.pos.size(); v += 3)
+                        for (int j = 0; j < 3; j++) { lo[j] = (std::min)(lo[j], g.pos[v + j]); hi[j] = (std::max)(hi[j], g.pos[v + j]); }
+                    float diam = (std::max)(hi[1] - lo[1], hi[2] - lo[2]);
+                    k = diam > 0.05f ? (wheelAt[ai] == 2 ? wheelScaleRear : wheelScale) / diam : 1.0f;
+                }
                 float W[12] = { k * flip, 0, 0, 0, k * flip, 0, 0, 0, k, 0, 0, 0 };
                 memcpy(M, W, sizeof(M));
             }
@@ -691,9 +781,23 @@ static Model3D *ModelFromData(const std::vector<uint8_t> &dff, const std::vector
         for (auto &mt : g.mats) {
             Mat x = mt;
             for (int t = 0; t < (int)m->texs.size(); t++) if (m->texs[t].name == x.tex) x.ti = t;
-            // couleurs "a peindre" des vehicules (le jeu les remplace par celles de carcols.dat) : peinture neutre
-            if (x.r == 60 && x.g == 255 && x.b == 0) { x.r = 205; x.g = 208; x.b = 216; }
-            else if (x.r == 255 && x.g == 0 && x.b == 175) { x.r = 168; x.g = 170; x.b = 182; }
+            if (x.ti < 0 && !x.tex.empty() && g_genericTex) {   // texture commune des vehicules (generic\vehicle.txd)
+                for (auto &gt : *g_genericTex)
+                    if (gt.name == x.tex) { m->texs.push_back(gt); x.ti = (int)m->texs.size() - 1; break; }
+            }
+            // couleurs "a peindre" des vehicules (le jeu les remplace par celles de carcols.dat) : premier jeu de
+            // couleurs du vehicule, sinon peinture neutre
+            static const uint8_t kPaintKey[4][3] = { { 60, 255, 0 }, { 255, 0, 175 }, { 0, 255, 255 }, { 255, 0, 255 } };
+            static const uint8_t kNeutral[4][3] = { { 205, 208, 216 }, { 168, 170, 182 }, { 168, 170, 182 }, { 168, 170, 182 } };
+            for (int k = 0; k < 4; k++)
+                if (x.r == kPaintKey[k][0] && x.g == kPaintKey[k][1] && x.b == kPaintKey[k][2]) {
+                    const uint8_t *c = paint ? paint->c[k] : kNeutral[k];
+                    x.r = c[0]; x.g = c[1]; x.b = c[2];
+                    break;
+                }
+            // feux (couleurs reperes du jeu, qui les allume ou les eteint) : eteints
+            if ((x.r == 255 && x.g == 175 && x.b == 0) || (x.r == 0 && x.g == 255 && x.b == 200) ||
+                (x.r == 185 && x.g == 255 && x.b == 0) || (x.r == 255 && x.g == 60 && x.b == 0)) { x.r = x.g = x.b = 255; }
             m->mats.push_back(x);
         }
         for (size_t t = 0; t < g.tri.size(); t += 4) {

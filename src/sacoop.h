@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.37.0-prealpha"
+#define SACOOP_VERSION "0.38.0-prealpha"
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)
@@ -32,6 +32,10 @@ struct Config {
     bool testFirstPerson;   // TestPremierePersonne : vue a la premiere personne des l'arrivee (captures)
     bool ao;                // OcclusionAmbiante : rendu moderne, coins et dessous assombris (render.cpp)
     bool fxaa;              // Anticrenelage : FXAA sur la scene 3D
+    int drawDistance;       // DistanceAffichage : 100-300 % (gfx.cpp)
+    int zonePop;            // ZonePopulation : 100-200 %, distance d'apparition des pietons et voitures
+    int popDensity;         // DensitePopulation : 50-300 %
+    bool aniso;             // FiltrageAnisotrope : textures nettes de biais (render.cpp)
     bool friendlyFire;      // TirAmi : les joueurs peuvent se blesser entre eux (chacun decide pour lui)
     int skin;               // Tenue : ce que les autres voient (0 = CJ avec ses vetements, par defaut ; 1-299 = un pieton du jeu)
     char autotest[32];      // Autotest : scenario de test (autotest.cpp)

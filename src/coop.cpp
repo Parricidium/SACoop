@@ -11,6 +11,7 @@
 // modele prendrait ceux de l'autre). Sans reconstruction juste avant, la copie etait invisible.
 #include "util.h"
 #include "panel.h"
+#include "gfx.h"
 #include "sacoop.h"
 #include "net.h"
 #include "game.h"
@@ -672,6 +673,28 @@ static void Autotest()
         }
         return;
     }
+    // "vue" : se pose une fois en haut de la plus haute tour de Los Santos, face au sud (captures de la distance
+    // d'affichage).
+    if (_stricmp(g_cfg.autotest, "vue") == 0) {
+        static uint32_t placedAt;
+        if (!placedAt) {
+            placedAt = GetTickCount();
+            float pos[3] = { 1544.9f, -1353.3f, 329.5f };
+            PlacePuppet(FindPlayerPed(), pos, 3.14f);
+            Log("autotest : pose en haut de la tour");
+        } else if (placedAt != 1 && GetTickCount() - placedAt > 2000) {
+            placedAt = 1;   // camera fixe au-dessus du toit, vers les collines de Vinewood et au-dela
+            float cam[6] = { 1544.9f, -1353.3f, 345.0f, 0, 0, 0 }, at[3] = { 1150.0f, -850.0f, 120.0f };
+            int a1[6], a2[4];
+            memcpy(a1, cam, sizeof(cam));
+            memcpy(a2, at, sizeof(at));
+            a2[3] = 2;
+            RunScriptCommandTyped(0x015F, 6, "ffffff", a1);   // SET_FIXED_CAMERA_POSITION
+            RunScriptCommandTyped(0x0160, 4, "fffi", a2);     // POINT_CAMERA_AT_POINT
+            Log("autotest : camera fixe sur la ville");
+        }
+        return;
+    }
     // "pnj" (hote) : un personnage de mission (Big Smoke, modele special 290 "SMOKE") pose a 4 m, qui fait des
     // allers-retours dans la ruelle, avec un pistolet ; tue a 60 s s'il vit encore (sa copie doit tomber chez l'invite).
     if (_stricmp(g_cfg.autotest, "pnj") == 0) {
@@ -946,6 +969,7 @@ void CoopFrame(bool inGameLoop)
     CameraFrame();   // (vue F6 et mods : en solo aussi)
     ModsFrame();
     PanelFrame();    // (menu F10 : en solo aussi)
+    GfxFrame();      // (distance d'affichage, population)
     PanelTest();
     if (!NetRunning()) return;
     SaveSyncFrame();
