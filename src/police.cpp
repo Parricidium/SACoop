@@ -195,9 +195,46 @@ static void HostPoliceChasesGuests()
     }
 }
 
+// Un policier de l'hote a sorti le pantin d'un invite de son vehicule (il y est encore d'apres l'invite, plus chez
+// l'hote, policier a moins de 4 m) : l'invite descend aussi chez lui (RL_EJECT ; TASK_LEAVE_ANY_CAR sur lui-meme).
+enum : uint8_t { RL_EJECT = 21 };
+static void HostEjections()
+{
+    static uint32_t lastSent[MAX_PLAYERS];
+    uint32_t now = GetTickCount();
+    for (int p = 1; p < MAX_PLAYERS; p++) {
+        void *pup = PuppetOf(p);
+        if (!pup || !PlayerUp(p) || !g_players[p].state.vehicleId || PedVehicle(pup) || now - lastSent[p] < 3000) continue;
+        Pool *pool = *(Pool **)0xB74490;
+        bool cop = false;
+        for (int i = 0; i < pool->size && !cop; i++) {
+            if (pool->flags[i] & 0x80) continue;
+            void *ped = pool->objects + i * 0x7C4;
+            cop = Field<int>(ped, 0x598) == 6 && PuppetIndex(ped) < 0 && Dist2D(EntityPos(ped), EntityPos(pup)) < 4.0f * 4.0f;
+        }
+        if (!cop) continue;
+        lastSent[p] = now;
+        uint8_t msg[1] = { RL_EJECT };
+        NetSendReliableTo(p, msg, 1);
+        Log("police : le joueur %d sorti de son vehicule par un policier", p);
+    }
+}
+
+bool PoliceReliable(const uint8_t *d, int len)
+{
+    if (len < 1 || d[0] != RL_EJECT) return false;
+    void *me = FindPlayerPed();
+    if (me && PedVehicle(me)) {
+        int ref = PedRef(me);
+        RunScriptCommand(0x0633, 1, &ref);   // TASK_LEAVE_ANY_CAR
+        Log("police : sorti du vehicule par un policier de l'hote");
+    }
+    return true;
+}
+
 void PoliceFrame()
 {
     if (!NetRunning() || GameState() != 9 || !FindPlayerPed()) return;
     ShareWanted();
-    if (g_cfg.host) HostPoliceChasesGuests();
+    if (g_cfg.host) { HostPoliceChasesGuests(); HostEjections(); }
 }

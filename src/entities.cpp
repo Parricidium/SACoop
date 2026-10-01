@@ -45,6 +45,8 @@ uint32_t MissionPedId(void *ped)
     uint8_t by = Field<uint8_t>(ped, 0x484);
     if (by == 2) return (uint32_t)PedRef(ped);
     if (by == 1 && NearSharedGuest(EntityPos(ped), 160.0f)) return (uint32_t)PedRef(ped);
+    // policiers : partout pres d'un invite partage (ceux qui le poursuivent hors de la zone de l'hote n'etaient pas vus)
+    if (by == 1 && Field<int>(ped, 0x598) == 6 && NearSharedGuestAnywhere(EntityPos(ped), 160.0f)) return (uint32_t)PedRef(ped);
     return 0;
 }
 
@@ -84,6 +86,7 @@ static void HostSend()
                 for (int k = 0; k < 8; k++) if (Field<void *>(veh, VEH_PASSENGERS + k * 4) == ped) m.seat = (uint8_t)(k + 1);
         }
         if (m.model >= 290 && m.model <= 299) memcpy(m.special, g_special[m.model - 290], 8);
+        CombatNpcShots(ped, m.shots, m.aim);
         NetSendToGuests(&m, sizeof(m));
     }
 }
@@ -108,6 +111,8 @@ struct Copy {
     uint32_t lastRecv;
     int moveState, weapon;
     bool killed;
+    uint8_t lastShots;
+    bool shotsKnown;
 };
 static Copy g_copies[MAX_COPIES];
 
@@ -228,6 +233,7 @@ static void UpdateCopy(Copy &c, uint32_t now)
     }
     Field<float>(ped, PED_HEALTH) = m.health > 1.0f ? m.health : 1.0f;
     EnsurePedWeapon(ped, m.weapon, c.weapon);
+    CombatReplayCopyShots(ped, m.weapon, m.shots, m.aim, c.lastShots, c.shotsKnown);
     void *inVeh = PedVehicle(ped);
     if (m.vehicleId) {
         void *veh = NetVehicleById(m.vehicleId);

@@ -27,9 +27,35 @@ static bool g_shotsKnown[MAX_PLAYERS];
 typedef char(__fastcall *Fire_t)(int *weapon, void *, void *owner, float *origin, float *muzzle, void *targetEnt, float *target, void *driveBy);
 static Fire_t o_Fire;
 
+// Hote : tirs des PNJ (par case de la reserve des personnages), envoyes avec eux (entities.cpp) : leurs copies chez les
+// invites tirent aussi (avant, la police de l'hote tirait sur un invite sans qu'il la voie tirer).
+static uint8_t g_npcShots[512];
+static float g_npcAim[512][3];
+static int PedSlot(void *ped)
+{
+    Pool *p = *(Pool **)0xB74490;
+    int i = (int)(((uint8_t *)ped - p->objects) / 0x7C4);
+    return i >= 0 && i < p->size && i < 512 && p->objects + i * 0x7C4 == ped ? i : -1;
+}
+void CombatNpcShots(void *ped, uint8_t &shots, float *aim)
+{
+    int i = PedSlot(ped);
+    if (i < 0) return;
+    shots = g_npcShots[i];
+    memcpy(aim, g_npcAim[i], 12);
+}
+
 static char __fastcall h_Fire(int *weapon, void *edx, void *owner, float *origin, float *muzzle, void *targetEnt, float *target, void *driveBy)
 {
     char r = o_Fire(weapon, edx, owner, origin, muzzle, targetEnt, target, driveBy);
+    if (r && !g_replaying && owner && g_cfg.host && owner != FindPlayerPed() && (*((uint8_t *)owner + 0x36) & 7) == 3 && PuppetIndex(owner) < 0) {
+        int i = PedSlot(owner);
+        if (i >= 0) {
+            g_npcShots[i]++;
+            if (target) memcpy(g_npcAim[i], target, 12);
+            else if (targetEnt) { memcpy(g_npcAim[i], EntityPos(targetEnt), 12); g_npcAim[i][2] += 0.5f; }
+        }
+    }
     if (r && !g_replaying && owner && owner == FindPlayerPed()) {
         g_localShots++;
         if (target) memcpy(g_localAim, target, 12);
@@ -71,6 +97,7 @@ static void GivePuppetWeapon(int id, void *ped, int type) { EnsurePedWeapon(ped,
 void CombatPuppetCreated(int id) { g_puppetWeapon[id] = -1; g_shotsKnown[id] = false; }
 
 // Rejoue les tirs recus : l'arme du pantin tire vers le point vise (au plus 3 par image).
+static void ReplayShots(void *ped, int weaponId, int n, const float *aim);
 void CombatUpdatePuppet(int id, void *ped, const MsgState &s)
 {
     GivePuppetWeapon(id, ped, s.weapon);
@@ -79,10 +106,25 @@ void CombatUpdatePuppet(int id, void *ped, const MsgState &s)
     g_lastShots[id] = s.shots;
     if (n <= 0 || n > 20 || s.weapon < 22 || s.weapon > 38) return;   // armes a feu seulement
     if (n > 3) n = 3;
+    ReplayShots(ped, s.weapon, n, s.aim);
+}
+
+// Invite : copie d'un PNJ de l'hote, ses nouveaux tirs rejoues comme ceux d'un pantin.
+void CombatReplayCopyShots(void *ped, int weaponId, uint8_t shots, const float *aim, uint8_t &last, bool &known)
+{
+    if (!known) { known = true; last = shots; return; }
+    int n = (uint8_t)(shots - last);
+    last = shots;
+    if (n <= 0 || n > 20 || weaponId < 22 || weaponId > 38 || PedVehicle(ped)) return;
+    ReplayShots(ped, weaponId, n > 3 ? 3 : n, aim);
+}
+
+static void ReplayShots(void *ped, int weaponId, int n, const float *aimIn)
+{
     int slot = Field<uint8_t>(ped, PED_WEAPONSLOT);
     int *weapon = (int *)((uint8_t *)ped + PED_WEAPONS + slot * 0x1C);
-    if (weapon[0] != s.weapon) return;
-    float aim[3] = { s.aim[0], s.aim[1], s.aim[2] };
+    if (weapon[0] != weaponId) return;
+    float aim[3] = { aimIn[0], aimIn[1], aimIn[2] };
     // Le pantin se tourne vers sa cible (a pied).
     if (!PedVehicle(ped)) {
         const float *p = EntityPos(ped);
@@ -159,6 +201,7 @@ static void __fastcall h_Damage(int *calc, void *edx, void *victim, float *resp,
     if (pedId) {
         MsgDamage d = { MSG_DAMAGE, 0, (uint8_t)victimPlayer, (uint8_t)calc[3], (uint8_t)calc[2], {}, damage, pedId };
         NetSendToAll(&d, sizeof(d));
+        Log("coup du personnage %08X (type %d) sur le joueur %d : %.0f (arme %d)", pedId, Field<int>(damagerPed, 0x598), victimPlayer, damage, calc[3]);
     }
     resp[0] = resp[1] = 0;
     *((uint8_t *)resp + 8) = 0;

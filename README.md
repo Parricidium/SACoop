@@ -79,6 +79,8 @@ ready).
   tyres, smoke, fire, explosion), siren and repairs.
 - Each player's **name above their head** and a **radar blip** in their colour.
 - **Same time and weather** for everybody (the host's).
+- **Mission vehicles for everybody**: when the host takes a mission vehicle (the bikes of Big Smoke's mission...),
+  each guest nearby with no free seat in it gets the same vehicle next to them (or a reminder to ride along with G).
 - **Police for everybody**: one wanted level for the group (the highest; losing the police clears it for all), and
   the host's cops also hunt down wanted guests near the host (their hits land on the guest).
 - **Merged street life**: the host populates the streets around them (110 m) and everybody sees the same
@@ -183,6 +185,9 @@ quand un joueur arrive, part ou se met prêt).
   pare-chocs, phares, pneus, fumée, feu, explosion), sa sirène et ses réparations.
 - Le **pseudo de chaque joueur au-dessus de sa tête** et un **point radar** à sa couleur.
 - **Même heure et même météo** pour tout le monde (celles de l'hôte).
+- **Véhicules de mission pour tous** : quand l'hôte prend un véhicule de mission (les vélos de la mission de Big
+  Smoke...), chaque invité proche sans place libre dedans reçoit le même véhicule à côté de lui (sinon un rappel : G
+  pour monter avec lui).
 - **Police pour tous** : un seul niveau de recherche pour le groupe (le plus haut ; semer la police l'efface pour
   tous), et les policiers de l'hôte traquent aussi les invités recherchés près de lui (leurs coups arrivent chez
   l'invité).

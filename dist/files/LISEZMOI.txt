@@ -14,6 +14,8 @@ Ce qui marche deja
   argent des missions et sauvegarde de l'hote partages.
 - Meme heure, meme meteo. Rues fusionnees : l'hote peuple autour de lui
   (memes passants et circulation pour tous), plus loin le joueur le plus proche.
+- Vehicule de mission de l'hote (velo...) : chaque invite proche en recoit
+  un a cote de lui s'il n'a pas de place dedans.
 - Police : un seul niveau de recherche pour tous, et la police de l'hote
   poursuit aussi les invites recherches (RecherchePartagee, PoliceHote).
 

@@ -13,6 +13,7 @@
 #include "script.h"
 #include "mirror.h"
 #include "conditions.h"
+#include "npc.h"
 #include <string.h>
 
 static ScriptHandler_t g_orig[27];
@@ -45,11 +46,15 @@ static char Dispatch(int index, void *script, int op)
             CollectParameters(script, 1);
             static int lastBlocked = -1;
             if (lastBlocked != mission) { lastBlocked = mission; Log("script %.8s : mission %d non lancee (invite : l'histoire tourne chez l'hote)", ScriptName(script), mission); }
+            // L'intro remet la population (le script de depart la met a 0) : sans elle, l'invite n'avait plus ni
+            // passants ni circulation de son cote (1er test reel, GG loin de l'hote).
+            if (mission == 2) { *(float *)0x8D2530 = 1.0f; *(float *)0x8A5B20 = 1.0f; Log("script : population remise (intro de l'hote)"); }
             return 0;
         }
         Log("script %.8s : mission %d lancee", ScriptName(script), mission);
         if (g_cfg.host && IsStoryMission(mission)) MirrorMissionStart();
     }
+    NpcScriptCommand(script, op);
     MirrorBefore(script, op);
     ConditionBefore(script, op);
     char r = g_orig[index](script, op);

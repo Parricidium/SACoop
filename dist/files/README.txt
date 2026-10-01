@@ -15,6 +15,8 @@ What already works
   shared.
 - Same time, same weather. Merged street life: the host populates around
   them (same pedestrians and traffic for all), further out the nearest player.
+- Host's mission vehicle (bike...): each nearby guest with no seat in it
+  gets one next to them.
 - Police: one wanted level for everybody, and the host's police also
   chases wanted guests (RecherchePartagee, PoliceHote).
 
