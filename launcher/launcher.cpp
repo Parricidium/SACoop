@@ -904,6 +904,14 @@ static void BuildOptions()
     C(TAB_VIDEO, "ImagesParSeconde", 60, { 30, 45, 60 }, L"Images par seconde", L"Frame rate", {}, {}, L" i/s",
       L"60 conseill\u00E9 : les bogues de cadence du jeu d'origine (nage, freinage, portes, h\u00E9lices...) sont corrig\u00E9s (Framerate Vigilante). 30 = jeu d'origine.",
       L"60 recommended: the original game's frame-rate bugs (swimming, braking, doors, rotors...) are fixed (Framerate Vigilante). 30 = original game.");
+    C(TAB_VIDEO, "LangueJeu", -1, { -1, 1, 0, 2, 3, 4 }, L"Langue du jeu", L"Game language",
+      { L"Celle de Windows", L"Fran\u00E7ais", L"Anglais", L"Allemand", L"Italien", L"Espagnol" },
+      { L"Windows language", L"French", L"English", L"German", L"Italian", L"Spanish" }, L"",
+      L"Langue des textes du jeu (missions, menus, sous-titres). Le menu du jeu ne la change plus : c'est ici.",
+      L"Language of the game texts (missions, menus, subtitles). The game menu no longer changes it: it is set here.");
+    T2(TAB_VIDEO, "SourisInverseeY", 0, L"Souris : axe vertical invers\u00E9", L"Mouse: inverted vertical axis",
+       L"Non (conseill\u00E9) : pousser la souris vers l'avant fait regarder vers le haut. Le jeu d'origine l'inverse souvent par d\u00E9faut.",
+       L"Off (recommended): pushing the mouse forward looks up. The original game often inverts it by default.");
     T2(TAB_VIDEO, "GrandEcran", 1, L"Grand \u00E9cran", L"Widescreen",
        L"La 3D et le HUD gardent leurs proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi.",
        L"The 3D and the HUD keep their proportions on wide screens, with a wider field of view.");
