@@ -15,6 +15,7 @@
 #include "vehicles.h"
 #include "entities.h"
 #include "population.h"
+#include "mirror.h"
 #include <string.h>
 
 using namespace game;
@@ -82,6 +83,7 @@ static void HostSend()
         m.area = EntityArea(ped);
         if (IsDead(ped)) m.flags |= PF_DEAD;
         if (ambient) m.flags |= PF_AMBIENT;
+        if (PedVehicle(ped) && HasTaskType(ped, 1022)) m.flags |= PF_DRIVEBY;   // CTaskSimpleGangDriveBy (tir par la fenetre)
         if (void *veh = PedVehicle(ped)) {
             m.vehicleId = HostVehicleId(veh, true, ambient);
             if (Field<void *>(veh, VEH_DRIVER) != ped)
@@ -115,6 +117,7 @@ struct Copy {
     bool killed;
     uint8_t lastShots;
     bool shotsKnown;
+    bool driveby;        // tir par la fenetre en cours (TASK_DRIVE_BY donnee a la copie)
 };
 static Copy g_copies[MAX_COPIES];
 
@@ -240,12 +243,36 @@ static void UpdateCopy(Copy &c, uint32_t now)
     void *inVeh = PedVehicle(ped);
     if (m.vehicleId) {
         void *veh = NetVehicleById(m.vehicleId);
-        if (!veh) return;
+        if (!veh) {
+            static uint32_t said;
+            if (now - said > 5000) { said = now; Log("copie %08X : vehicule %08X pas (encore) la", c.id, m.vehicleId); }
+            return;
+        }
         bool placed = inVeh == veh && (m.seat == 0 ? Field<void *>(veh, VEH_DRIVER) == ped : Field<void *>(veh, VEH_PASSENGERS + (m.seat - 1) * 4) == ped);
+        // Tir par la fenetre (personnage de l'hote en CTaskSimpleGangDriveBy) : la copie se penche et vise le point de
+        // ses derniers tirs (TASK_DRIVE_BY 0713, cadence 0 : les balles sont celles rejouees plus haut).
+        bool wantDb = placed && (m.flags & PF_DRIVEBY);
+        if (wantDb && !c.driveby) {
+            float tgt[3] = { m.aim[0], m.aim[1], m.aim[2] };
+            if (tgt[0] == 0 && tgt[1] == 0) { const float *vp = EntityPos(veh); tgt[0] = vp[0] + 10.0f; tgt[1] = vp[1]; tgt[2] = vp[2]; }
+            float rad = 60.0f;
+            int args[10] = { PedRef(ped), -1, -1, 0, 0, 0, 0, 0, 0, 0 };
+            memcpy(&args[3], tgt, 12);
+            memcpy(&args[6], &rad, 4);
+            RunScriptCommandTyped(0x0713, 10, "iiiffffiii", args);
+            c.driveby = true;
+            static int said;
+            if (said < 10) { said++; Log("copie %08X : tir par la fenetre", c.id); }
+        } else if (!wantDb && c.driveby) {
+            SetPrimaryTask(ped, nullptr, 3);
+            c.driveby = false;
+        }
         if (!placed) {
             if (inVeh) WarpPuppetOut(ped, m.pos);
             WarpPuppetIn(ped, veh, m.seat);
             c.moveState = 0;
+            static int said;
+            if (said < 30) { said++; Log("copie %08X mise dans le vehicule %08X (place %d)", c.id, m.vehicleId, m.seat); }
         }
         return;
     }

@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 12, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 13, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -56,6 +56,8 @@ struct MsgState {
     uint32_t carTaskVeh;// vehicule reseau de cette montee / descente
     uint8_t fade;       // niveau de fondu de l'ecran (CCamera +0xBFC, 0 clair - 255 noir)
     uint8_t wanted;     // niveau de recherche de la police (0-6)
+    uint8_t meleeSeq;   // compteur de coups au corps a corps (chaque nouveau coup est rejoue par le pantin)
+    uint8_t meleeAnim;  // animation du dernier coup (coop.cpp, kMeleeAnims)
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };
@@ -94,7 +96,7 @@ struct MsgPed {
     uint8_t shots;              // compteur de tirs (chaque nouveau tir est rejoue par la copie)
     float aim[3];               // point vise au dernier tir
 };
-enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */ };
+enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */, PF_DRIVEBY = 4 /* tire par la fenetre d'un vehicule */ };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 // Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).
 struct MsgMarker { uint8_t type, n; uint16_t op; int vals[8]; };
