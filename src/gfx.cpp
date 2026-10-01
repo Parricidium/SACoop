@@ -7,8 +7,8 @@
 //  - ZonePopulation (100-200 %) : distance d'apparition des pietons et des voitures (CCamera +0xF4,
 //    m_fGenerationDistMultiplier, recopie de +0xF0 dans CCamera::Process en 0x52C9EB) et plafonds de population.
 //  - DensitePopulation (50-300 %) : plafonds (CPopulation::MaxNumberOfPedsInUse 0x8D2538 = 25, CCarCtrl::
-//    MaxNumberOfCarsInUse 0x8A5B24 = 12) et densites (0x8D2530, 0x8A5B20) quand le script les laisse a 1 ; variete
-//    des voitures chargees (CStreaming::desiredNumVehiclesLoaded 0x8A5A84 = 12).
+//    MaxNumberOfCarsInUse 0x8A5B24 = 12) et densites (0x8D2530, 0x8A5B20) quand le script les laisse a 1 ;
+//    plafonnes a 90 personnages et 45 voitures.
 //  - FiltrageAnisotrope : render.cpp.
 #include "util.h"
 #include "sacoop.h"
@@ -96,13 +96,13 @@ void GfxFrame()
     int mem = (96 + 64 * (g_cfg.drawDistance - 100) / 50) << 20;
     int &avail = *(int *)0x8A5A80;
     if (avail < mem) { avail = mem; if (logged != mem) { logged = mem; Log("graphismes : memoire de chargement %d Mo", mem >> 20); } }
-    // plafonds de population et variete des voitures
-    *(int *)0x8D2538 = (int)(25 * z * d + 0.5f);
-    *(int *)0x8A5B24 = (int)(12 * z * d + 0.5f);
-    int &wantVeh = *(int *)0x8A5A84;
-    int veh = (int)(12 * (d > 1 ? d : 1) + 0.5f);
-    if (veh > 30) veh = 30;
-    if (wantVeh < veh) wantVeh = veh;
+    // plafonds de population, sous les reserves du jeu (140 personnages, 110 vehicules, missions comprises). La variete
+    // des voitures chargees (CStreaming::desiredNumVehiclesLoaded 0x8A5A84 = 12) n'est PAS relevee : le jeu ne garde
+    // que 50 modeles de vehicules a la fois (reserve des CVehicleStructure 0xB4E680) ; pleine, CVehicleModelInfo::
+    // SetClump (0x4C95FF) recoit une structure nulle et plante en 0x4C8F24 (journaux de JD du 01/10, densite 300 %).
+    int peds = (int)(25 * z * d + 0.5f), cars = (int)(12 * z * d + 0.5f);
+    *(int *)0x8D2538 = peds > 90 ? 90 : peds;
+    *(int *)0x8A5B24 = cars > 45 ? 45 : cars;
     // densites : seulement quand le script les laisse a 1 (missions : souvent 0, qu'on ne touche pas)
     static float lastPed = -1, lastCar = -1;
     float &ped = *(float *)0x8D2530, &car = *(float *)0x8A5B20;
