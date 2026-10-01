@@ -890,6 +890,9 @@ static void BuildOptions()
     T2(TAB_VIDEO, "GrandEcran", 1, L"Grand \u00E9cran", L"Widescreen",
        L"La 3D et le HUD gardent leurs proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi.",
        L"The 3D and the HUD keep their proportions on wide screens, with a wider field of view.");
+    T2(TAB_VIDEO, "VuePremierePersonne", 1, L"Vue \u00E0 la 1re personne (F6)", L"First-person view (F6)",
+       L"F6 en jeu : la cam\u00E9ra \u00E0 pied passe dans les yeux de CJ, et revient avec F6.",
+       L"F6 in game: the on-foot camera goes into CJ's eyes, and back with F6.");
     T2(TAB_VIDEO, "SansIntro", 1, L"Passer les logos", L"Skip logos", L"Pas de logos ni de vid\u00E9o d'ouverture au d\u00E9marrage.", L"No logos or intro video at startup.");
     T2(TAB_VIDEO, "SauvegardesLocales", 1, L"Sauvegardes \u00E0 part", L"Separate saves",
        L"R\u00E9glages et sauvegardes du jeu dans son dossier, s\u00E9par\u00E9s de vos sauvegardes solo.",

@@ -2,6 +2,7 @@
 // et renvoie DirectInput8Create vers la vraie DLL du systeme.
 #include "util.h"
 #include "sacoop.h"
+#include "camera.h"
 #include "script.h"
 #include "widescreen.h"
 #include "menu.h"
@@ -54,6 +55,15 @@ static void LoadConfig()
     GetPrivateProfileStringA("SACoop", "Adresse", "127.0.0.1", g_cfg.address, sizeof(g_cfg.address), ini);
     g_cfg.port = GetPrivateProfileIntA("SACoop", "Port", 7800, ini);
     g_cfg.friendlyFire = GetPrivateProfileIntA("SACoop", "TirAmi", 1, ini) != 0;
+    g_cfg.fpsView = GetPrivateProfileIntA("SACoop", "VuePremierePersonne", 1, ini) != 0;
+    g_cfg.testFirstPerson = GetPrivateProfileIntA("SACoop", "TestPremierePersonne", 0, ini) != 0;
+    {   // ToucheVue : F1-F12 ou une lettre / un chiffre
+        char k[8];
+        GetPrivateProfileStringA("SACoop", "ToucheVue", "F6", k, sizeof(k), ini);
+        g_cfg.fpsKey = VK_F6;
+        if ((k[0] == 'F' || k[0] == 'f') && atoi(k + 1) >= 1 && atoi(k + 1) <= 12) g_cfg.fpsKey = VK_F1 + atoi(k + 1) - 1;
+        else if (k[0] && !k[1]) g_cfg.fpsKey = toupper((unsigned char)k[0]);
+    }
     g_cfg.shareWanted = GetPrivateProfileIntA("SACoop", "RecherchePartagee", 1, ini) != 0;
     g_cfg.hostPolice = GetPrivateProfileIntA("SACoop", "PoliceHote", 1, ini) != 0;
     g_cfg.widescreen = GetPrivateProfileIntA("SACoop", "GrandEcran", 1, ini) != 0;
@@ -143,5 +153,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallWidescreen();
     InstallResolution();
     InstallMenu();
+    InstallCamera();
     return TRUE;
 }

@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.29.0-prealpha"
+#define SACOOP_VERSION "0.30.0-prealpha"
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)
@@ -27,6 +27,9 @@ struct Config {
     bool widescreen;        // GrandEcran : 3D au format de l'ecran, champ de vision elargi (defaut 1)
     bool shareWanted;       // RecherchePartagee : un seul niveau de recherche pour tous (le plus haut)
     bool hostPolice;        // PoliceHote : la police de l'hote poursuit aussi les invites recherches
+    bool fpsView;           // VuePremierePersonne : la touche ToucheVue (F6) bascule la vue a la premiere personne
+    int fpsKey;             // ToucheVue : code de touche virtuelle (F6 par defaut)
+    bool testFirstPerson;   // TestPremierePersonne : vue a la premiere personne des l'arrivee (captures)
     bool friendlyFire;      // TirAmi : les joueurs peuvent se blesser entre eux (chacun decide pour lui)
     int skin;               // Tenue : ce que les autres voient (0 = CJ avec ses vetements, par defaut ; 1-299 = un pieton du jeu)
     char autotest[32];      // Autotest : scenario de test (autotest.cpp)

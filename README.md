@@ -91,7 +91,7 @@ ready).
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
 - **COOP menu in the game** (main and pause menus): host, join an address, change your name, see the session.
-- **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send; `/join` brings you back next to the host). **F5** (held): players board (name, health, distance). **F10**: co-op panel (go to a player, friendly fire,
+- **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send; `/join` brings you back next to the host). **F5** (held): players board (name, health, distance). **F6**: first-person view on foot. **F10**: co-op panel (go to a player, friendly fire,
   outfit, and time / weather for the host).
 - **Widescreen**: the 3D, the HUD (radar, icons, texts) and the menus keep their proportions on wide screens, with a wider field
   of view (Hor+). Borderless mode picks your screen's resolution by itself.
@@ -193,7 +193,7 @@ quand un joueur arrive, part ou se met prêt).
   jeu en pause.
 - **Menu COOP dans le jeu** (menus principal et pause) : héberger, rejoindre une adresse, changer de pseudo, voir la
   session.
-- **G** : monter en passager dans la voiture d'un autre joueur (F aussi). **T** : tchat (Entrée pour envoyer ; `/rejoindre` vous ramène près de l'hôte). **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance). **F10** : panneau coop (aller vers un
+- **G** : monter en passager dans la voiture d'un autre joueur (F aussi). **T** : tchat (Entrée pour envoyer ; `/rejoindre` vous ramène près de l'hôte). **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance). **F6** : vue à la première personne à pied. **F10** : panneau coop (aller vers un
   joueur, tir ami, tenue, et heure / météo pour l'hôte).
 - **Grand écran** : la 3D, le HUD (radar, icônes, textes) et les menus gardent leurs proportions sur un écran large, avec un champ
   de vision élargi. En plein écran sans bordure, la résolution de l'écran est choisie toute seule.

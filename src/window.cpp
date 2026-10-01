@@ -7,6 +7,7 @@
 #include "menu.h"
 #include "widescreen.h"
 #include "passenger.h"
+#include "camera.h"
 #include "net.h"
 #include <d3d9.h>
 #include <mmsystem.h>
@@ -210,6 +211,7 @@ static LRESULT CALLBACK h_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && MenuWindowMessage(msg, wp)) return 0;   // saisie du menu COOP
     if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && PanelWindowMessage(msg, wp)) return 0;  // panneau F10
     if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && ChatWindowMessage(msg, wp)) return 0;   // saisie du tchat
+    if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && CameraWindowMessage(msg, wp)) return 0; // vue a la premiere personne
     if (msg == WM_KEYDOWN) PassengerWindowMessage(msg, wp);                                    // G : passager
     if ((msg == WM_ACTIVATEAPP && !wp) || (msg == WM_ACTIVATE && LOWORD(wp) == WA_INACTIVE) || msg == WM_KILLFOCUS) {
         static int logged;
