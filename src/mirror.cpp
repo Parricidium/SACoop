@@ -25,6 +25,7 @@
 #include "vehicles.h"
 #include "script.h"
 #include "mirror.h"
+#include "police.h"
 #include "savesync.h"
 #include "chat.h"
 #include <string.h>
@@ -51,6 +52,8 @@ static const MirrorOp kOps[] = {
     { 0x054C, "s" },       // LOAD_MISSION_TEXT
     { 0x016A, "ii" },      // DO_FADE
     { 0x02A3, "i" },       // SWITCH_WIDESCREEN
+    { 0x03DE, "f" },       // SET_PED_DENSITY_MULTIPLIER : la circulation suit celle des missions de l'hote
+    { 0x01EB, "f" },       // SET_CAR_DENSITY_MULTIPLIER (en population partagee proche, population.cpp les retient)
     { 0x01B4, "ii" },      // SET_PLAYER_CONTROL
     { 0x0164, "b" },       // REMOVE_BLIP
     { 0x0165, "bi" },      // CHANGE_BLIP_COLOUR
@@ -339,6 +342,7 @@ static void OnReliable(int from, const uint8_t *data, int len)
     (void)from;
     if (SaveSyncReliable(data, len)) return;   // sauvegarde partagee (savesync.cpp) : traitee tout de suite
     if (ChatReliable(from, data, len)) return;  // tchat (chat.cpp)
+    if (PoliceReliable(data, len)) return;      // ejection par un policier de l'hote (police.cpp)
     if (len >= 2 && data[0] == RL_SESSION) {   // partie de l'hote : l'invite encore au menu la suit
         if (g_cfg.host) return;
         int slot = (int8_t)data[1];

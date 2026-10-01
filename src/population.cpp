@@ -72,6 +72,15 @@ bool NearSharedGuest(const float *pos, float radius)
     return false;
 }
 
+// Hote : un invite partage est-il a moins de radius (sans condition de zone) ?
+bool NearSharedGuestAnywhere(const float *pos, float radius)
+{
+    if (!g_cfg.host) return false;
+    for (int i = 1; i < MAX_PLAYERS; i++)
+        if (g_shared[i] && Dist2(pos, g_players[i].state.pos) < radius * radius) return true;
+    return false;
+}
+
 // Vrai si un AUTRE joueur peuple ce point : invite -> dans la zone de l'hote (partage) ; hote -> hors de sa zone et
 // un invite partage en est plus proche.
 static bool OtherPopulates(const float *pos)

@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 10, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 11, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -73,8 +73,10 @@ struct MsgVehicle {
     uint8_t wheels[4], doors[6];   // CDamageManager (voitures seulement)
     uint32_t lights, panels;
     int ownerRef;       // reference de pool du vehicule chez son proprietaire (handle de ses scripts)
+    float steer, gas, brake;   // commandes du conducteur (CVehicle +0x494, +0x49C, +0x4A0), rejouees par la copie
+    uint8_t handbrake;  // frein a main (+0x428, bit 0x20)
 };
-enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */ };
+enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */, VF_SCRIPT = 16 /* cree par un script de mission (CreatedBy 2) */ };
 // Coup porte par le joueur "from" au joueur "to" : touche decidee chez le tireur, degats appliques par le jeu du joueur
 // touche (regles du joueur, gilet, reaction, mort).
 // pedId : coup d'un personnage de mission de l'hote (son id MsgPed), 0 : du joueur "from".
@@ -88,6 +90,8 @@ struct MsgPed {
     uint8_t moveState, weapon, seat, area;
     uint32_t vehicleId;         // vehicule reseau (0 : a pied)
     char special[8];            // modele special (290-299) : son nom (CStreaming::RequestSpecialModel)
+    uint8_t shots;              // compteur de tirs (chaque nouveau tir est rejoue par la copie)
+    float aim[3];               // point vise au dernier tir
 };
 enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */ };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };

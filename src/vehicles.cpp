@@ -10,6 +10,7 @@
 #include "net.h"
 #include "game.h"
 #include "vehicles.h"
+#include "hud.h"
 #include "population.h"
 #include <math.h>
 #include <string.h>
@@ -215,7 +216,12 @@ static void SendOwned()
         memcpy(m.turn, v + 0x50, 12);
         m.driven = driving;
         m.ownerRef = n.ref;
+        m.steer = *(float *)(v + 0x494);
+        m.gas = *(float *)(v + 0x49C);
+        m.brake = *(float *)(v + 0x4A0);
+        m.handbrake = (v[0x428] & 0x20) ? 1 : 0;
         if (n.mission || n.ambient) m.flags |= VF_MISSION;   // envoye tant qu'il existe (copie retiree 3 s apres)
+        if (v[0x4A4] == 2) m.flags |= VF_SCRIPT;
         m.health = *(float *)(v + 0x4C0);
         if ((v[0x36] >> 3) == 5) m.flags |= VF_WRECKED;
         if (v[0x42D] & 0x80) m.flags |= VF_SIREN;
@@ -343,8 +349,24 @@ static void UpdateCopy(NetVeh &n)
     if (err > 6.0f) WorldRemove(v);
     pos[0] += dx * k; pos[1] += dy * k; pos[2] += dz * k;
     float *right = (float *)mat, *fwd = (float *)(mat + 0x10), *up = (float *)(mat + 0x20);
-    memcpy(right, m.right, 12);
-    memcpy(fwd, m.fwd, 12);
+    // Orientation recue anticipee selon la vitesse de rotation (comme la position), puis rejointe en douceur ; avant,
+    // elle etait recopiee telle quelle, en retard sur la position anticipee : la caisse semblait trainer.
+    float t = 50.0f * lead, wr[3], wf[3];
+    const float *w = m.turn;
+    wr[0] = m.right[0] + (w[1] * m.right[2] - w[2] * m.right[1]) * t;
+    wr[1] = m.right[1] + (w[2] * m.right[0] - w[0] * m.right[2]) * t;
+    wr[2] = m.right[2] + (w[0] * m.right[1] - w[1] * m.right[0]) * t;
+    wf[0] = m.fwd[0] + (w[1] * m.fwd[2] - w[2] * m.fwd[1]) * t;
+    wf[1] = m.fwd[1] + (w[2] * m.fwd[0] - w[0] * m.fwd[2]) * t;
+    wf[2] = m.fwd[2] + (w[0] * m.fwd[1] - w[1] * m.fwd[0]) * t;
+    float blend = err > 6.0f ? 1.0f : 0.5f;
+    for (int k = 0; k < 3; k++) { right[k] += (wr[k] - right[k]) * blend; fwd[k] += (wf[k] - fwd[k]) * blend; }
+    float lf = sqrtf(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
+    if (lf > 1e-4f) for (int k = 0; k < 3; k++) fwd[k] /= lf;
+    float d = right[0] * fwd[0] + right[1] * fwd[1] + right[2] * fwd[2];   // droite perpendiculaire a l'avant
+    for (int k = 0; k < 3; k++) right[k] -= fwd[k] * d;
+    float lr = sqrtf(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]);
+    if (lr > 1e-4f) for (int k = 0; k < 3; k++) right[k] /= lr;
     up[0] = right[1] * fwd[2] - right[2] * fwd[1];
     up[1] = right[2] * fwd[0] - right[0] * fwd[2];
     up[2] = right[0] * fwd[1] - right[1] * fwd[0];
@@ -353,8 +375,83 @@ static void UpdateCopy(NetVeh &n)
     if (err > 6.0f) WorldAdd(v);
 }
 
+// IA des copies : le pantin au volant est un conducteur PNJ sans mission, et CAutomobile::ProcessAI (vtable[66])
+// freinait a fond a chaque image (frein 1,0 : roues bloquees, copie qui "freine tout le temps", 1er test reel). Pour
+// une copie conduite par un autre joueur, les commandes de son conducteur (volant, gaz, frein, frein a main) sont
+// posees a la place, et la physique du jeu fait le reste (roues, suspension, inclinaison des deux-roues).
+// Vtables : CAutomobile 0x871120 et ses derives 0x871680 / 0x8717D8 / 0x871948 (0x6B4800), CBike 0x871360
+// (0x6BC930), CBmx 0x871528 (0x6C1470). ProcessAI renvoie vrai pour sauter la physique : on renvoie faux.
+typedef bool(__thiscall *ProcessAI_t)(void *veh, unsigned int &flags);
+struct AIHook { uintptr_t vt; ProcessAI_t orig; };
+static AIHook g_aiHooks[6] = { { 0x871120 }, { 0x871680 }, { 0x8717D8 }, { 0x871948 }, { 0x871360 }, { 0x871528 } };
+
+static bool RemoteControls(void *veh)
+{
+    NetVeh *n = FindByVeh(veh);
+    if (!n || n->owner == g_localId || !n->last.driven || GetTickCount() - n->lastRecv > 1500) return false;
+    uint8_t *v = (uint8_t *)veh;
+    *(float *)(v + 0x494) = n->last.steer;
+    *(float *)(v + 0x49C) = n->last.gas;
+    *(float *)(v + 0x4A0) = n->last.brake;
+    v[0x428] = n->last.handbrake ? (v[0x428] | 0x20) : (v[0x428] & ~0x20);
+    if (g_cfg.logScripts) {   // releve : commandes rejouees par la copie
+        static uint32_t lastLog;
+        if (GetTickCount() - lastLog > 2000) { lastLog = GetTickCount(); const float *sp = (const float *)(v + 0x44); Log("vehicules : copie %08X volant %.2f gaz %.2f frein %.2f vitesse %.1f km/h", n->id, n->last.steer, n->last.gas, n->last.brake, sqrtf(sp[0] * sp[0] + sp[1] * sp[1] + sp[2] * sp[2]) * 180.0f); }
+    }
+    return true;
+}
+template <int I> static bool __fastcall h_ProcessAI(void *veh, void *, unsigned int &flags)
+{
+    if (RemoteControls(veh)) return false;
+    return g_aiHooks[I].orig(veh, flags);
+}
+template <int I> static void HookAI()
+{
+    void **slot = (void **)(g_aiHooks[I].vt + 66 * 4);
+    if (*slot != (void *)&h_ProcessAI<I>) g_aiHooks[I].orig = (ProcessAI_t)PatchPointer(slot, (void *)&h_ProcessAI<I>);
+}
+
+// Invite : l'hote prend le volant d'un vehicule de mission (cree par son script : velo de la mission de Smoke...) ;
+// invite a pied a moins de 60 m, sans place libre pour lui dedans : une copie du meme modele (a lui) apparait a
+// cote de lui, une fois par vehicule de l'hote, pour faire la mission avec lui. Place libre : rappel de G (passager).
+static void GuestMissionVehicle()
+{
+    static const bool g_fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    static uint32_t handled;   // dernier vehicule de l'hote traite
+    const NetPlayer &h = g_players[0];
+    void *me = FindPlayerPed();
+    if (g_cfg.host || !me || !h.connected || !h.state.inGame || !h.state.vehicleId || h.state.seat != 0 || h.state.vehicleId == handled) return;
+    NetVeh *n = FindById(h.state.vehicleId);
+    if (!n || !Alive(*n) || !(n->last.flags & VF_SCRIPT) || PedVehicle(me)) return;
+    const float *hp = h.state.pos, *mp = EntityPos(me);
+    float dx = hp[0] - mp[0], dy = hp[1] - mp[1];
+    if (dx * dx + dy * dy > 60.0f * 60.0f) return;
+    handled = h.state.vehicleId;
+    uint8_t *hv = (uint8_t *)n->veh;
+    int seat = g_localId > 0 ? g_localId : 1;   // place passager de ce joueur
+    bool freeSeat = seat <= hv[VEH_MAXPASS] && !Field<void *>(hv, VEH_PASSENGERS + (seat - 1) * 4);
+    if (freeSeat) { HudToast(g_fr ? "G : monter avec l'hote" : "G: ride with the host", 5000); Log("vehicule de mission de l'hote : place passager libre (G)"); return; }
+    int model = n->last.model;
+    if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
+    if (!ModelLoaded(model)) return;
+    float h0 = Field<float>(me, PED_ROTATION);
+    float pos[3] = { mp[0] + cosf(h0) * 3.0f, mp[1] + sinf(h0) * 3.0f, mp[2] + 0.5f };   // 3 m sur sa droite
+    void *v = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(model, pos[0], pos[1], pos[2], false);
+    if (!v) return;
+    if (uint8_t *mat = *(uint8_t **)((uint8_t *)v + 0x14)) {   // tourne comme l'invite
+        float *r = (float *)mat, *f = (float *)(mat + 0x10);
+        f[0] = -sinf(h0); f[1] = cosf(h0); f[2] = 0;
+        r[0] = cosf(h0); r[1] = sinf(h0); r[2] = 0;
+    }
+    ((uint8_t *)v)[0x4A4] = 1;   // vehicule ordinaire : le jeu pourra le retirer plus tard
+    HudToast(g_fr ? "Un vehicule pour toi est a cote" : "A vehicle for you is next to you", 5000);
+    Log("vehicule de mission de l'hote (modele %d) : copie posee a cote de l'invite", model);
+}
+
 void VehiclesFrame()
 {
+    static bool aiHooked;
+    if (!aiHooked) { aiHooked = true; HookAI<0>(); HookAI<1>(); HookAI<2>(); HookAI<3>(); HookAI<4>(); HookAI<5>(); Log("vehicules : IA des copies remplacee par les commandes de leur conducteur"); }
     g_onVehicle = OnVehicle;
     if (GameState() != 9 || !FindPlayerPed()) return;
     uint32_t now = GetTickCount();
@@ -366,5 +463,6 @@ void VehiclesFrame()
         if (!n.veh) CreateCopy(n);
         if (n.veh && now - n.lastRecv < 1500) { UpdateCopy(n); ApplyBody(n); }
     }
+    GuestMissionVehicle();
     SendOwned();
 }

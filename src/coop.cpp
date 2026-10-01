@@ -27,6 +27,7 @@
 #include "police.h"
 #include "camera.h"
 #include "mods.h"
+#include "npc.h"
 #include <math.h>
 #include <string.h>
 
@@ -330,7 +331,7 @@ static void CreatePuppet(int id, const MsgState &s)
         LoadAllRequestedModels(false);
         if (!ModelLoaded(model)) return;   // on reessaie a l'image suivante
     }
-    void *ped = NewCivilianPed(4, model);   // PEDTYPE_CIVMALE
+    void *ped = NewCivilianPed(2, model);   // PEDTYPE_PLAYER_NETWORK : les relations envers le joueur s'y appliquent (npc.cpp)
     if (!ped) { Log("pantin du joueur %d : pool des personnages plein", id); return; }
     SetCharCreatedBy(ped, 2);
     EntityArea(ped) = s.area;
@@ -616,6 +617,49 @@ static void Autotest()
         }
         return;
     }
+    // "gang" (hote) : dans la ruelle ("regarde" pose l'invite 10 m a l'ouest) ; a 28 s, les Ballas (GANG1, type 7)
+    // detestent le joueur et trois Ballas armes apparaissent 6 m au-dela de l'invite ; a 43 s, un ennemi de mission
+    // (type 24) est lance sur l'hote (05E2) : tous doivent s'en prendre a l'invite, le plus proche (npc.cpp).
+    if (_stricmp(g_cfg.autotest, "gang") == 0) {
+        static int step;
+        void *ped = FindPlayerPed();
+        if (step == 0) {
+            step = 1;
+            float pos[3] = { 2242.0f, -1262.3f, 23.9f };
+            PlacePuppet(ped, pos, 1.5708f);
+            return;
+        }
+        if (step == 1 && t > 28000) {
+            step = 2;
+            int rel[3] = { 4, 7, 0 };
+            RunScriptCommand(0x0746, 3, rel);   // SET_RELATIONSHIP hate, GANG1, PLAYER1
+            if (!ModelLoaded(102)) { RequestModel(102, 2); LoadAllRequestedModels(false); }
+            for (int k = 0; k < 3 && ModelLoaded(102); k++) {
+                float np[3] = { 2226.0f - k * 1.2f, -1261.0f + (k % 2) * 1.5f, 23.9f };
+                // CPopulation::AddPed (0x612710 : type, modele, position, flane) : un vrai passant de gang
+                void *npc = ((void *(__cdecl *)(int, int, const float *, bool))0x612710)(7, 102, np, true);
+                if (!npc) break;
+                int w = -1;
+                EnsurePedWeapon(npc, 22, w);
+            }
+            Log("autotest : Ballas hostiles poses");
+        }
+        if (step == 2 && t > 43000 && ModelLoaded(102)) {   // l'ennemi de mission, 15 s plus tard
+            step = 3;
+            if (void *npc = NewCivilianPed(24, 102)) {
+                float np[3] = { 2222.0f, -1262.0f, 23.9f };
+                memcpy(EntityPos(npc), np, 12);
+                WorldAdd(npc);
+                int w = -1;
+                EnsurePedWeapon(npc, 22, w);
+                int a[2] = { PedRef(npc), PedRef(ped) };
+                RunScriptCommand(0x05E2, 2, a);
+                NpcHunterNoted(PedRef(npc));
+                Log("autotest : ennemi de mission lance sur l'hote");
+            }
+        }
+        return;
+    }
     // "rue" (hote) : se pose une fois dans Grove Street (impasse ouverte : les voitures de police y arrivent).
     if (_stricmp(g_cfg.autotest, "rue") == 0) {
         static bool placed;
@@ -700,9 +744,9 @@ static void Autotest()
     }
     // "taxi" (hote) : au volant d'un Greenwood pose a 5 m, immobile jusqu'a 45 s, puis avance 2 s.
     // "taximoto" (hote) : pareil sur une PCJ-600 (461) : l'invite monte derriere.
-    if (_stricmp(g_cfg.autotest, "taxi") == 0 || _stricmp(g_cfg.autotest, "taximoto") == 0) {
+    if (_stricmp(g_cfg.autotest, "taxi") == 0 || _stricmp(g_cfg.autotest, "taximoto") == 0 || _stricmp(g_cfg.autotest, "taxivelo") == 0) {
         static bool done;
-        int model = _stricmp(g_cfg.autotest, "taximoto") == 0 ? 461 : 492;
+        int model = _stricmp(g_cfg.autotest, "taximoto") == 0 ? 461 : _stricmp(g_cfg.autotest, "taxivelo") == 0 ? 481 : 492;   // (481 : BMX, sans place passager)
         void *ped = FindPlayerPed();
         if (!done) {
             done = true;
@@ -935,6 +979,7 @@ void CoopFrame(bool inGameLoop)
     ConditionsFrame();
     PopulationFrame();
     PoliceFrame();
+    NpcFrame();
     PassengerFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
