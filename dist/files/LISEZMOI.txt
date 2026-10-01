@@ -32,9 +32,11 @@ Installation
 1. Copier le contenu du zip dans le dossier du jeu (a cote de gta_sa.exe).
 2. Lancer SACoop.exe (le lanceur). Il se met a jour tout seul a chaque
    demarrage : plus besoin de retelecharger le zip.
-3. L'hote clique sur HEBERGER. Les autres tapent l'adresse IP de l'hote,
+3. Dans le lanceur : l'hote clique sur HEBERGER. Les autres tapent l'adresse IP de l'hote,
    puis REJOINDRE. (Les raccourcis "SACoop - Heberger.cmd" et
    "SACoop - Rejoindre.cmd" marchent aussi, sans mise a jour.)
+   Dans le jeu aussi : menu principal ou pause > COOP (Heberger,
+   Rejoindre avec l'adresse, Pseudo).
 4. L'hote lance sa partie (nouvelle ou sauvegarde). Les invites restes au
    menu la suivent tout seuls (meme sauvegarde s'ils l'ont recue). Par Internet, l'hote ouvre le port UDP 7800 sur sa box (ou
    utilisez un reseau virtuel type Radmin VPN).
