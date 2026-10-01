@@ -26,6 +26,7 @@ struct NetVeh {
     uint32_t lastDriven; // GetTickCount de la derniere image ou un joueur local l'occupait
     MsgVehicle last;     // dernier etat recu (copies)
     bool damaged;        // le dernier etat recu portait des degats (une remise a neuf = reparation)
+    bool mission;        // vehicule de mission de l'hote : envoye tant qu'il existe
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -88,6 +89,37 @@ uint32_t LocalVehicleId(void *veh, bool driver)
     return n->id;
 }
 
+// Hote : vehicule de mission (CreatedBy +0x4A4 == 2) ou occupe par un personnage de mission. Il devient un vehicule
+// reseau de l'hote, envoye tant qu'il existe (chez les invites, sa copie disparait 3 s apres le dernier message).
+uint32_t HostVehicleId(void *veh, bool occupied)
+{
+    NetVeh *n = FindByVeh(veh);
+    if (n && n->owner != g_localId) return n->id;   // copie du vehicule d'un invite
+    if (!n) {
+        n = NewSlot();
+        if (!n) return 0;
+        n->id = ((uint32_t)(g_localId < 0 ? 0 : g_localId) << 24) | (++g_vehCounter & 0xFFFFFF);
+        n->veh = veh;
+        n->ref = VehRef(veh);
+        n->owner = (uint8_t)g_localId;
+        Log("vehicule de mission %08X (modele %d) enregistre", n->id, *(int16_t *)((uint8_t *)veh + 0x22));
+    }
+    n->mission = true;
+    if (occupied) n->lastDriven = GetTickCount();
+    return n->id;
+}
+
+// Hote : tous les vehicules de mission du pool (0xB74494) deviennent des vehicules reseau.
+void HostRegisterMissionVehicles()
+{
+    Pool *p = *(Pool **)0xB74494;
+    for (int i = 0; i < p->size; i++) {
+        if (p->flags[i] & 0x80) continue;
+        uint8_t *v = p->objects + i * 0xA18;
+        if (v[0x4A4] == 2 && !FindByVeh(v)) HostVehicleId(v, false);
+    }
+}
+
 static void MatrixOf(void *e, float *right, float *fwd)
 {
     uint8_t *m = *(uint8_t **)((uint8_t *)e + 0x14);
@@ -118,8 +150,10 @@ static void SendOwned()
     for (auto &n : g_veh) {
         if (!n.id || n.owner != g_localId || !Alive(n)) continue;
         bool driving = now - n.lastDriven < 200;
-        uint32_t every = driving ? 33 : 500;
-        if (!driving && now - n.lastDriven > 10000) continue;   // gare depuis 10 s : plus rien a envoyer
+        const float *spd = (const float *)((uint8_t *)n.veh + 0x44);
+        bool moving = spd[0] * spd[0] + spd[1] * spd[1] + spd[2] * spd[2] > 0.0001f;
+        uint32_t every = driving ? 33 : n.mission && moving ? 66 : 500;
+        if (!driving && !n.mission && now - n.lastDriven > 10000) continue;   // gare depuis 10 s : plus rien a envoyer
         if (now - n.lastSend < every) continue;
         n.lastSend = now;
         uint8_t *v = (uint8_t *)n.veh;
@@ -135,6 +169,7 @@ static void SendOwned()
         memcpy(m.speed, v + 0x44, 12);
         memcpy(m.turn, v + 0x50, 12);
         m.driven = driving;
+        if (n.mission) m.flags |= VF_MISSION;
         m.health = *(float *)(v + 0x4C0);
         if ((v[0x36] >> 3) == 5) m.flags |= VF_WRECKED;
         if (v[0x42D] & 0x80) m.flags |= VF_SIREN;
@@ -280,7 +315,8 @@ void VehiclesFrame()
     for (auto &n : g_veh) {
         if (!n.id || n.owner == g_localId) continue;
         if (n.veh && !Alive(n)) { Log("copie du vehicule %08X detruite par le jeu", n.id); n.veh = nullptr; }
-        if (now - n.lastRecv > 30000 && !PuppetInVehicle(n.veh)) { DestroyCopy(n, true); continue; }
+        uint32_t timeout = (n.last.flags & VF_MISSION) ? 3000 : 30000;   // mission : l'hote l'envoie tant qu'il existe
+        if (now - n.lastRecv > timeout && !PuppetInVehicle(n.veh)) { DestroyCopy(n, true); continue; }
         if (!n.veh) CreateCopy(n);
         if (n.veh && now - n.lastRecv < 1500) { UpdateCopy(n); ApplyBody(n); }
     }

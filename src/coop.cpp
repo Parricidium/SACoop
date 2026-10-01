@@ -16,6 +16,8 @@
 #include "vehicles.h"
 #include "hud.h"
 #include "combat.h"
+#include "peds.h"
+#include "entities.h"
 #include <math.h>
 #include <string.h>
 
@@ -79,8 +81,11 @@ void InstallPuppetRender()
     o_CivRender = (PedRender_t)PatchPointer((void **)(0x86C0A8 + 18 * 4), (void *)h_CivRender);
     InstallHud(PuppetOf);
     InstallCombat();
+    InstallEntities();
 }
 static uint32_t g_calmSince;   // depuis quand on est en partie sans cinematique (creation des pantins)
+
+bool WorldCalm() { return GetTickCount() - g_calmSince >= 5000; }
 
 static bool InGame()
 {
@@ -193,7 +198,7 @@ static void OnClothes(const MsgClothes &c)
 }
 
 // --- Pantins ---
-static void SetHeading(void *ped, float h)
+void SetHeading(void *ped, float h)
 {
     Field<float>(ped, PED_ROTATION) = h;
     Field<float>(ped, PED_AIMROT) = h;
@@ -206,7 +211,7 @@ static void SetHeading(void *ped, float h)
     }
 }
 
-static void PlacePuppet(void *ped, const float *pos, float heading)
+void PlacePuppet(void *ped, const float *pos, float heading)
 {
     WorldRemove(ped);
     memcpy(EntityPos(ped), pos, 3 * sizeof(float));
@@ -225,7 +230,7 @@ bool PuppetInVehicle(void *veh)
 // WARP_CHAR_INTO_CAR_AS_PASSENGER (0x430) : taches videes (CPedIntelligence::FlushImmediately 0x601640), puis tache
 // CTaskSimpleCarSetPedInAsDriver (0x6470E0) / AsPassenger (0x646FE0, porte : 0x64F190) construite sur la pile,
 // drapeau "d'un coup" leve (+0x18 / +0x1C), executee directement (ProcessPed 0x64B950 / 0x64B5D0), detruite.
-static void WarpPuppetIn(void *ped, void *veh, int seat)
+void WarpPuppetIn(void *ped, void *veh, int seat)
 {
     void *intel = Field<void *>(ped, PED_INTEL);
     ((void(__thiscall *)(void *, bool))0x601640)(intel, false);
@@ -246,7 +251,7 @@ static void WarpPuppetIn(void *ped, void *veh, int seat)
 
 // Sortie d'un coup, comme WARP_CHAR_FROM_CAR_TO_COORD (0x362) : taches videes avec tache par defaut, puis
 // CPed::Teleport (vtable[14]).
-static void WarpPuppetOut(void *ped, const float *pos)
+void WarpPuppetOut(void *ped, const float *pos)
 {
     void *intel = Field<void *>(ped, PED_INTEL);
     ((void(__thiscall *)(void *, bool))0x601640)(intel, true);
@@ -416,41 +421,49 @@ static void UpdatePuppet(int id)
         SetPrimaryTask(ped, nullptr, 3);
     }
 
-    // Position visee : un peu en avant selon la vitesse (le joueur a continue d'avancer depuis l'envoi).
-    float lead = (GetTickCount() - np.lastStateAt) / 1000.0f;   // (horloge locale : celle de l'autre PC n'est pas la meme)
-    if (lead < 0) lead = 0;
+    if (FollowOnFoot(ped, s.pos, s.speed, s.heading, s.moveState, GetTickCount() - np.lastStateAt, p.moveState)) p.lastTask = GetTickCount();
+}
+
+// Fait suivre a un personnage a pied la position recue (pantin d'un joueur, copie d'un personnage de mission) :
+// position visee un peu en avant selon la vitesse (le joueur a continue d'avancer depuis l'envoi), marche/course par
+// CTaskSimpleGoToPoint, grand ecart rattrape d'un coup. Renvoie vrai si une nouvelle tache a ete donnee.
+bool FollowOnFoot(void *ped, const float *rpos, const float *rspeed, float heading, int remoteMove, uint32_t ageMs, int &moveState)
+{
+    float lead = ageMs / 1000.0f;   // (horloge locale : celle de l'autre PC n'est pas la meme)
     if (lead > 0.3f) lead = 0.3f;
     float target[3];
-    for (int k = 0; k < 3; k++) target[k] = s.pos[k] + s.speed[k] * 50.0f * lead;   // vitesse du jeu : par 1/50 s
+    for (int k = 0; k < 3; k++) target[k] = rpos[k] + rspeed[k] * 50.0f * lead;   // vitesse du jeu : par 1/50 s
     float *pos = EntityPos(ped);
     float dx = target[0] - pos[0], dy = target[1] - pos[1], dz = target[2] - pos[2];
     float d2 = dx * dx + dy * dy, dist = sqrtf(d2);
     if (dist > 4.0f || fabsf(dz) > 3.0f) {   // trop loin : replace d'un coup
-        PlacePuppet(ped, s.pos, s.heading);
+        PlacePuppet(ped, rpos, heading);
         SetPrimaryTask(ped, nullptr, 3);
-        p.moveState = 0;
-        return;
+        moveState = 0;
+        return false;
     }
-    int move = PuppetMove(s.moveState);
+    int move = PuppetMove(remoteMove);
     if (move == MOVE_STILL && dist < 0.6f) {
-        if (p.moveState != MOVE_STILL) { SetPrimaryTask(ped, nullptr, 3); p.moveState = MOVE_STILL; }
-        SetHeading(ped, s.heading);
-        return;
+        if (moveState != MOVE_STILL) { SetPrimaryTask(ped, nullptr, 3); moveState = MOVE_STILL; }
+        SetHeading(ped, heading);
+        return false;
     }
     if (move == MOVE_STILL) move = MOVE_WALK;   // petit rattrapage a pied
     // Cible : devant le joueur, pour que le pantin ne s'arrete pas entre deux messages.
-    CVector goal = { target[0] + dx * 0.0f, target[1], target[2] };
+    CVector goal = { target[0], target[1], target[2] };
     if (dist > 0.01f) { goal.x = target[0] + dx / dist * 1.0f; goal.y = target[1] + dy / dist * 1.0f; }
     void **tasks = PrimaryTasks(ped);
     void *cur = tasks[3];
-    if (cur && *(uintptr_t *)cur == VT_TaskSimpleGoToPoint && p.moveState == move) {
-        CVector *t = (CVector *)((uint8_t *)cur + 0xC);
-        *t = goal;
-    } else if (void *task = NewGoToPoint(move, goal, 0.5f)) {
-        SetPrimaryTask(ped, task, 3);
-        p.moveState = move;
-        p.lastTask = GetTickCount();
+    if (cur && *(uintptr_t *)cur == VT_TaskSimpleGoToPoint && moveState == move) {
+        *(CVector *)((uint8_t *)cur + 0xC) = goal;
+        return false;
     }
+    if (void *task = NewGoToPoint(move, goal, 0.5f)) {
+        SetPrimaryTask(ped, task, 3);
+        moveState = move;
+        return true;
+    }
+    return false;
 }
 
 // --- Autotest (instances de test) : le joueur local court tout droit par intervalles ---
@@ -502,6 +515,76 @@ static void Autotest()
             return;
         }
         ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);   // CCamera::SetCameraDirectlyBehindForFollowPed_CamOnAString
+        return;
+    }
+    // "pnj" (hote) : un personnage de mission (Big Smoke, modele special 290 "SMOKE") pose a 4 m, qui fait des
+    // allers-retours dans la ruelle, avec un pistolet ; tue a 60 s s'il vit encore (sa copie doit tomber chez l'invite).
+    if (_stricmp(g_cfg.autotest, "pnj") == 0) {
+        static void *npc;
+        static int npcRef;
+        void *ped = FindPlayerPed();
+        if (!npc) {
+            float pos[3] = { 2246.0f, -1262.3f, 23.9f };
+            PlacePuppet(ped, pos, 1.5708f);
+            ((void(__cdecl *)(int, const char *, int))0x409D10)(290, "SMOKE", 2);
+            LoadAllRequestedModels(false);
+            if (!ModelLoaded(290)) return;
+            npc = NewCivilianPed(4, 290);
+            if (!npc) return;
+            SetCharCreatedBy(npc, 2);
+            float np[3] = { 2241.0f, -1260.5f, 23.9f };
+            memcpy(EntityPos(npc), np, 12);
+            WorldAdd(npc);
+            npcRef = PedRef(npc);
+            int w = -1;
+            EnsurePedWeapon(npc, 22, w);
+            Log("autotest : Big Smoke de mission cree");
+            return;
+        }
+        if (PedFromRef(npcRef) != npc) return;
+        static int phase = -1;
+        int ph = t > 60000 ? 9 : (int)((t - 20000) / 4000) % 2;
+        if (ph != phase) {
+            phase = ph;
+            if (ph == 9) { ApplyPedHit(npc, ped, 22, 1000, 3); Log("autotest : Big Smoke tue"); }
+            else {
+                CVector goal = { ph == 0 ? 2234.0f : 2244.0f, -1260.5f, 23.9f };
+                if (void *task = NewGoToPoint(MOVE_WALK, goal, 0.5f)) SetPrimaryTask(npc, task, 3);
+            }
+        }
+        return;
+    }
+    // "tireinv" (invite) : place comme "regarde", un M4, puis tire sur la premiere copie de personnage de mission
+    // (a partir de 32 s, un coup toutes les 500 ms) : les coups vont a l'hote.
+    if (_stricmp(g_cfg.autotest, "tireinv") == 0) {
+        static bool armed;
+        void *ped = FindPlayerPed();
+        if (!armed) {
+            armed = true;
+            float pos[3] = { 2232.0f, -1262.3f, 23.9f };
+            PlacePuppet(ped, pos, -1.5708f);
+            uint8_t *info = WeaponInfo(31);
+            int m1 = *(int *)(info + 0xC);
+            if (m1 > 0 && !ModelLoaded(m1)) { RequestModel(m1, 2); LoadAllRequestedModels(false); }
+            SetCurrentWeapon(ped, GiveWeapon(ped, 31, 900));
+            return;
+        }
+        if (t < 30000) ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);   // (pas pendant les tirs : visee faussee)
+        joy[0xC / 2] = t > 30000 ? 255 : 0;   // R1 : on vise (sans visee, le tir du joueur part vers 0,0,0)
+        static uint32_t lastShot;
+        void *target = AnyMissionCopy();
+        if (target && t > 31000) {   // face a la cible (le tir du joueur suit son cap)
+            const float *a = EntityPos(ped), *b = EntityPos(target);
+            float h = atan2f(-(b[0] - a[0]), b[1] - a[1]);
+            Field<float>(ped, PED_ROTATION) = h;
+            Field<float>(ped, PED_AIMROT) = h;
+        }
+        if (target && t > 32000 && t - lastShot > 500) {
+            lastShot = t;
+            const float *b = EntityPos(target);
+            float aim[3] = { b[0], b[1], b[2] + 0.3f };
+            CombatTestShot(ped, aim);
+        }
         return;
     }
     // "monte" (hote) : un Greenwood pose a 5 m, l'hote a cote de la portiere conducteur ; Triangle a 22 s (il monte),
@@ -655,6 +738,7 @@ void CoopFrame(bool inGameLoop)
     for (int i = 0; i < MAX_PLAYERS; i++) others |= i != g_localId && g_players[i].connected;
     if (others) *(uint8_t *)0xB7CB49 = 0;
     VehiclesFrame();
+    EntitiesFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
     SyncWorld();
