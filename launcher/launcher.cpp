@@ -817,8 +817,8 @@ static void BuildOptions()
       L"30 = jeu d'origine (conseill\u00E9). Au-dessus, le jeu d'origine a des bogues de physique connus.",
       L"30 = original game (recommended). Above it, the original game has known physics bugs.");
     T2(TAB_VIDEO, "GrandEcran", 1, L"Grand \u00E9cran", L"Widescreen",
-       L"La 3D garde ses proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi (choisir la r\u00E9solution de l'\u00E9cran dans les options du jeu).",
-       L"3D keeps its proportions on wide screens, with a wider field of view (pick your screen's resolution in the game options).");
+       L"La 3D et le HUD gardent leurs proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi.",
+       L"The 3D and the HUD keep their proportions on wide screens, with a wider field of view.");
     T2(TAB_VIDEO, "SansIntro", 1, L"Passer les logos", L"Skip logos", L"Pas de logos ni de vid\u00E9o d'ouverture au d\u00E9marrage.", L"No logos or intro video at startup.");
     T2(TAB_VIDEO, "SauvegardesLocales", 1, L"Sauvegardes \u00E0 part", L"Separate saves",
        L"R\u00E9glages et sauvegardes du jeu dans son dossier, s\u00E9par\u00E9s de vos sauvegardes solo.",

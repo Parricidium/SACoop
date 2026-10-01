@@ -131,5 +131,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallPuppetRender();
     InstallScripts();
     InstallWidescreen();
+    InstallResolution();
     return TRUE;
 }
