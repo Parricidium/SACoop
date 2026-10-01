@@ -2,6 +2,7 @@
 // sans voler la souris ni le premier plan. San Andreas cree son peripherique en Direct3D 9 (d3d9.dll importee).
 #include "util.h"
 #include "sacoop.h"
+#include "chat.h"
 #include "net.h"
 #include <d3d9.h>
 #include <mmsystem.h>
@@ -187,6 +188,7 @@ static BOOL WINAPI h_SetCursorPos(int x, int y)
 static WNDPROC o_WndProc;
 static LRESULT CALLBACK h_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && ChatWindowMessage(msg, wp)) return 0;   // saisie du tchat
     if ((msg == WM_ACTIVATEAPP && !wp) || (msg == WM_ACTIVATE && LOWORD(wp) == WA_INACTIVE) || msg == WM_KILLFOCUS) {
         static int logged;
         if (logged++ < 5) Log("fenetre : desactivation ignoree (message 0x%X)", msg);

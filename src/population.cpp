@@ -149,7 +149,7 @@ static void GuestFrame()
             uint8_t *v = veh->objects + i * 0xA18;
             if (IsNetVehicle(v)) cars++; else if (v[0x4A4] == 1 || v[0x4A4] == 3) localCars++;
         }
-        Log("population partagee : %d personnages et %d vehicules de l'hote, %d passants et %d vehicules locaux", copies, cars, local, localCars);
+        Log("population partagee : %d personnages et %d vehicules de l'hote, %d passants et %d vehicules locaux, recherche %d", copies, cars, local, localCars, WantedLevel());
     }
 }
 

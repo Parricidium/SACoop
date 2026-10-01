@@ -16,6 +16,7 @@ What already works
 - Same time, same weather, same pedestrians and traffic near the host.
 
 Keys
+- T: chat (Enter to send, Escape to cancel).
 - F5 (held): players board.
 
 You need

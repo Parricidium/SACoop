@@ -126,6 +126,8 @@ static void SendLocalState()
         int slot = Field<uint8_t>(ped, PED_WEAPONSLOT);
         s.weapon = (uint8_t)Field<int>(ped, PED_WEAPONS + slot * 0x1C);
         CombatFillState(s);
+        float alpha = *(float *)(0xB6F028 + 0xBFC);
+        s.fade = (uint8_t)(alpha < 0 ? 0 : alpha > 255 ? 255 : alpha);
         if (void *veh = PedVehicle(ped)) {
             bool driver = Field<void *>(veh, VEH_DRIVER) == ped;
             s.seat = 0;
@@ -649,6 +651,8 @@ static void Autotest()
         }
         if (target && t > 32000 && t - lastShot > 500) {
             lastShot = t;
+            static void *said;
+            if (said != target) { said = target; const float *a = EntityPos(ped), *b = EntityPos(target); Log("autotest : cible %p a %.1f %.1f %.1f (moi %.1f %.1f)", target, b[0], b[1], b[2], a[0], a[1]); }
             const float *b = EntityPos(target);
             float aim[3] = { b[0], b[1], b[2] + 0.3f };
             CombatTestShot(ped, aim);

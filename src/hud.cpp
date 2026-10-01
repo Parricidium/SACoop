@@ -7,6 +7,7 @@
 #include "game.h"
 #include "hud.h"
 #include "widescreen.h"
+#include "chat.h"
 #include <math.h>
 #include <string.h>
 
@@ -173,11 +174,59 @@ static void DrawPlayers()
     font::DrawFonts();
 }
 
+// Tchat : les derniers messages a gauche (couleur du joueur), la ligne de saisie dessous.
+static float g_chatY;
+static void DrawChatLine(int player, const char *name, const char *text, float alpha)
+{
+    int sw = *(int *)0xC17044, sh = *(int *)0xC17048;
+    char line[128];
+    wsprintfA(line, "%s: %s", name, text);
+    uint32_t c = kNameColor[player >= 0 && player < MAX_PLAYERS ? player : 0];
+    c = (c & 0x00FFFFFF) | ((uint32_t)(255 * alpha) << 24);
+    font::SetFontStyle(1);
+    font::SetProportional(true);
+    font::SetBackground(false, false);
+    font::SetOrientation(1);
+    font::SetCentreSize((float)sw);
+    font::SetScale(0.36f * sw / 640.0f * HudAspectFactor(), 0.82f * sh / 448.0f);
+    font::SetEdge(1);
+    font::SetDropColor(RGBA(0, 0, 0, (int)(255 * alpha)));
+    font::SetColor(c);
+    font::Print(sw * 0.03f, g_chatY, line);
+    g_chatY += sh * 0.04f;
+}
+
+static void DrawChat()
+{
+    if (GameState() != 9 || !NetRunning()) return;
+    int sw = *(int *)0xC17044, sh = *(int *)0xC17048;
+    g_chatY = sh * 0.30f;
+    const char *input = nullptr;
+    ChatForEachLine(DrawChatLine, &input);
+    if (input) {
+        static const bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+        char line[128];
+        wsprintfA(line, "%s %s_", fr ? "Dire :" : "Say:", input);
+        font::SetFontStyle(1);
+        font::SetProportional(true);
+        font::SetBackground(false, false);
+        font::SetOrientation(1);
+        font::SetCentreSize((float)sw);
+        font::SetScale(0.36f * sw / 640.0f * HudAspectFactor(), 0.82f * sh / 448.0f);
+        font::SetEdge(1);
+        font::SetDropColor(RGBA(0, 0, 0, 255));
+        font::SetColor(RGBA(255, 255, 255, 255));
+        font::Print(sw * 0.03f, g_chatY + sh * 0.01f, line);
+    }
+    font::DrawFonts();
+}
+
 static void __cdecl h_HudDraw()
 {
     ((void(__cdecl *)())0x58FAE0)();   // CHud::Draw
     DrawNames();
     DrawToasts();
+    DrawChat();
     DrawPlayers();
 }
 
