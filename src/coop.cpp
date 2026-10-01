@@ -13,6 +13,7 @@
 #include "panel.h"
 #include "gfx.h"
 #include "prefs.h"
+#include "anims.h"
 #include "sacoop.h"
 #include "net.h"
 #include "game.h"
@@ -32,6 +33,7 @@
 #include "mods.h"
 #include "npc.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 using namespace game;
@@ -50,6 +52,7 @@ struct Puppet {
     bool meleeKnown;     // compteur de coups deja vu (rien a rejouer a la creation)
     uint8_t meleeSeq;
     uint32_t meleeUntil; // coup en cours de rejeu : le suivi a pied attend
+    AnimMirror anims;    // animations d'action donnees au pantin (anims.cpp)
 };
 
 // Coups au corps a corps (poings, fichier d'animations PED) : vus sur le joueur (RpAnimBlendClumpGetAssociation
@@ -168,6 +171,7 @@ static void SendLocalState()
         if (!PedVehicle(ped)) WatchMelee(ped);
         s.meleeSeq = g_meleeSeq;
         s.meleeAnim = g_meleeAnim;
+        s.animCount = (uint8_t)AnimsCollect(ped, s.anims, ANIMS_MAX);
         // Visee (tache secondaire d'attaque = CTaskSimpleUseGun, type 1017, mesure 01/10) : point vise = 40 m devant la
         // camera (cadre de la camera RenderWare de la scene, 0xC1703C : at +0x70, position +0x80 de sa matrice LTM).
         void *sec = PrimaryTasks(ped)[5];
@@ -499,7 +503,7 @@ static void UpdatePuppet(int id)
     if (!p.meleeKnown) { p.meleeKnown = true; p.meleeSeq = s.meleeSeq; }
     else if (s.meleeSeq != p.meleeSeq) {
         p.meleeSeq = s.meleeSeq;
-        if (s.meleeAnim < MELEE_ANIMS) {
+        if (false && s.meleeAnim < MELEE_ANIMS) {   // (remplace par la synchro des animations, anims.cpp)
             SetHeading(ped, s.heading);
             float blend = 8.0f;
             int args[9] = { PedRef(ped), (int)(uintptr_t)kMeleeAnims[s.meleeAnim], (int)(uintptr_t)"PED", 0, 0, 0, 0, 0, -1 };
@@ -512,33 +516,9 @@ static void UpdatePuppet(int id)
         }
     }
     if ((int)(p.meleeUntil - GetTickCount()) > 0) return;
-    // Visee de son joueur : le pantin leve son arme vers le point vise (CTaskSimpleUseGun en tache secondaire 0, ordre
-    // AIM ; ctor 0x61DE60 (cible, point, ordre, rafale, tout de suite), point en +0x20, mis a jour a chaque image).
-    {
-        void **tm = PrimaryTasks(ped);
-        void *sec = tm[5];
-        bool has = sec && ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) == 1017;
-        bool want = s.aiming && s.weapon >= 22 && s.weapon <= 38;
-        if (want && !has) {
-            if (void *mem = ((void *(__cdecl *)(unsigned))0x61A5A0)(0x3C)) {
-                void *task = ((void *(__thiscall *)(void *, void *, float, float, float, int, int, int))0x61DE60)(mem, nullptr, s.aim[0], s.aim[1], s.aim[2], 1, 1, 1);
-                ((void(__thiscall *)(void *, void *, int))0x681B60)(tm, task, 0);   // CTaskManager::SetTaskSecondary
-                static int said;
-                if (said < 10) { said++; Log("pantin du joueur %d : vise (%.1f %.1f %.1f)", id, s.aim[0], s.aim[1], s.aim[2]); }
-            }
-        } else if (want && has) {
-            memcpy((uint8_t *)sec + 0x20, s.aim, 12);
-            ((bool(__thiscall *)(void *, void *, void *, int))0x61E040)(sec, ped, nullptr, 1);   // ControlGun : ordre AIM de l'image (sinon la tache retombe)
-        } else if (!want && has) {
-            ((void(__thiscall *)(void *, void *, int))0x681B60)(tm, nullptr, 0);
-        }
-        if (want) {
-            const float *pp = EntityPos(ped);
-            float h = atan2f(-(s.aim[0] - pp[0]), s.aim[1] - pp[1]);
-            Field<float>(ped, PED_ROTATION) = h;
-            Field<float>(ped, PED_AIMROT) = h;
-        }
-    }
+    // Visee de son joueur (arme levee vers le point vise) et animations d'action (sauts, accroupi, coups...) : anims.cpp.
+    AimMirror(ped, s.aiming && s.weapon >= 22 && s.weapon <= 38, s.aim);
+    AnimsApply(ped, s.anims, s.animCount, p.anims);
 
     if (FollowOnFoot(ped, s.pos, s.speed, s.heading, s.moveState, GetTickCount() - np.lastStateAt, p.moveState)) p.lastTask = GetTickCount();
 }
@@ -1021,6 +1001,48 @@ static void Autotest()
                 }
             Log("autotest : taches du joueur (%s) : %s", t > 30000 && t < 40000 ? "vise" : "repos", buf);
         }
+        return;
+    }
+    // "anims" (diagnostic) : enchaine marche, course, sprint, sauts, accroupi, coups ; animations du joueur au journal
+    // (groupe:numero poids temps drapeaux), pour la synchro des animations.
+    if (_stricmp(g_cfg.autotest, "anims") == 0) {
+        static uint32_t lastLog;
+        static const char *phase = "";
+        void *ped = FindPlayerPed();
+        static bool placed;
+        if (!placed) {   // (face a l'invite place par "regarde" dans la ruelle de Ganton)
+            placed = true;
+            float pos[3] = { 2238.0f, -1259.0f, 23.9f };
+            PlacePuppet(ped, pos, 1.5708f);
+            ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);
+        }
+        int e = (int)t - 25000;
+        joy[1] = 0; joy[0x20 / 2] = joy[0x1C / 2] = joy[0x22 / 2] = joy[0x24 / 2] = 0;
+        if (e < 0) return;
+        if (e < 3000) { phase = "marche"; joy[1] = -50; }
+        else if (e < 6000) { phase = "course"; joy[1] = -128; }
+        else if (e < 9000) { phase = "sprint"; joy[1] = -128; joy[0x20 / 2] = (e / 150) % 2 ? 255 : 0; }
+        else if (e < 11000) { phase = "saut"; joy[0x1C / 2] = e < 9150 ? 255 : 0; }
+        else if (e < 13000) { phase = "saut en courant"; joy[1] = -128; joy[0x1C / 2] = (e > 11800 && e < 11950) ? 255 : 0; }
+        else if (e < 15000) { phase = "accroupi"; joy[0x24 / 2] = e < 13150 ? 255 : 0; }
+        else if (e < 17000) { phase = "accroupi marche"; joy[1] = -60; }
+        else if (e < 18000) { phase = "releve"; joy[0x24 / 2] = e < 17150 ? 255 : 0; }
+        else if (e < 21000) { phase = "coups"; joy[0x22 / 2] = (e % 600) < 120 ? 255 : 0; }
+        else if (e < 23000) { phase = "repos"; }
+        else return;
+        if (t - lastLog < 150) return;
+        lastLog = t;
+        char buf[400];
+        wsprintfA(buf, "%s mg%d :", phase, Field<int>(ped, 0x4D4));
+        void *clump = Field<void *>(ped, 0x18);
+        if (clump)
+            for (uint8_t *lk = *(uint8_t **)*(void **)((uint8_t *)clump + *(int *)0xB5F878); lk; lk = *(uint8_t **)lk) {
+                uint8_t *as = lk - 4;
+                char one[48];
+                sprintf(one, " %d:%d b%.2f t%.2f f%X", *(int16_t *)(as + 0xE), *(int16_t *)(as + 0x2C), *(float *)(as + 0x18), *(float *)(as + 0x20), *(uint16_t *)(as + 0x2E));
+                if (lstrlenA(buf) < 340) lstrcatA(buf, one);
+            }
+        Log("anims : %s", buf);
         return;
     }
     if (_stricmp(g_cfg.autotest, "tireinv") == 0) {
