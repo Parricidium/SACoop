@@ -17,7 +17,8 @@ What already works
 
 Keys
 - G: get in another player's car as a passenger (F too).
-- T: chat (Enter to send, Escape to cancel).
+- T: chat (Enter to send, Escape to cancel). In the chat, /join brings
+  you next to the host (or as his passenger if he is driving).
 - F5 (held): players board.
 
 You need
