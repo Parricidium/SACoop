@@ -3,6 +3,7 @@
 #include "util.h"
 #include "sacoop.h"
 #include "chat.h"
+#include "panel.h"
 #include "widescreen.h"
 #include "passenger.h"
 #include "net.h"
@@ -204,6 +205,7 @@ static BOOL WINAPI h_SetCursorPos(int x, int y)
 static WNDPROC o_WndProc;
 static LRESULT CALLBACK h_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && PanelWindowMessage(msg, wp)) return 0;  // panneau F10
     if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && ChatWindowMessage(msg, wp)) return 0;   // saisie du tchat
     if (msg == WM_KEYDOWN) PassengerWindowMessage(msg, wp);                                    // G : passager
     if ((msg == WM_ACTIVATEAPP && !wp) || (msg == WM_ACTIVATE && LOWORD(wp) == WA_INACTIVE) || msg == WM_KILLFOCUS) {
