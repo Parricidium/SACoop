@@ -51,10 +51,13 @@ static void FitWindow(HWND hwnd, int w, int h)
 {
     if (!g_cfg.windowed || !hwnd) return;
     if (g_cfg.borderless) {
-        // Sans bordure : la fenetre couvre l'ecran ; le jeu rend a sa resolution, etiree a l'ecran par Windows.
+        // Sans bordure : la fenetre couvre l'ecran ; le jeu rend a sa resolution (celle de l'ecran, widescreen.cpp).
+        // Instances de test (FenetreX hors ecran) : meme taille, mais posee hors de l'ecran.
         SetWindowLongA(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
         SetWindowLongA(hwnd, GWL_EXSTYLE, 0);
-        o_SetWindowPos(hwnd, HWND_TOP, 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), SWP_FRAMECHANGED);
+        bool test = g_cfg.winX < -1000;
+        o_SetWindowPos(hwnd, test ? HWND_NOTOPMOST : HWND_TOP, test ? g_cfg.winX : 0, test ? g_cfg.winY : 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
+                       SWP_FRAMECHANGED | (test ? SWP_NOACTIVATE : 0));
         return;
     }
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
@@ -152,8 +155,10 @@ static HRESULT WINAPI h_Reset(IDirect3DDevice9 *dev, D3DPRESENT_PARAMETERS *pp)
 {
     MakeWindowed(pp);
     // Fenetre : le jeu demande la taille EXTERIEURE de la fenetre (+6 x +40 avec la bordure) mais dessine a la taille
-    // de son mode (RsGlobal 0xC17044 / 0xC17048) : une bande noire restait en bas et a droite.
-    if (g_cfg.windowed && !g_cfg.borderless) {
+    // de son mode (RsGlobal 0xC17044 / 0xC17048) : une bande noire restait en bas et a droite. Plein ecran fenetre :
+    // le jeu demandait 640x480 (taille de la fenetre a sa creation) pour un mode a la taille de l'ecran : l'image ne
+    // couvrait qu'un coin de l'ecran (retour de JD et GG, 01/10). Dans les deux cas, l'image prend la taille du mode.
+    if (g_cfg.windowed) {
         int w = *(int *)0xC17044, h = *(int *)0xC17048;
         if (w >= 320 && h >= 240) { pp->BackBufferWidth = w; pp->BackBufferHeight = h; }
     }
@@ -254,7 +259,7 @@ static HWND WINAPI h_CreateWindowExA(DWORD ex, LPCSTR cls, LPCSTR name, DWORD st
 static BOOL WINAPI h_SetWindowPos(HWND hwnd, HWND after, int x, int y, int w, int h, UINT flags)
 {
     if (g_cfg.windowed && hwnd == g_hwnd) {
-        if (g_cfg.borderless) { x = 0; y = 0; w = GetSystemMetrics(SM_CXSCREEN); h = GetSystemMetrics(SM_CYSCREEN); flags &= ~(SWP_NOMOVE | SWP_NOSIZE); }
+        if (g_cfg.borderless) { bool test = g_cfg.winX < -1000; x = test ? g_cfg.winX : 0; y = test ? g_cfg.winY : 0; w = GetSystemMetrics(SM_CXSCREEN); h = GetSystemMetrics(SM_CYSCREEN); flags &= ~(SWP_NOMOVE | SWP_NOSIZE); }
         else { x = g_cfg.winX; y = g_cfg.winY; flags &= ~SWP_NOMOVE; }
     }
     if (g_cfg.background) flags |= SWP_NOACTIVATE;
