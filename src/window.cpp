@@ -146,6 +146,12 @@ static HRESULT WINAPI h_Present(IDirect3DDevice9 *dev, const RECT *src, const RE
 static HRESULT WINAPI h_Reset(IDirect3DDevice9 *dev, D3DPRESENT_PARAMETERS *pp)
 {
     MakeWindowed(pp);
+    // Fenetre : le jeu demande la taille EXTERIEURE de la fenetre (+6 x +40 avec la bordure) mais dessine a la taille
+    // de son mode (RsGlobal 0xC17044 / 0xC17048) : une bande noire restait en bas et a droite.
+    if (g_cfg.windowed && !g_cfg.borderless) {
+        int w = *(int *)0xC17044, h = *(int *)0xC17048;
+        if (w >= 320 && h >= 240) { pp->BackBufferWidth = w; pp->BackBufferHeight = h; }
+    }
     HRESULT hr = o_Reset(dev, pp);
     Log("Reset %ux%u fenetre=%d -> 0x%08lX", pp->BackBufferWidth, pp->BackBufferHeight, pp->Windowed, hr);
     FitWindow(g_hwnd, pp->BackBufferWidth, pp->BackBufferHeight);

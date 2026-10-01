@@ -19,14 +19,19 @@
 </p>
 
 > [!WARNING]
-> **PRE-ALPHA.** This is the very beginning of the project. Right now two players (up to four) see each other walk
-> and run in the same city, and that is all. No vehicles, no shared missions, no combat, no co-op menu yet.
-> Do not expect a playable co-op campaign today: it is being built, step by step.
+> **PRE-ALPHA.** Shared story missions, vehicles, combat and saves already work, but the mod has not been played
+> for real between friends yet. Expect bugs, and send your logs (`sacoop.log`, `logs` folder).
 
 <p align="center">
-  <img src="docs/img/prealpha-duo.jpg" width="100%" alt="Two game instances: each player sees the other one running">
+  <img src="docs/img/cinematique-invite.jpg" width="100%" alt="A guest watching the host's mission cutscene">
 </p>
-<p align="center"><i>Two instances side by side: each player sees the other (green shirt) running with the game's own animations.</i></p>
+<p align="center"><i>A guest watches the cutscene of the host's mission (Big Smoke), at the same time as the host.</i></p>
+
+<p align="center">
+  <img src="docs/img/mission-invite.jpg" width="49%" alt="Mission camera on the guest, with Sweet and the host">
+  <img src="docs/img/grand-ecran.jpg" width="49%" alt="Guest in the mission, widescreen HUD">
+</p>
+<p align="center"><i>On the guest: the mission camera with Sweet and the host ("Joueur1"), then the mission's own texts, in widescreen.</i></p>
 
 # SACoop — the San Andreas story in co-op (work in progress)
 
@@ -122,9 +127,9 @@ The game executable and any decompiled code are **not** in this repository.
 > Il faut posséder une copie légitime de GTA San Andreas (rétrogradée en 1.0 US) : [l'acheter sur le Rockstar Store](https://store.rockstargames.com/fr/game/buy-grand-theft-auto-the-trilogy) (aussi sur Steam). Aucun fichier du jeu n'est fourni.
 
 > [!WARNING]
-> **PRÉ-ALPHA.** C'est le tout début du projet. Pour l'instant, deux joueurs (jusqu'à quatre) se voient marcher et
-> courir dans la même ville, et c'est tout. Pas encore de véhicules, de missions partagées, de combat ni de menu coop.
-> Ne vous attendez pas à une campagne coop jouable aujourd'hui : elle se construit, étape par étape.
+> **PRÉ-ALPHA.** Les missions de l'histoire partagées, les véhicules, le combat et les sauvegardes marchent déjà,
+> mais le mod n'a pas encore été joué pour de vrai entre amis. Attendez-vous à des bugs, et envoyez vos journaux
+> (`sacoop.log`, dossier `logs`).
 
 Un mod coop pour **Grand Theft Auto: San Andreas** (PC, version 1.0 US), par les auteurs de
 [VCCoop](https://github.com/Parricidium/VCCoop) (Vice City en coop). Même objectif : un joueur héberge et joue
