@@ -600,6 +600,18 @@ static void Autotest()
         }
         return;
     }
+    // "loin" (invite) : a 26 s, se pose 130 m a l'ouest de l'hote (rue de Grove Street, hote en autotest "rue") :
+    // partage mais hors de sa zone, chacun peuple son cote (population.cpp).
+    if (_stricmp(g_cfg.autotest, "loin") == 0 && g_players[0].connected && g_players[0].state.inGame) {
+        static bool placed;
+        if (!placed && t > 26000) {
+            placed = true;
+            float pos[3] = { g_players[0].state.pos[0] - 130.0f, g_players[0].state.pos[1] + 8.0f, g_players[0].state.pos[2] + 1.0f };
+            PlacePuppet(FindPlayerPed(), pos, 1.5708f);
+            Log("autotest : pose a 130 m de l'hote (%.1f %.1f %.1f)", pos[0], pos[1], pos[2]);
+        }
+        return;
+    }
     // "rue" (hote) : se pose une fois dans Grove Street (impasse ouverte : les voitures de police y arrivent).
     if (_stricmp(g_cfg.autotest, "rue") == 0) {
         static bool placed;

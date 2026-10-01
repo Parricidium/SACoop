@@ -73,8 +73,9 @@ ready).
 - **Same time and weather** for everybody (the host's).
 - **Police for everybody**: one wanted level for the group (the highest; losing the police clears it for all), and
   the host's cops also hunt down wanted guests near the host (their hits land on the guest).
-- **Shared street life**: near the host, everybody sees the same pedestrians and traffic (the host's); far away,
-  each player keeps their own.
+- **Merged street life**: the host populates the streets around them (110 m) and everybody sees the same
+  pedestrians and traffic there; further out, the nearest player populates. A guest a bit away from the host keeps
+  live streets on their side, with nothing doubled or vanishing in front of anyone.
 - **Weapons and shots**: everybody sees the weapon in each player's hand and their shots. Players can hurt each
   other (bullets, punches, cars; *Friendly fire* option, each player chooses), and a player who dies falls for
   everybody, then comes back at the hospital.
@@ -172,8 +173,9 @@ quand un joueur arrive, part ou se met prêt).
 - **Police pour tous** : un seul niveau de recherche pour le groupe (le plus haut ; semer la police l'efface pour
   tous), et les policiers de l'hôte traquent aussi les invités recherchés près de lui (leurs coups arrivent chez
   l'invité).
-- **Rues partagées** : près de l'hôte, tout le monde voit les mêmes passants et la même circulation (ceux de
-  l'hôte) ; loin de lui, chacun garde les siens.
+- **Rues fusionnées** : l'hôte peuple les rues autour de lui (110 m) et tout le monde y voit les mêmes passants et la
+  même circulation ; plus loin, c'est le joueur le plus proche qui peuple. Un invité un peu éloigné de l'hôte garde
+  des rues vivantes de son côté, sans rien en double ni rien qui disparaisse sous les yeux.
 - **Armes et tirs** : chacun voit l'arme en main des autres joueurs et leurs tirs. Les joueurs peuvent se blesser
   (balles, coups, voitures ; option *Tir ami*, chacun choisit pour lui), et un joueur qui meurt tombe chez tout le
   monde, puis revient à l'hôpital.

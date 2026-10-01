@@ -13,7 +13,8 @@ What already works
   cutscenes, texts, markers, mission characters and vehicles, and can move
   the mission on. Story progress, mission money and the host's save are
   shared.
-- Same time, same weather, same pedestrians and traffic near the host.
+- Same time, same weather. Merged street life: the host populates around
+  them (same pedestrians and traffic for all), further out the nearest player.
 - Police: one wanted level for everybody, and the host's police also
   chases wanted guests (RecherchePartagee, PoliceHote).
 
