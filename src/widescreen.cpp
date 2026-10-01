@@ -78,8 +78,10 @@ static int __cdecl h_SetVideoMode(int idx)
         done = true;
         int w = g_cfg.borderless ? GetSystemMetrics(SM_CXSCREEN) : g_cfg.winW;
         int h = g_cfg.borderless ? GetSystemMetrics(SM_CYSCREEN) : g_cfg.winH;
+        // Mode 0 = le bureau (fenetre) : il laissait le jeu a sa resolution enregistree (800x600 etire, flou) ; on prend
+        // le vrai mode de cette taille.
         int n = ((int(__cdecl *)())0x7F2CC0)();
-        for (int i = 0; i < n; i++) {
+        for (int i = 1; i < n; i++) {
             VideoModeInfo vm = {};
             ((void(__cdecl *)(VideoModeInfo *, int))0x7F2CF0)(&vm, i);
             if (vm.width == w && vm.height == h && vm.depth == 32) {
