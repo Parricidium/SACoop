@@ -25,6 +25,7 @@ struct NetVeh {
     uint32_t lastSend;   // GetTickCount du dernier envoi (vehicules a nous)
     uint32_t lastDriven; // GetTickCount de la derniere image ou un joueur local l'occupait
     MsgVehicle last;     // dernier etat recu (copies)
+    bool damaged;        // le dernier etat recu portait des degats (une remise a neuf = reparation)
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -95,6 +96,21 @@ static void MatrixOf(void *e, float *right, float *fwd)
     memcpy(fwd, m + 0x10, 12);
 }
 
+// CAutomobile et derives (types 0-4 : voiture, monster truck, quad, helico, avion ; 11 : remorque) : CDamageManager
+// en +0x5A0 (+5 roues, +9 portieres, +0x10 phares, +0x14 panneaux, 4 bits chacun).
+static bool HasDamageManager(const uint8_t *v)
+{
+    int type = *(const int *)(v + 0x590);
+    return type <= 4 || type == 11;
+}
+static bool AnyDamage(const MsgVehicle &m)
+{
+    if (!(m.flags & VF_DAMAGE)) return false;
+    for (int k = 0; k < 4; k++) if (m.wheels[k]) return true;
+    for (int k = 0; k < 6; k++) if (m.doors[k]) return true;
+    return m.lights || m.panels;
+}
+
 // --- Envoi : vehicules dont on est proprietaire ---
 static void SendOwned()
 {
@@ -119,6 +135,17 @@ static void SendOwned()
         memcpy(m.speed, v + 0x44, 12);
         memcpy(m.turn, v + 0x50, 12);
         m.driven = driving;
+        m.health = *(float *)(v + 0x4C0);
+        if ((v[0x36] >> 3) == 5) m.flags |= VF_WRECKED;
+        if (v[0x42D] & 0x80) m.flags |= VF_SIREN;
+        if (HasDamageManager(v)) {
+            const uint8_t *dm = v + 0x5A0;
+            m.flags |= VF_DAMAGE;
+            memcpy(m.wheels, dm + 5, 4);
+            memcpy(m.doors, dm + 9, 6);
+            m.lights = *(const uint32_t *)(dm + 0x10);
+            m.panels = *(const uint32_t *)(dm + 0x14);
+        }
         NetSendToAll(&m, sizeof(m));
     }
 }
@@ -138,6 +165,13 @@ static void OnVehicle(const MsgVehicle &m)
         n->id = m.id;
     }
     n->owner = m.owner;
+    // Remis a neuf chez son proprietaire (Pay'n'Spray, garage) : la copie aussi (CVehicle::Fix, vtable[50]).
+    bool damaged = AnyDamage(m);
+    if (n->damaged && !damaged && !(m.flags & VF_WRECKED) && Alive(*n) && (((uint8_t *)n->veh)[0x36] >> 3) != 5) {
+        ((void(__thiscall *)(void *))((*(void ***)n->veh)[50]))(n->veh);
+        Log("vehicule %08X repare", m.id);
+    }
+    n->damaged = damaged;
     n->last = m;
     n->lastRecv = GetTickCount();
 }
@@ -161,7 +195,7 @@ static void CreateCopy(NetVeh &n)
     Log("copie du vehicule %08X (modele %d, joueur %d) creee", n.id, model, n.owner);
 }
 
-static void DestroyCopy(NetVeh &n)
+static void DestroyCopy(NetVeh &n, bool forget = true)
 {
     if (Alive(n)) {
         WorldRemove(n.veh);
@@ -169,7 +203,44 @@ static void DestroyCopy(NetVeh &n)
         DeleteEntity(n.veh);
         Log("copie du vehicule %08X retiree", n.id);
     }
-    memset(&n, 0, sizeof(n));
+    if (forget) memset(&n, 0, sizeof(n));
+    else n.veh = nullptr;
+}
+
+// Etat de la carrosserie recu : sante, sirene, explosion, degats (seulement ceux en plus : une copie abimee par sa
+// propre physique ne se repare pas toute seule). Visuels : CAutomobile::SetDoorDamage 0x6B1600 / SetPanelDamage
+// 0x6B1480 / SetBumperDamage 0x6B1350 (porte ou panneau, sans effet), qui lisent l'etat du CDamageManager.
+static void ApplyBody(NetVeh &n)
+{
+    uint8_t *v = (uint8_t *)n.veh;
+    const MsgVehicle &m = n.last;
+    if ((v[0x36] >> 3) == 5) {   // deja une epave : rendue brulee (drapeau pose par BlowUpCar, +0x40 bit 29)
+        *(uint32_t *)(v + 0x40) |= 0x20000000;
+        return;
+    }
+    if (m.flags & VF_WRECKED) {   // CVehicle::BlowUpCar(auteur, bool) : vtable[41] (0x6B3780 pour les voitures)
+        ((void(__thiscall *)(void *, void *, bool))((*(void ***)v)[41]))(v, nullptr, false);
+        Log("copie du vehicule %08X : explosion", n.id);
+        return;
+    }
+    *(float *)(v + 0x4C0) = m.health;
+    if (m.flags & VF_SIREN) v[0x42D] |= 0x80; else v[0x42D] &= 0x7F;
+    if (!(m.flags & VF_DAMAGE) || !HasDamageManager(v)) return;
+    uint8_t *dm = v + 0x5A0;
+    for (int k = 0; k < 4; k++) if (m.wheels[k] > dm[5 + k]) dm[5 + k] = m.wheels[k];
+    for (int k = 0; k < 6; k++)
+        if (m.doors[k] > dm[9 + k]) {
+            dm[9 + k] = m.doors[k];
+            ((void(__thiscall *)(void *, int, bool))0x6B1600)(v, k, false);
+        }
+    *(uint32_t *)(dm + 0x10) |= m.lights;
+    uint32_t &panels = *(uint32_t *)(dm + 0x14);
+    for (int k = 0; k < 7; k++) {
+        uint32_t want = (m.panels >> (k * 4)) & 0xF, have = (panels >> (k * 4)) & 0xF;
+        if (want <= have) continue;
+        panels = (panels & ~(0xFu << (k * 4))) | (want << (k * 4));
+        ((void(__thiscall *)(void *, int, bool))(k >= 5 ? 0x6B1350 : 0x6B1480))(v, k, false);
+    }
 }
 
 // Recale une copie vers l'etat recu : position anticipee selon la vitesse, orientation, vitesses (la physique du jeu
@@ -209,9 +280,9 @@ void VehiclesFrame()
     for (auto &n : g_veh) {
         if (!n.id || n.owner == g_localId) continue;
         if (n.veh && !Alive(n)) { Log("copie du vehicule %08X detruite par le jeu", n.id); n.veh = nullptr; }
-        if (now - n.lastRecv > 30000 && !PuppetInVehicle(n.veh)) { if (n.veh) DestroyCopy(n); else memset(&n, 0, sizeof(n)); continue; }
+        if (now - n.lastRecv > 30000 && !PuppetInVehicle(n.veh)) { DestroyCopy(n, true); continue; }
         if (!n.veh) CreateCopy(n);
-        if (n.veh && now - n.lastRecv < 1500) UpdateCopy(n);
+        if (n.veh && now - n.lastRecv < 1500) { UpdateCopy(n); ApplyBody(n); }
     }
     SendOwned();
 }
