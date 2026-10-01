@@ -3387,7 +3387,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
         else if (st == L"notes") { NotesOnlyThread(NULL); g_tab = TAB_NOTES; }
         else if (st == L"journaux") { g_tab = TAB_LOGS; LogsScan(); g_logRowHot = 1; g_logPart = 2; g_btn[B_LOGS].hover = 1; }
         else if (st == L"mods") { g_tab = TAB_MODS; ModsTabScan(); g_modHot = 0; g_prevYaw = 0.6f; }
-        else if (st == L"tenue") { g_tab = TAB_SKIN; g_skinSel = 0; g_prevYaw = 0.35f; g_tileHot = 4; }
+        else if (st.compare(0, 5, L"tenue") == 0) { g_tab = TAB_SKIN; g_skinSel = st.size() > 5 ? _wtoi(st.c_str() + 5) : 0; g_prevYaw = 0.35f; g_tileHot = 4; }   // tenueN : la tenue N
         else if (st == L"rendu") { g_tab = TAB_RENDER; g_optHot = TabRows(TAB_RENDER)[0]; g_optPart = 1; }
         else if (st == L"salon" || st == L"salon-invite") {   // salon a 3 joueurs (faux), vu par l'hote ou par un invite
             bool host = st == L"salon";
@@ -3412,7 +3412,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
         }
         else if (st == L"maj") { g_busy = true; g_progress = 0.42f; SetStatus(K_NORMAL, T(L"T\u00E9l\u00E9chargement de SACoop %s\u2026", L"Downloading SACoop %s\u2026"), L"0.1.1-prealpha"); g_focus = 0; g_time = 0.2f; }
         else { if (g_localVer.empty()) g_localVer = L"0.1.0-prealpha"; SetStatus(K_OK, T(L"SACoop %s \u00B7 \u00E0 jour", L"SACoop %s \u00B7 up to date"), g_localVer.c_str()); g_hot = B_HOST; g_btn[B_HOST].hover = 1; }
-        if (st == L"tenue" || st == L"mods" || st == L"salon" || st == L"salon-invite") RenderModelsNow();
+        if (st.compare(0, 5, L"tenue") == 0 || st == L"mods" || st == L"salon" || st == L"salon-invite") RenderModelsNow();
         int rc = 1;
         {
             Bitmap out((INT)(kImgW * g_scale), (INT)(kImgH * g_scale), PixelFormat32bppPARGB);
