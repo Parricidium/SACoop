@@ -67,7 +67,7 @@ game version, and starts the game as host or guest. Options and release notes ar
   checkpoint or getting into the mission car counts for everybody, and checkpoint markers show for all. At mission
   start, far-away players are brought behind the host. **Shared story progress**: what the host's missions unlock
   is sent to everybody, and money earned in missions goes to each player. A player joining in the middle of a
-  mission gets its markers and texts. Side activities stay local to each player.
+  mission gets its markers and texts. **Shared save**: when the host saves, the save goes to every player's same slot. Side activities stay local to each player.
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
@@ -76,7 +76,7 @@ game version, and starts the game as host or guest. Options and release notes ar
 
 ## Not there yet (roadmap)
 
-1. Story missions, the rest: shared save, testing every mission.
+1. Story missions, the rest: testing every mission (the real test with JD and friends).
 2. Shared traffic and pedestrians.
 3. A co-op menu in the game, and a lobby in the launcher.
 4. Modern rendering options (as in VCCoop), all optional.
@@ -151,7 +151,8 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
   point de passage ou monter dans la voiture de mission compte pour tous, et les marqueurs s'affichent chez tous.
   Au début d'une mission, les joueurs éloignés sont ramenés derrière l'hôte. **Progression partagée** : ce que débloquent les missions
   de l'hôte est envoyé à tous, et l'argent gagné en mission va à chacun. Un joueur qui arrive en cours de mission en
-  reçoit les marqueurs et les textes. Les activités annexes restent locales à chacun.
+  reçoit les marqueurs et les textes. **Sauvegarde partagée** : quand l'hôte sauvegarde, la sauvegarde arrive chez
+  chaque joueur, au même emplacement. Les activités annexes restent locales à chacun.
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture
@@ -161,7 +162,7 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 
 ## Pas encore là (feuille de route)
 
-1. Missions de l'histoire, la suite : sauvegarde partagée, essai de chaque mission.
+1. Missions de l'histoire, la suite : essai de chaque mission (le vrai test entre amis).
 2. Circulation et passants partagés.
 3. Un menu coop dans le jeu, et un salon dans le lanceur.
 4. Options de rendu moderne (comme dans VCCoop), toutes facultatives.

@@ -25,6 +25,7 @@
 #include "vehicles.h"
 #include "script.h"
 #include "mirror.h"
+#include "savesync.h"
 #include <string.h>
 #include <math.h>
 
@@ -312,6 +313,7 @@ static int g_qHead, g_qTail;
 static void OnReliable(int from, const uint8_t *data, int len)
 {
     (void)from;
+    if (SaveSyncReliable(data, len)) return;   // sauvegarde partagee (savesync.cpp) : traitee tout de suite
     if (g_cfg.host || len < 1 || len > 256) return;
     if ((g_qTail + 1) % QUEUE == g_qHead) { Log("miroir : file pleine, commande perdue"); return; }
     Pending &p = g_queue[g_qTail];
