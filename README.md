@@ -46,8 +46,13 @@ the story, friends join the same world and the same missions, with modern option
 `SACoop.exe` updates the mod by itself from this page on every start (no need to download the zip again), checks your
 game version, and starts the game as host or guest. Options and release notes are in its tabs.
 
+**Lobby**: HOST opens a lobby; the others JOIN it with the host's address and click READY. The host picks a new game
+or one of their saves, then START launches everybody's game at once (sounds when a player joins, leaves or gets
+ready).
+
 <p align="center">
-  <img src="docs/img/lanceur.png" width="100%" alt="SACoop launcher">
+  <img src="docs/img/lanceur.png" width="49%" alt="SACoop launcher">
+  <img src="docs/img/salon.png" width="49%" alt="SACoop launcher lobby">
 </p>
 
 ## What works in this pre-alpha
@@ -90,8 +95,7 @@ game version, and starts the game as host or guest. Options and release notes ar
 
 1. Story missions, the rest: testing every mission (the real test with JD and friends).
 2. Police for guests (the host's police only chases the host).
-3. A co-op menu in the game, and a lobby in the launcher.
-4. Modern rendering options (as in VCCoop), all optional.
+3. Modern rendering options (as in VCCoop), all optional.
 
 ## Installation
 
@@ -99,10 +103,11 @@ game version, and starts the game as host or guest. Options and release notes ar
    does it). The mod refuses to run on any other version.
 2. Copy the contents of the zip into the game folder, next to `gta_sa.exe`, then run **`SACoop.exe`**. It keeps
    itself and the mod up to date: everybody ends up on the same version without downloading anything again.
-3. The host clicks **HOST**. The others type the host's IP address and click **JOIN**.
-4. The host starts their game (new game or a save); guests still in the menu follow automatically (same save when
-   they have it). Over the Internet, the host opens UDP port 7800 on their router, or you use a
-   virtual LAN.
+3. The host clicks **HOST** (it opens the lobby). The others type the host's IP address, click **JOIN**, then
+   **READY**.
+4. The host picks a new game or a save and clicks **START**: every game starts, guests follow the host (same save
+   when they have it). Over the Internet, the host opens port 7800 (TCP and UDP) on their router, or you use a
+   virtual LAN. A player who arrives after the start uses **JOIN IN GAME**.
 
 Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini`, `sacoop.log` and `logs\`.
 
@@ -141,6 +146,10 @@ l'histoire, ses amis rejoignent le même monde et les mêmes missions, avec des 
 
 `SACoop.exe` met le mod à jour tout seul depuis cette page à chaque démarrage (plus besoin de retélécharger le zip),
 vérifie la version du jeu et lance la partie en hôte ou en invité. Options et notes de version sont dans ses onglets.
+
+**Salon** : HÉBERGER ouvre un salon ; les autres le REJOIGNENT avec l'adresse de l'hôte et cliquent sur PRÊT. L'hôte
+choisit une nouvelle partie ou une de ses sauvegardes, puis LANCER démarre le jeu de tout le monde d'un coup (sons
+quand un joueur arrive, part ou se met prêt).
 
 ## Ce qui marche dans cette pré-alpha
 
@@ -185,8 +194,7 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 
 1. Missions de l'histoire, la suite : essai de chaque mission (le vrai test entre amis).
 2. Police pour les invités (celle de l'hôte ne poursuit que l'hôte).
-3. Un menu coop dans le jeu, et un salon dans le lanceur.
-4. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
+3. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
 
 ## Installation
 
@@ -194,10 +202,12 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
    rétrogradation le fait). Le mod refuse de se lancer sur une autre version.
 2. Copier le contenu du zip dans le dossier du jeu, à côté de `gta_sa.exe`, puis lancer **`SACoop.exe`**. Il se met
    à jour tout seul, avec le mod : tout le monde reste sur la même version sans rien retélécharger.
-3. L'hôte clique sur **HÉBERGER**. Les autres tapent l'adresse IP de l'hôte et cliquent sur **REJOINDRE**.
-4. L'hôte lance sa partie (nouvelle ou sauvegarde) ; les invités restés au menu la suivent tout seuls (même
-   sauvegarde s'ils l'ont). Par Internet, l'hôte ouvre le port UDP 7800 sur sa box, ou vous passez par
-   un réseau virtuel.
+3. L'hôte clique sur **HÉBERGER** (cela ouvre le salon). Les autres tapent l'adresse IP de l'hôte, cliquent sur
+   **REJOINDRE**, puis sur **PRÊT**.
+4. L'hôte choisit une nouvelle partie ou une sauvegarde et clique sur **LANCER** : tous les jeux démarrent, les
+   invités suivent l'hôte (même sauvegarde s'ils l'ont). Par Internet, l'hôte ouvre le port 7800 (TCP et UDP) sur
+   sa box, ou vous passez par un réseau virtuel. Un joueur qui arrive après le lancement passe par
+   **REJOINDRE EN JEU**.
 
 Désinstaller : supprimer `dinput8.dll`, `SACoop.exe`, le dossier `SACoop`, `sacoop*.ini`, `sacoop.log` et `logs\`.
 
