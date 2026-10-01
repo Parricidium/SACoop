@@ -6,6 +6,7 @@
 #include "net.h"
 #include "game.h"
 #include "hud.h"
+#include "widescreen.h"
 #include <math.h>
 #include <string.h>
 
@@ -78,7 +79,7 @@ static void DrawNames()
         font::SetBackground(false, false);
         font::SetOrientation(0);
         font::SetCentreSize((float)sw);
-        font::SetScale(0.42f * k * sw / 640.0f, 0.95f * k * sh / 448.0f);
+        font::SetScale(0.42f * k * sw / 640.0f * HudAspectFactor(), 0.95f * k * sh / 448.0f);
         font::SetEdge(1);
         font::SetDropColor(RGBA(0, 0, 0, 255));
         font::SetColor(kNameColor[i]);
@@ -115,7 +116,7 @@ static void DrawToasts()
         font::SetBackground(false, false);
         font::SetOrientation(0);
         font::SetCentreSize((float)sw);
-        font::SetScale(0.5f * sw / 640.0f, 1.1f * sh / 448.0f);
+        font::SetScale(0.5f * sw / 640.0f * HudAspectFactor(), 1.1f * sh / 448.0f);
         font::SetEdge(1);
         font::SetDropColor(RGBA(0, 0, 0, 255));
         font::SetColor(RGBA(255, 255, 255, 255));
@@ -143,7 +144,7 @@ static void DrawPlayers()
         font::SetBackground(false, false);
         font::SetOrientation(align);
         font::SetCentreSize((float)sw);
-        font::SetScale(0.42f * sw / 640.0f, 0.95f * sh / 448.0f);
+        font::SetScale(0.42f * sw / 640.0f * HudAspectFactor(), 0.95f * sh / 448.0f);
         font::SetEdge(1);
         font::SetDropColor(RGBA(0, 0, 0, 255));
         font::SetColor(color);
