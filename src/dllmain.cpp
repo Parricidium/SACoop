@@ -11,6 +11,7 @@
 #include "net.h"
 #include "panel.h"
 #include "gfx.h"
+#include "fps.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -115,7 +116,7 @@ static void LoadConfig()
     g_cfg.background = GetPrivateProfileIntA("SACoop", "ArrierePlan", 0, ini) != 0;
     g_cfg.skipIntro = GetPrivateProfileIntA("SACoop", "SansIntro", 1, ini) != 0;
     g_cfg.localUserFiles = GetPrivateProfileIntA("SACoop", "SauvegardesLocales", 1, ini) != 0;
-    g_cfg.maxFps = GetPrivateProfileIntA("SACoop", "ImagesParSeconde", 30, ini);
+    g_cfg.maxFps = GetPrivateProfileIntA("SACoop", "ImagesParSeconde", 60, ini);
     g_cfg.autoStart = GetPrivateProfileIntA("SACoop", "AutoDemarrer", 0, ini) != 0;
     g_cfg.netAuto = GetPrivateProfileIntA("SACoop", "Reseau", 0, ini) != 0;
     g_cfg.logScripts = GetPrivateProfileIntA("SACoop", "JournalScripts", 0, ini) != 0;
@@ -241,5 +242,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallMods();
     InstallRender();
     InstallGfx();
+    InstallFps();
     return TRUE;
 }

@@ -106,6 +106,9 @@ ready).
 - **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send; `/join` brings you back next to the host). **F5** (held): players board (name, health, distance). **F6**: first-person view on foot. **F10**: in-game menu, used with the mouse: players (go to a player, friendly fire), vehicles (3D thumbnails, a click
   spawns it in front of you), tools (health and armour, weapons, money, repair, clear wanted level, jetpack), outfit,
   and for the host world (time, weather) and host settings. **F1**: help (keys, tips).
+- **60 FPS** (default): the original game's frame-rate bugs (swimming, braking, doors, helicopter rotors, pushing cars...)
+  are fixed with the fixes of [Framerate Vigilante](https://github.com/GTAmodding/FramerateVigilante) (MIT), ported into
+  SACoop; automatic 30/50 FPS caps where the game still needs them (pool, girlfriend, DRUGS1 indoors).
 - **Original game, further** (launcher VIDEO tab or F10 > DISPLAY, applied right away): draw distance up to 300%
   (detailed scenery, horizon and fog further away), population area (how far pedestrians and cars appear) and density,
   anisotropic filtering.
@@ -221,6 +224,9 @@ quand un joueur arrive, part ou se met prêt).
   joueur, tir ami), véhicules (vignettes 3D, un clic le fait apparaître devant vous), outils (santé et gilet, armes,
   argent, réparer, étoiles à zéro, jetpack), tenue, et pour l'hôte monde (heure, météo) et réglages d'hôte. **F1** : aide
   (touches, bon à savoir).
+- **60 images/s** (par défaut) : les bogues de cadence du jeu d'origine (nage, freinage, portes, rotors d'hélicoptère,
+  voitures poussées...) sont corrigés avec les correctifs de [Framerate Vigilante](https://github.com/GTAmodding/FramerateVigilante)
+  (MIT), portés dans SACoop ; plafonds automatiques à 30/50 là où le jeu en a encore besoin (billard, copine, DRUGS1 en intérieur).
 - **Jeu d'origine, en plus loin** (onglet VIDÉO du lanceur ou F10 > AFFICHAGE, appliqué tout de suite) : distance
   d'affichage jusqu'à 300 % (décor détaillé, horizon et brouillard plus loin), zone de population (distance d'apparition
   des piétons et des voitures) et densité, filtrage anisotrope.

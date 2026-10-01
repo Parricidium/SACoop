@@ -5,6 +5,7 @@
 #include "chat.h"
 #include "panel.h"
 #include "menu.h"
+#include "fps.h"
 #include "widescreen.h"
 #include "passenger.h"
 #include "camera.h"
@@ -74,9 +75,11 @@ static void FitWindow(HWND hwnd, int w, int h)
 
 // Limiteur d'images : sans lui le jeu tourne tres vite en fenetre. Chaque image part a intervalle regulier :
 // minuterie Windows a 1 ms, Sleep tant qu'il reste plus de 3 ms, puis attente active.
+static double g_presentMs;   // temps passe dans le vrai Present (statistique)
 static void LimitFrameRate()
 {
     if (g_cfg.maxFps <= 0) return;
+    FpsFrame();   // (plafond du moment, limiteur du jeu neutralise : fps.cpp)
     // Seulement au menu (7) et en partie (9) : les ecrans de chargement comptent leurs images, ils seraient lents.
     int st = *(int *)sa::gGameState;
     if (st != 7 && st != 9) return;
@@ -85,9 +88,10 @@ static void LimitFrameRate()
         QueryPerformanceFrequency(&freq);
         timeBeginPeriod(1);
     }
-    LONGLONG step = freq.QuadPart / g_cfg.maxFps;
-    LARGE_INTEGER now;
+    LONGLONG step = freq.QuadPart / FpsCurrentCap();
+    LARGE_INTEGER now, entry;
     QueryPerformanceCounter(&now);
+    entry = now;
     if (next.QuadPart == 0 || now.QuadPart - next.QuadPart > step * 4) next = now;   // gros retard : on repart
     for (;;) {
         LONGLONG left = next.QuadPart - now.QuadPart;
@@ -97,6 +101,8 @@ static void LimitFrameRate()
         QueryPerformanceCounter(&now);
     }
     next.QuadPart += step;
+    static double waitMs;
+    waitMs += (now.QuadPart - entry.QuadPart) * 1000.0 / freq.QuadPart;
 
     // Statistique de regularite (journal toutes les 10 s) : ecart min / max entre deux images.
     static LARGE_INTEGER last, since;
@@ -113,8 +119,9 @@ static void LimitFrameRate()
         MEMORYSTATUSEX ms = { sizeof(ms) };
         GlobalMemoryStatusEx(&ms);
         unsigned usedMb = (unsigned)((ms.ullTotalVirtual - ms.ullAvailVirtual) >> 20), totalMb = (unsigned)(ms.ullTotalVirtual >> 20);
-        Log("images : %.1f/s, ecart %.1f a %.1f ms ; memoire %u Mo sur %u", count * (double)freq.QuadPart / (now.QuadPart - since.QuadPart), minMs, maxMs, usedMb, totalMb);
-        since = now; count = 0; minMs = 1e9; maxMs = 0;
+        Log("images : %.1f/s, ecart %.1f a %.1f ms, attente du limiteur %.1f ms, Present %.1f ms ; memoire %u Mo sur %u", count * (double)freq.QuadPart / (now.QuadPart - since.QuadPart), minMs, maxMs,
+            count ? waitMs / count : 0.0, count ? g_presentMs / count : 0.0, usedMb, totalMb);
+        since = now; count = 0; minMs = 1e9; maxMs = 0; waitMs = 0; g_presentMs = 0;
     }
 }
 
@@ -148,7 +155,13 @@ static HRESULT WINAPI h_Present(IDirect3DDevice9 *dev, const RECT *src, const RE
         dev->Clear(2, bars, D3DCLEAR_TARGET, 0, 1.0f, 0);
     }
     LimitFrameRate();
-    return o_Present(dev, src, dst, wnd, dirty);
+    LARGE_INTEGER p0, p1, pf;
+    QueryPerformanceCounter(&p0);
+    HRESULT hr = o_Present(dev, src, dst, wnd, dirty);
+    QueryPerformanceCounter(&p1);
+    QueryPerformanceFrequency(&pf);
+    g_presentMs += (p1.QuadPart - p0.QuadPart) * 1000.0 / pf.QuadPart;
+    return hr;
 }
 
 static HRESULT WINAPI h_Reset(IDirect3DDevice9 *dev, D3DPRESENT_PARAMETERS *pp)

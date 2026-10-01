@@ -35,6 +35,8 @@ Keys
   money, repair, clear wanted level, jetpack), outfit; time, weather and police
   for the host. Escape or F10 to close.
 - F1: help (keys, tips).
+- 60 FPS by default, the game's frame-rate bugs fixed (Framerate Vigilante,
+  see SACoop\THIRD-PARTY.txt). 30 = original game (launcher VIDEO tab).
 - Draw distance, population area and density, anisotropic filtering:
   launcher VIDEO tab or F10 > DISPLAY (applied right away).
 
