@@ -852,7 +852,7 @@ static void DrawBar(Graphics &g, RectF r, float p)
 
 // ---------------------------------------------------------------- options (sacoop.ini du jeu)
 // Les memes cles et valeurs par defaut que dllmain.cpp LoadConfig ; ecrites tout de suite, prises au prochain lancement.
-enum { TAB_VIDEO, TAB_COOP, TAB_NOTES, TAB_LOBBY, TAB_COUNT };   // (TAB_LOBBY : seulement pendant un salon)
+enum { TAB_VIDEO, TAB_COOP, TAB_NOTES, TAB_LOBBY, TAB_LOGS, TAB_COUNT };   // (TAB_LOBBY : seulement pendant un salon)
 enum { O_TOGGLE, O_CHOICE };
 struct Opt {
     int tab; const char *key; int def; int kind; std::vector<int> vals;
@@ -921,7 +921,7 @@ static void OptSet(const Opt &o, int v) { char b[16]; wsprintfA(b, "%d", v); Wri
 
 static const wchar_t *TabName(int t)
 {
-    static const wchar_t *fr[] = { L"VID\u00C9O", L"COOP", L"NOUVEAUT\u00C9S", L"SALON" }, *en[] = { L"VIDEO", L"CO-OP", L"UPDATES", L"LOBBY" };
+    static const wchar_t *fr[] = { L"VID\u00C9O", L"COOP", L"NOUVEAUT\u00C9S", L"SALON", L"JOURNAUX" }, *en[] = { L"VIDEO", L"CO-OP", L"UPDATES", L"LOBBY", L"LOGS" };
     return g_fr ? fr[t] : en[t];
 }
 static bool TabVisible(int t) { return t != TAB_LOBBY || g_lobby != LB_NONE; }
@@ -939,7 +939,8 @@ static void LayoutTabs()
 }
 static std::vector<int> TabRows(int t) { std::vector<int> r; for (int i = 0; i < (int)g_opts.size(); i++) if (g_opts[i].tab == t) r.push_back(i); return r; }
 static float NotesMaxScroll();
-static float MaxScroll(int t) { return t == TAB_LOBBY ? 0.0f : t == TAB_NOTES ? NotesMaxScroll() : max(0.0f, TabRows(t).size() * kRowH - kOptList.Height); }
+static float LogsMaxScroll();
+static float MaxScroll(int t) { return t == TAB_LOBBY ? 0.0f : t == TAB_LOGS ? LogsMaxScroll() : t == TAB_NOTES ? NotesMaxScroll() : max(0.0f, TabRows(t).size() * kRowH - kOptList.Height); }
 
 static int ValueIndex(const Opt &o, int v)
 {
@@ -1000,12 +1001,14 @@ static void DrawPanel(Graphics &g)
 
 static void DrawNotes(Graphics &g);
 static void DrawLobby(Graphics &g);
+static void DrawLogs(Graphics &g);
 
 static void DrawOptions(Graphics &g)
 {
     if (g_tab < 0 || g_gameDir.empty()) return;
     if (g_tab == TAB_NOTES) { DrawNotes(g); return; }
     if (g_tab == TAB_LOBBY) { DrawLobby(g); return; }
+    if (g_tab == TAB_LOGS) { DrawLogs(g); return; }
     DrawPanel(g);
     std::vector<int> rows = TabRows(g_tab);
     float sc = g_scroll[g_tab];
@@ -1055,7 +1058,7 @@ static void DrawOptions(Graphics &g)
 static void HitOption(float x, float y, int *row, int *part)
 {
     *row = -1; *part = 0;
-    if (g_tab < 0 || g_tab == TAB_NOTES || g_tab == TAB_LOBBY || !kOptList.Contains(x, y)) return;
+    if (g_tab < 0 || g_tab == TAB_NOTES || g_tab == TAB_LOBBY || g_tab == TAB_LOGS || !kOptList.Contains(x, y)) return;
     std::vector<int> rows = TabRows(g_tab);
     int k = (int)((y - kOptList.Y + g_scroll[g_tab]) / kRowH);
     if (k < 0 || k >= (int)rows.size()) return;
@@ -2226,6 +2229,258 @@ static void TestSalonStep()
 bool LobbyCanStartPublic() { return LobbyCanStart(); }
 bool GuestModsReady() { return g_modsState == MS_READY; }
 
+// ---------------------------------------------------------------- onglet JOURNAUX (porte de VCCoop)
+// Les parties gardees par le mod dans <jeu>\logs (sacoop-AAAA-MM-JJ_HH-MM-SS.log, les 50 derniers) : liste (date,
+// duree, version, plantage), ouverture d'un clic, dossier, suppression (un 2e clic confirme).
+struct LogEntry { std::wstring name; uint64_t bytes; std::wstring ver; DWORD seconds; bool crash; };
+static std::vector<LogEntry> g_logList;
+static int g_logRowHot = -1, g_logPart = 0;          // g_logPart : 0 la ligne (ouvrir), 1 dossier, 2 corbeille
+static std::wstring g_logArm;                         // corbeille armee : nom du journal, "*" pour tout supprimer
+static DWORD g_logArmT;
+static const RectF kLogsFolderR(826, 124, 110, 22), kLogsAllR(696, 124, 120, 22), kLogsR(452, 152, 488, 374);
+static const float kLogRowH = 50;
+
+static std::wstring LogsDir() { return g_gameDir + L"logs\\"; }
+
+static void LogInfo(const std::wstring &path, LogEntry &e)
+{
+    e.crash = false; e.seconds = 0;
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return;
+    // En entier jusqu'a 4 Mo ; au-dela, le debut et les 256 derniers Ko (le plantage est ecrit a la fin).
+    std::string head, tail;
+    DWORD r = 0;
+    if (e.bytes <= (4u << 20)) {
+        head.resize((size_t)e.bytes);
+        if (!head.empty()) ReadFile(f, &head[0], (DWORD)head.size(), &r, NULL);
+        head.resize(r);
+        tail = head;
+    } else {
+        head.resize(4096);
+        ReadFile(f, &head[0], 4096, &r, NULL); head.resize(r);
+        LARGE_INTEGER at; at.QuadPart = (LONGLONG)e.bytes - (256 << 10);
+        SetFilePointerEx(f, at, NULL, FILE_BEGIN);
+        tail.resize(256 << 10);
+        ReadFile(f, &tail[0], (DWORD)tail.size(), &r, NULL); tail.resize(r);
+        e.crash = head.find("PLANTAGE") != std::string::npos;
+    }
+    CloseHandle(f);
+    e.crash = e.crash || tail.find("PLANTAGE") != std::string::npos;
+    size_t v = head.find("] SACoop ");
+    if (v != std::string::npos) {
+        v += 9;
+        size_t end = head.find_first_of(" \r\n", v);
+        std::string ver = head.substr(v, end == std::string::npos ? 0 : end - v);
+        if (ver.size() < 24) e.ver.assign(ver.begin(), ver.end());
+    }
+    unsigned long t0 = 0, t1 = 0;
+    if (sscanf_s(head.c_str(), "[%lu]", &t0) == 1) {
+        size_t nl = tail.size() > 1 ? tail.rfind("\n[", tail.size() - 2) : std::string::npos;
+        if (nl != std::string::npos && sscanf_s(tail.c_str() + nl + 1, "[%lu]", &t1) == 1 && t1 >= t0) e.seconds = (t1 - t0) / 1000;
+    }
+}
+
+static void LogsScan()
+{
+    std::vector<LogEntry> list;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((LogsDir() + L"sacoop-*.log").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            LogEntry e;
+            e.name = fd.cFileName;
+            e.bytes = ((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+            LogInfo(LogsDir() + e.name, e);
+            list.push_back(e);
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    // noms horodates : l'ordre alphabetique est chronologique ; la plus recente en haut
+    std::sort(list.begin(), list.end(), [](const LogEntry &a, const LogEntry &b) { return _wcsicmp(a.name.c_str(), b.name.c_str()) > 0; });
+    g_logList.swap(list);
+    g_logArm.clear();
+    g_scroll[TAB_LOGS] = min(g_scroll[TAB_LOGS], LogsMaxScroll());
+}
+
+static float LogsMaxScroll() { return max(0.0f, g_logList.size() * kLogRowH - kLogsR.Height); }
+
+static std::wstring LogDate(const std::wstring &name)
+{
+    int y, mo, d, hh, mi, ss;
+    if (swscanf_s(name.c_str(), L"sacoop-%d-%d-%d_%d-%d-%d", &y, &mo, &d, &hh, &mi, &ss) != 6) return name;
+    SYSTEMTIME st = {};
+    st.wYear = (WORD)y; st.wMonth = (WORD)mo; st.wDay = (WORD)d;
+    FILETIME ft; SystemTimeToFileTime(&st, &ft); FileTimeToSystemTime(&ft, &st);   // (jour de la semaine)
+    static const wchar_t *jfr[] = { L"dim.", L"lun.", L"mar.", L"mer.", L"jeu.", L"ven.", L"sam." }, *jen[] = { L"Sun", L"Mon", L"Tue", L"Wed", L"Thu", L"Fri", L"Sat" };
+    wchar_t b[64];
+    if (g_fr) swprintf_s(b, L"%s %02d/%02d/%04d \u00B7 %02dh%02d", jfr[st.wDayOfWeek % 7], d, mo, y, hh, mi);
+    else swprintf_s(b, L"%s %04d-%02d-%02d \u00B7 %02d:%02d", jen[st.wDayOfWeek % 7], y, mo, d, hh, mi);
+    return b;
+}
+
+static bool LogArmed(const std::wstring &key) { return !g_logArm.empty() && g_logArm == key && GetTickCount() - g_logArmT < 4000; }
+
+static void DrawIconCircle(Graphics &g, RectF c, bool hot, bool armed, int icon)
+{
+    if (armed) { SolidBrush ab(Color(255, 214, 48, 72)); g.FillEllipse(&ab, c); }
+    else { SolidBrush cb(hot ? TH(circleHot) : TH(circle)); g.FillEllipse(&cb, c); }
+    Color ic = armed ? Color(255, 255, 255, 255) : hot ? kInk : kInk;
+    Pen pen(ic, 1.4f);
+    pen.SetLineJoin(LineJoinRound); pen.SetStartCap(LineCapRound); pen.SetEndCap(LineCapRound);
+    float cx = c.X + c.Width / 2, cy = c.Y + c.Height / 2;
+    if (icon == 1) {   // dossier
+        PointF p[] = { PointF(cx - 7, cy - 4.5f), PointF(cx - 2.5f, cy - 4.5f), PointF(cx - 1, cy - 2.5f), PointF(cx + 7, cy - 2.5f),
+                       PointF(cx + 7, cy + 5), PointF(cx - 7, cy + 5) };
+        g.DrawPolygon(&pen, p, 6);
+    } else {           // corbeille
+        g.DrawLine(&pen, cx - 6.5f, cy - 4, cx + 6.5f, cy - 4);
+        g.DrawLine(&pen, cx - 2, cy - 6, cx + 2, cy - 6);
+        PointF p[] = { PointF(cx - 5, cy - 4), PointF(cx - 4, cy + 6), PointF(cx + 4, cy + 6), PointF(cx + 5, cy - 4) };
+        g.DrawLines(&pen, p, 4);
+        g.DrawLine(&pen, cx - 1.5f, cy - 1, cx - 1.5f, cy + 3.5f);
+        g.DrawLine(&pen, cx + 1.5f, cy - 1, cx + 1.5f, cy + 3.5f);
+    }
+}
+
+static RectF LogRowRect(int i) { return RectF(kLogsR.X, kLogsR.Y + i * kLogRowH - g_scroll[TAB_LOGS], kLogsR.Width - 10, kLogRowH - 6); }
+static RectF LogIconRect(const RectF &r, int part) { return RectF(r.X + r.Width - (part == 2 ? 34.0f : 64.0f), r.Y + 8, 26, 26); }
+
+static void DrawLogs(Graphics &g)
+{
+    GraphicsPath pp;
+    RoundRect(pp, kOptPanel, 18);
+    SolidBrush bg(TH(panel));
+    g.FillPath(&bg, &pp);
+    Pen border(TH(panelBorder), 1.5f);
+    g.DrawPath(&border, &pp);
+    Text(g, T(L"JOURNAUX", L"LOGS"), RectF(460, 122, 120, 26), 17, FontStyleBold, kInk, StringAlignmentNear);
+    uint64_t total = 0;
+    int crashes = 0;
+    for (auto &e : g_logList) { total += e.bytes; crashes += e.crash; }
+    wchar_t cnt[96];
+    swprintf_s(cnt, T(L"%d \u00B7 %.1f Mo", L"%d \u00B7 %.1f MB"), (int)g_logList.size(), total / 1048576.0);
+    Text(g, cnt, RectF(572, 122, 120, 26), 12.5f, FontStyleBold, kGrey, StringAlignmentNear);
+    Text(g, T(L"Ouvrir le dossier", L"Open folder"), kLogsFolderR, 12, FontStyleUnderline, kInk, StringAlignmentFar);
+    if (!g_logList.empty()) {
+        bool armed = LogArmed(L"*");
+        Text(g, armed ? T(L"Confirmer ?", L"Confirm?") : T(L"Tout supprimer", L"Delete all"), kLogsAllR, 12,
+             armed ? FontStyleBold | FontStyleUnderline : FontStyleUnderline, armed ? Color(255, 214, 48, 72) : kGrey, StringAlignmentFar);
+    }
+
+    if (g_logList.empty())
+        Text(g, T(L"Aucun journal pour l'instant : chaque partie en \u00E9crit un ici.", L"No logs yet: every game session writes one here."), kLogsR, 13, FontStyleRegular, kGrey);
+    float sc = g_scroll[TAB_LOGS];
+    g.SetClip(kLogsR);
+    for (int i = 0; i < (int)g_logList.size(); i++) {
+        const LogEntry &e = g_logList[i];
+        RectF r = LogRowRect(i);
+        if (r.Y + r.Height < kLogsR.Y || r.Y > kLogsR.Y + kLogsR.Height) continue;
+        bool hot = i == g_logRowHot;
+        GraphicsPath rp;
+        RoundRect(rp, r, 10);
+        SolidBrush rb(hot && g_logPart == 0 ? TH(cardSel) : TH(card));
+        g.FillPath(&rb, &rp);
+        Pen rpen(hot ? kInk : TH(choiceBorder), 1.2f);
+        g.DrawPath(&rpen, &rp);
+        // pastille : grise partie terminee, rouge plantage
+        SolidBrush dot(e.crash ? Color(255, 214, 48, 72) : kGrey);
+        g.FillEllipse(&dot, r.X + 12, r.Y + r.Height / 2 - 4, 8.0f, 8.0f);
+        Text(g, LogDate(e.name), RectF(r.X + 28, r.Y + 4, r.Width - 170, 20), 12.5f, FontStyleBold, kInk, StringAlignmentNear);
+        wchar_t info[128], dur[32];
+        if (e.seconds >= 3600) swprintf_s(dur, L"%u h %02u", e.seconds / 3600, e.seconds / 60 % 60);
+        else if (e.seconds >= 60) swprintf_s(dur, L"%u min", e.seconds / 60);
+        else swprintf_s(dur, L"%u s", e.seconds);
+        if (e.bytes < 1048576) swprintf_s(info, L"%s \u00B7 %.0f %s%s%s", dur, e.bytes / 1024.0, T(L"Ko", L"KB"), e.ver.empty() ? L"" : L" \u00B7 v", e.ver.c_str());
+        else swprintf_s(info, L"%s \u00B7 %.1f %s%s%s", dur, e.bytes / 1048576.0, T(L"Mo", L"MB"), e.ver.empty() ? L"" : L" \u00B7 v", e.ver.c_str());
+        Text(g, info, RectF(r.X + 28, r.Y + 23, r.Width - 170, 18), 10.5f, FontStyleRegular, kGrey, StringAlignmentNear);
+        if (e.crash || i == 0) {   // etiquette : plantage, ou derniere partie
+            const wchar_t *lab = e.crash ? T(L"PLANTAGE", L"CRASH") : T(L"DERNI\u00C8RE", L"LATEST");
+            float lw = 14 + 6.6f * (float)wcslen(lab);
+            RectF br(r.X + r.Width - 74 - lw, r.Y + 13, lw, 17);
+            GraphicsPath bp; RoundRect(bp, br, 8.5f);
+            SolidBrush bb(e.crash ? Color(45, 214, 48, 72) : WithA(kGrey, 0.18f));
+            g.FillPath(&bb, &bp);
+            Text(g, lab, br, 9.5f, FontStyleBold, e.crash ? Color(255, 214, 48, 72) : kGrey);
+        }
+        DrawIconCircle(g, LogIconRect(r, 1), hot && g_logPart == 1, false, 1);
+        DrawIconCircle(g, LogIconRect(r, 2), hot && g_logPart == 2, LogArmed(e.name), 2);
+    }
+    g.ResetClip();
+    float ms = LogsMaxScroll();
+    if (ms > 0) {
+        float h = kLogsR.Height * kLogsR.Height / (kLogsR.Height + ms), y = kLogsR.Y + (kLogsR.Height - h) * sc / ms;
+        GraphicsPath sp; RoundRect(sp, RectF(kLogsR.X + kLogsR.Width - 4, y, 4, h), 2);
+        SolidBrush sb(WithA(kInk, 0.4f)); g.FillPath(&sb, &sp);
+    }
+    Pen sep(TH(sep), 1);
+    g.DrawLine(&sep, kOptPanel.X + 18, 536.0f, kOptPanel.X + kOptPanel.Width - 18, 536.0f);
+    FontFamily fam(L"Segoe UI");
+    Font font(&fam, 12, FontStyleRegular, UnitPixel);
+    StringFormat sf;
+    sf.SetLineAlignment(StringAlignmentCenter);
+    SolidBrush db(kGrey);
+    wchar_t hint[400];
+    swprintf_s(hint, T(L"Un clic ouvre le journal. Un souci en jeu : envoyez celui de la partie concern\u00E9e%s. Les 50 derniers sont gard\u00E9s.",
+                       L"Click a log to open it. Trouble in game: send the one from that session%s. The last 50 are kept."),
+              crashes ? T(L" (rouge : le jeu a plant\u00E9)", L" (red: the game crashed)") : L"");
+    g.DrawString(hint, -1, &font, RectF(kOptPanel.X + 20, 540, kOptPanel.Width - 40, 42), &sf, &db);
+}
+
+static int LogRowAt(float x, float y, int *part)
+{
+    *part = 0;
+    if (!kLogsR.Contains(x, y)) return -1;
+    int i = (int)((y - kLogsR.Y + g_scroll[TAB_LOGS]) / kLogRowH);
+    if (i < 0 || i >= (int)g_logList.size()) return -1;
+    RectF r = LogRowRect(i);
+    if (!r.Contains(x, y)) return -1;
+    RectF f = LogIconRect(r, 1), t = LogIconRect(r, 2);
+    f.Inflate(2, 2); t.Inflate(2, 2);
+    *part = f.Contains(x, y) ? 1 : t.Contains(x, y) ? 2 : 0;
+    return i;
+}
+
+static void LogsDelete(bool all, const std::wstring &one)
+{
+    int done = 0, locked = 0;
+    for (auto &e : g_logList) {
+        if (!all && e.name != one) continue;
+        if (DeleteFileW((LogsDir() + e.name).c_str())) done++; else locked++;
+    }
+    LogsScan();
+    if (locked) SetStatus(K_WARN, T(L"%d journal(aux) supprim\u00E9(s), %d en cours d'utilisation (jeu lanc\u00E9 ?)", L"%d log(s) deleted, %d in use (game running?)"), done, locked);
+    else SetStatus(K_OK, T(L"%d journal(aux) supprim\u00E9(s)", L"%d log(s) deleted"), done);
+}
+
+static bool LogsMouseDown(float x, float y)
+{
+    if (kLogsFolderR.Contains(x, y)) {
+        CreateDirectoryW(LogsDir().c_str(), NULL);
+        ShellExecuteW(g_wnd, L"open", LogsDir().c_str(), NULL, NULL, SW_SHOWNORMAL);
+        return true;
+    }
+    if (kLogsAllR.Contains(x, y) && !g_logList.empty()) {
+        if (LogArmed(L"*")) LogsDelete(true, L"");
+        else { g_logArm = L"*"; g_logArmT = GetTickCount(); SetStatus(K_WARN, T(L"Cliquez encore pour supprimer les %d journaux", L"Click again to delete all %d logs"), (int)g_logList.size()); }
+        return true;
+    }
+    int part, i = LogRowAt(x, y, &part);
+    if (i < 0) return kOptPanel.Contains(x, y);
+    std::wstring name = g_logList[i].name, path = LogsDir() + name;
+    if (part == 2) {
+        if (LogArmed(name)) LogsDelete(false, name);
+        else { g_logArm = name; g_logArmT = GetTickCount(); SetStatus(K_WARN, T(L"Cliquez encore sur la corbeille pour supprimer ce journal", L"Click the bin again to delete this log")); }
+    } else if (part == 1) {
+        std::wstring arg = L"/select,\"" + path + L"\"";
+        ShellExecuteW(g_wnd, L"open", L"explorer.exe", arg.c_str(), NULL, SW_SHOWNORMAL);
+    } else if ((INT_PTR)ShellExecuteW(g_wnd, L"open", path.c_str(), NULL, NULL, SW_SHOWNORMAL) <= 32) {
+        std::wstring arg = L"\"" + path + L"\"";   // (.log sans programme associe)
+        ShellExecuteW(g_wnd, L"open", L"notepad.exe", arg.c_str(), NULL, SW_SHOWNORMAL);
+    }
+    return true;
+}
+
 static void OnButton(int id)
 {
     switch (id) {
@@ -2329,9 +2584,10 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         g_hot = HitButton(x, y);
         g_tabHot = HitTab(x, y);
         HitOption(x, y, &g_optHot, &g_optPart);
+        g_logRowHot = g_tab == TAB_LOGS ? LogRowAt(x, y, &g_logPart) : -1;
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, h, 0 };
         TrackMouseEvent(&tme);
-        SetCursor(LoadCursor(NULL, ((g_hot >= 0 && g_btn[g_hot].enabled) || g_tabHot >= 0 || g_optHot >= 0) ? IDC_HAND
+        SetCursor(LoadCursor(NULL, ((g_hot >= 0 && g_btn[g_hot].enabled) || g_tabHot >= 0 || g_optHot >= 0 || g_logRowHot >= 0) ? IDC_HAND
                                    : HitField(x, y) >= 0 ? IDC_IBEAM : IDC_ARROW));
         return 0;
     }
@@ -2353,8 +2609,9 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         if (f >= 0) { g_focus = f; g_time = 0; return 0; }
         g_focus = -1;
         int t = HitTab(x, y);
-        if (t >= 0) { g_tab = g_tab == t ? -1 : t; g_optHot = -1; if (g_tab == TAB_NOTES) NotesMarkSeen(); return 0; }   // un 2e clic referme
+        if (t >= 0) { g_tab = g_tab == t ? -1 : t; g_optHot = -1; if (g_tab == TAB_NOTES) NotesMarkSeen(); if (g_tab == TAB_LOGS) LogsScan(); return 0; }   // un 2e clic referme
         if (g_tab == TAB_LOBBY && LobbyClick(x, y)) return 0;
+        if (g_tab == TAB_LOGS && LogsMouseDown(x, y)) return 0;
         int row, part;
         HitOption(x, y, &row, &part);
         if (row >= 0) { OptStep(row, part < 0 ? -1 : 1); return 0; }
@@ -2540,6 +2797,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
         else if (st == L"sansexe") { g_exeKind = EXE_OTHER; g_gameDir.clear(); g_localVer.clear(); SetStatus(K_ERR, T(L"Ce gta_sa.exe n'est pas la version 1.0 US", L"This gta_sa.exe is not version 1.0 US")); }
         else if (st == L"options" || st == L"coop") { g_tab = st == L"coop" ? TAB_COOP : TAB_VIDEO; g_optHot = TabRows(g_tab)[0]; g_optPart = 1; }
         else if (st == L"notes") { NotesOnlyThread(NULL); g_tab = TAB_NOTES; }
+        else if (st == L"journaux") { g_tab = TAB_LOGS; LogsScan(); g_logRowHot = 1; g_logPart = 2; }
         else if (st == L"salon" || st == L"salon-invite") {   // salon a 3 joueurs (faux), vu par l'hote ou par un invite
             bool host = st == L"salon";
             ReadSaves();
