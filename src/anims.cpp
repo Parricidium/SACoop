@@ -27,7 +27,7 @@ static uint8_t *FirstLink(void *clump) { return *(uint8_t **)*(void **)((uint8_t
 int AnimsCollect(void *ped, NetAnim *out, int max)
 {
     void *clump = Field<void *>(ped, 0x18);
-    if (!clump || PedVehicle(ped)) return 0;
+    if (!clump) return 0;
     int motion = Field<int>(ped, 0x4D4), n = 0;
     NetAnim all[16];
     for (uint8_t *lk = FirstLink(clump); lk && n < 16; lk = *(uint8_t **)lk) {
@@ -65,20 +65,57 @@ static bool GroupReady(int group)
     return false;
 }
 
-// (On ne touche qu'aux associations creees ici, encore presentes dans la liste du clump : celles du jeu peuvent etre
-// tenues par une tache, les effacer laissait un pointeur pendant -> plantage 0x4D1750 au test du 01/10.)
+// (On ne touche qu'aux associations creees ici et que personne n'a adoptees : une tache du jeu qui reprend une animation
+// deja jouee (RpAnimBlendClumpGetAssociation) y pose son rappel (CAnimBlendAssociation +0x30 type 1 fin / 2 suppression,
+// +0x34 fonction, +0x38 donnee : SetFinishCallback 0x4CEBE0, SetDeleteCallback 0x4CEBC0) et garde son adresse. L'effacer
+// avec le drapeau "supprimer une fois effacee" laissait la tache avec une adresse morte : plantage 0x4D1750 au test du
+// 01/10, sur les gestes de discussion des copies de PNJ (leur tache CTaskSimpleChat reprenait le geste recopie).)
 static bool InClump(void *clump, void *assoc)
 {
     for (uint8_t *lk = FirstLink(clump); lk; lk = *(uint8_t **)lk) if (lk - 4 == assoc) return true;
     return false;
+}
+static bool Adopted(void *assoc) { return *(int *)((uint8_t *)assoc + 0x30) != 0; }
+static bool Partial(void *assoc) { return (*(uint16_t *)((uint8_t *)assoc + 0x2E) & 0x10) != 0; }   // par-dessus l'animation de base
+
+// L'animation des os (0x4D1680, appelee pour chaque os) suppose au moins une animation "corps entier" (non partielle) sur
+// le personnage : sans elle elle lit une liste vide et plante (0x4D1750). Rejouer une animation corps entier efface
+// celle de base (BlendAnimation) ; quand la notre s'efface a son tour, on redonne le repos de son groupe de deplacement
+// (CPed +0x4D4, animation 3) et c'est le moteur qui fait la transition. Filet : si plus aucune animation corps entier
+// ne reste, le repos est remis tout de suite.
+static void *BlendIdle(void *ped, void *clump, float delta)
+{
+    return ((void *(__cdecl *)(void *, int, int, float))0x4D4610)(clump, Field<int>(ped, 0x4D4), 3, delta);
+}
+static void EnsureBase(void *ped, void *clump)
+{
+    for (uint8_t *lk = FirstLink(clump); lk; lk = *(uint8_t **)lk) {
+        uint8_t *as = lk - 4;
+        if (!Partial(as) && (*(float *)(as + 0x18) > 0.01f || *(float *)(as + 0x1C) > 0)) return;
+    }
+    BlendIdle(ped, clump, 1000.0f);
+    static int said;
+    if (said < 10) { said++; Log("animations : plus d'animation de base sur %p, repos remis", ped); }
 }
 
 void AnimsApply(void *ped, const NetAnim *in, int n, AnimMirror &m)
 {
     void *clump = Field<void *>(ped, 0x18);
     if (!clump) return;
-    for (int k = 0; k < m.count; k++) if (!InClump(clump, m.assoc[k])) m.assoc[k] = nullptr;   // supprimee par le jeu
+    // en cours d'effacement : disparues, ou adoptees entre-temps (on retire alors notre demande de suppression)
+    int nf = 0;
+    for (int k = 0; k < m.nFading; k++) {
+        void *as = m.fading[k];
+        if (!InClump(clump, as)) continue;
+        if (Adopted(as)) { *(uint16_t *)((uint8_t *)as + 0x2E) &= ~4; continue; }
+        m.fading[nf++] = as;
+    }
+    m.nFading = nf;
+    for (int k = 0; k < m.count; k++)
+        if (m.assoc[k] && (!InClump(clump, m.assoc[k]) || Adopted(m.assoc[k]))) m.assoc[k] = nullptr;   // supprimee ou adoptee : plus a nous
     AnimMirror next = {};
+    next.nFading = m.nFading;
+    memcpy(next.fading, m.fading, sizeof(m.fading));
     for (int i = 0; i < n && i < ANIMS_MAX; i++) {
         const NetAnim &a = in[i];
         uint8_t *as = nullptr;
@@ -96,21 +133,23 @@ void AnimsApply(void *ped, const NetAnim *in, int n, AnimMirror &m)
         if (len > 0 && t > len) t = len;
         if (fabsf(*(float *)(as + 0x20) - t) > 0.25f) *(float *)(as + 0x20) = t;
         *(uint16_t *)(as + 0x2E) |= 1;    // en cours
-        *(uint16_t *)(as + 0x2E) &= ~4;   // (gardee)
         if (*(float *)(as + 0x18) < a.blend / 255.0f) *(float *)(as + 0x1C) = 8.0f;
         next.ids[next.count] = a.id;
         next.assoc[next.count++] = as;
     }
-    for (int k = 0; k < m.count; k++) {   // plus recues : effacees (supprimees par le jeu une fois a zero)
+    for (int k = 0; k < m.count; k++) {   // plus recues : effacees (supprimees par le jeu une fois a zero), surveillees
         if (!m.assoc[k]) continue;
         bool still = false;
         for (int i = 0; i < next.count; i++) still |= next.assoc[i] == m.assoc[k];
         if (still) continue;
         uint8_t *as = (uint8_t *)m.assoc[k];
+        if (!Partial(as)) { BlendIdle(ped, clump, 4.0f); continue; }   // corps entier : le moteur passe au repos
         *(float *)(as + 0x1C) = -4.0f;
         *(uint16_t *)(as + 0x2E) |= 4;
+        if (next.nFading < 8) next.fading[next.nFading++] = as;
     }
     m = next;
+    EnsureBase(ped, clump);
 }
 
 // Visee : la tache CTaskSimpleUseGun (ordre AIM) en tache secondaire 0 tant que "want", point vise a jour a chaque image
