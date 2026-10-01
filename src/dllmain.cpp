@@ -94,6 +94,12 @@ static void LoadConfig()
             }
         }
     }
+    // Salon du lanceur : l'hote lance la partie choisie sans passer par le menu (-sacoop-partie <emplacement 1-8|nouvelle>)
+    if (const char *opt = strstr(cmd, "-sacoop-partie ")) {
+        g_cfg.autoStart = true;
+        g_cfg.testLoadSlot = atoi(opt + 15);   // "nouvelle" -> 0 : nouvelle partie
+        if (g_cfg.testLoadSlot < 0 || g_cfg.testLoadSlot > 8) g_cfg.testLoadSlot = 0;
+    }
 }
 
 // Verifie qu'on tourne bien sur le 1.0 US : l'octet de tete de CRunningScript::ProcessOneCommand

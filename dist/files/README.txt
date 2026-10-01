@@ -33,13 +33,15 @@ Installation
 1. Copy the contents of the zip into the game folder (next to gta_sa.exe).
 2. Run SACoop.exe (the launcher). It updates itself at every start: no need
    to download the zip again.
-3. The host clicks HOST. The others type the host's IP address, then JOIN.
+3. The host clicks HOST (lobby). The others type the host's IP address,
+   JOIN, then READY. The host picks the game (new or a save) and clicks
+   START: every game starts. Arriving after the start: JOIN IN GAME.
    ("SACoop - Heberger.cmd" and "SACoop - Rejoindre.cmd" also work, without
    updates.) In the game too: main or pause menu > COOP (Host, Join with
    the address, Name).
 4. The host starts their game (new or a save). Guests still in the menu
    follow automatically (same save if they received it). Over the
-   Internet, the host opens UDP port 7800 on their router (or use a virtual
+   Internet, the host opens port 7800 (TCP and UDP) on their router (or use a virtual
    network such as Radmin VPN).
 
 Settings: sacoop.ini (or the launcher tabs). Name, address and port:
