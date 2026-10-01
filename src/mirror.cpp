@@ -31,7 +31,7 @@
 
 using namespace game;
 
-enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4 };
+enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5 };
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
 // q/Q sphere (entree/sortie), o/O objet (entree/sortie). (A l'envoi, un P qui designe le joueur de l'hote devient H :
@@ -196,9 +196,29 @@ static int SendGlobals(int peer, bool all)
 }
 
 // Hote, chaque image : etat complet pour chaque invite arrive en partie.
+static int g_hostSlot = -1;          // partie de l'hote : emplacement charge, -1 nouvelle partie
+static bool g_sessionSent[MAX_PLAYERS];
+
+static int g_seenSlot = -1;          // hote au menu : emplacement qu'il charge
+
 static void HostGlobalsFrame()
 {
-    if (GameState() != 9 || !FindPlayerPed()) return;
+    // La partie que l'hote a lancee depuis le menu (chargement ou nouvelle) est annoncee a chaque invite au menu.
+    int &seenSlot = g_seenSlot;
+    static bool wasInGame;
+    bool inGame = GameState() == 9 && FindPlayerPed();
+    if (inGame && !wasInGame) { g_hostSlot = seenSlot; seenSlot = -1; for (auto &b : g_sessionSent) b = false; }
+    if (!inGame && wasInGame) seenSlot = -1;
+    wasInGame = inGame;
+    if (!inGame) return;
+    for (int i = 1; i < MAX_PLAYERS; i++) {
+        if (!g_players[i].connected) { g_sessionSent[i] = false; continue; }
+        if (g_sessionSent[i] || g_players[i].state.inGame) continue;
+        g_sessionSent[i] = true;
+        uint8_t m[2] = { RL_SESSION, (uint8_t)(int8_t)g_hostSlot };
+        NetSendReliableTo(i, m, 2);
+        Log("miroir : partie annoncee au joueur %d (%s)", i, g_hostSlot >= 0 ? "sauvegarde" : "nouvelle partie");
+    }
     for (int i = 1; i < MAX_PLAYERS; i++) {
         if (!g_players[i].connected) { g_fullSent[i] = false; continue; }
         if (g_fullSent[i] || !g_players[i].state.inGame) continue;
@@ -314,6 +334,15 @@ static void OnReliable(int from, const uint8_t *data, int len)
 {
     (void)from;
     if (SaveSyncReliable(data, len)) return;   // sauvegarde partagee (savesync.cpp) : traitee tout de suite
+    if (len >= 2 && data[0] == RL_SESSION) {   // partie de l'hote : l'invite encore au menu la suit
+        if (g_cfg.host) return;
+        int slot = (int8_t)data[1];
+        char path[MAX_PATH];
+        wsprintfA(path, "%s%i.b", (const char *)0xC16F18, slot + 1);
+        if (slot >= 0 && GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) slot = -1;   // pas cette sauvegarde
+        if (RequestGameStart(slot)) Log("miroir : partie de l'hote suivie (%s)", slot >= 0 ? path : "nouvelle partie");
+        return;
+    }
     if (g_cfg.host || len < 1 || len > 256) return;
     if ((g_qTail + 1) % QUEUE == g_qHead) { Log("miroir : file pleine, commande perdue"); return; }
     Pending &p = g_queue[g_qTail];
@@ -545,6 +574,14 @@ void MirrorTestObject(int step, const float *pos)
     if (step == 0) handle = *(int *)0xA48960;
     g_script[0xDC] = 0;
     Log("autotest : objet %d (etape %d)", handle, step);
+}
+
+// Chaque tour de boucle, menu compris : reception du flux fiable (l'invite au menu doit entendre RL_SESSION), et
+// hote au menu : emplacement en cours de chargement.
+void MirrorMenuFrame()
+{
+    g_onReliable = OnReliable;
+    if (g_cfg.host && GameState() == 7) { int s = MenuLoadingSlot(); if (s >= 0) g_seenSlot = s; }
 }
 
 void MirrorFrame()

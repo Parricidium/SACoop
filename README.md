@@ -91,7 +91,8 @@ game version, and starts the game as host or guest. Options and release notes ar
 2. Copy the contents of the zip into the game folder, next to `gta_sa.exe`, then run **`SACoop.exe`**. It keeps
    itself and the mod up to date: everybody ends up on the same version without downloading anything again.
 3. The host clicks **HOST**. The others type the host's IP address and click **JOIN**.
-4. Everybody starts a new game. Over the Internet, the host opens UDP port 7800 on their router, or you use a
+4. The host starts their game (new game or a save); guests still in the menu follow automatically (same save when
+   they have it). Over the Internet, the host opens UDP port 7800 on their router, or you use a
    virtual LAN.
 
 Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini`, `sacoop.log` and `logs\`.
@@ -180,7 +181,8 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 2. Copier le contenu du zip dans le dossier du jeu, à côté de `gta_sa.exe`, puis lancer **`SACoop.exe`**. Il se met
    à jour tout seul, avec le mod : tout le monde reste sur la même version sans rien retélécharger.
 3. L'hôte clique sur **HÉBERGER**. Les autres tapent l'adresse IP de l'hôte et cliquent sur **REJOINDRE**.
-4. Chacun commence une nouvelle partie. Par Internet, l'hôte ouvre le port UDP 7800 sur sa box, ou vous passez par
+4. L'hôte lance sa partie (nouvelle ou sauvegarde) ; les invités restés au menu la suivent tout seuls (même
+   sauvegarde s'ils l'ont). Par Internet, l'hôte ouvre le port UDP 7800 sur sa box, ou vous passez par
    un réseau virtuel.
 
 Désinstaller : supprimer `dinput8.dll`, `SACoop.exe`, le dossier `SACoop`, `sacoop*.ini`, `sacoop.log` et `logs\`.

@@ -560,6 +560,16 @@ static void Autotest()
         if (step < 3 && t > 26000u + step * 8000u) { MirrorTestObject(step, at[step]); step++; }
         return;
     }
+    // "sauve" (hote) : sauvegarde dans l'emplacement 6 a 30 s (C_PcSave::SaveSlot 0x619060, 0 = reussi).
+    if (_stricmp(g_cfg.autotest, "sauve") == 0) {
+        static bool saved;
+        if (!saved && t > 30000) {
+            saved = true;
+            int r = ((char(__cdecl *)(char))0x619060)(5);
+            Log("autotest : sauvegarde emplacement 6 -> %d", r);
+        }
+        return;
+    }
     // "pnj" (hote) : un personnage de mission (Big Smoke, modele special 290 "SMOKE") pose a 4 m, qui fait des
     // allers-retours dans la ruelle, avec un pistolet ; tue a 60 s s'il vit encore (sa copie doit tomber chez l'invite).
     if (_stricmp(g_cfg.autotest, "pnj") == 0) {
@@ -805,6 +815,7 @@ void CoopFrame(bool inGameLoop)
     NetPoll();
     SendLocalState();
     SendLocalClothes();
+    MirrorMenuFrame();
     if (!inGameLoop) return;
     if (!InGame() || *(uint8_t *)0xB5F851) g_calmSince = GetTickCount();
     // Menu Pause ouvert par un joueur : tant qu'un autre joueur est connecte, le monde continue (CTimer::m_UserPause).
