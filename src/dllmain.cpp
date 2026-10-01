@@ -3,6 +3,7 @@
 #include "util.h"
 #include "sacoop.h"
 #include "script.h"
+#include "widescreen.h"
 #include "net.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,6 +53,7 @@ static void LoadConfig()
     GetPrivateProfileStringA("SACoop", "Adresse", "127.0.0.1", g_cfg.address, sizeof(g_cfg.address), ini);
     g_cfg.port = GetPrivateProfileIntA("SACoop", "Port", 7800, ini);
     g_cfg.friendlyFire = GetPrivateProfileIntA("SACoop", "TirAmi", 1, ini) != 0;
+    g_cfg.widescreen = GetPrivateProfileIntA("SACoop", "GrandEcran", 1, ini) != 0;
     g_cfg.testMission = GetPrivateProfileIntA("SACoop", "TestMission", 0, ini);
     g_cfg.testSkip = GetPrivateProfileIntA("SACoop", "TestPasser", 0, ini) != 0;
     g_cfg.testBoard = GetPrivateProfileIntA("SACoop", "TestTableau", 0, ini) != 0;
@@ -128,5 +130,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallGamePatches();
     InstallPuppetRender();
     InstallScripts();
+    InstallWidescreen();
     return TRUE;
 }

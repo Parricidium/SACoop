@@ -1,4 +1,4 @@
-// Mode fenetre force et comportement en arriere-plan : deux instances doivent pouvoir tourner cote a cote
+﻿// Mode fenetre force et comportement en arriere-plan : deux instances doivent pouvoir tourner cote a cote
 // sans voler la souris ni le premier plan. San Andreas cree son peripherique en Direct3D 9 (d3d9.dll importee).
 #include "util.h"
 #include "sacoop.h"

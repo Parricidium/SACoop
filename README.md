@@ -73,6 +73,7 @@ game version, and starts the game as host or guest. Options and release notes ar
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
 - **F5** (held): players board (name, health, distance).
+- **Widescreen**: the 3D keeps its proportions on wide screens, with a wider field of view (Hor+).
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
 - Settings and saves kept in the game folder, apart from your solo saves.
 - Two copies of the game can run on the same PC (the game normally refuses).
@@ -162,6 +163,7 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
 - **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance).
+- **Grand écran** : la 3D garde ses proportions sur un écran large, avec un champ de vision élargi.
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture
   sautés.
 - Réglages et sauvegardes dans le dossier du jeu, à part de vos sauvegardes solo.
