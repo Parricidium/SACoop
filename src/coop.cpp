@@ -1004,7 +1004,14 @@ static void Autotest()
     }
 }
 
+static void CoopFrameInner(bool inGameLoop);
 void CoopFrame(bool inGameLoop)
+{
+    CoopFrameInner(inGameLoop);
+    NetFlush();   // (messages regroupes de l'image : net.cpp)
+}
+
+static void CoopFrameInner(bool inGameLoop)
 {
     static bool netTried;
     if (g_cfg.netAuto && !netTried) { netTried = true; NetStart(); }

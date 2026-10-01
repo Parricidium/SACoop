@@ -1,5 +1,5 @@
 // Reglages graphiques du jeu d'origine, au-dela de ce que son menu permet (comme VCCoop) :
-//  - DistanceAffichage (100-300 %) : distance des modeles detailles (CRenderer::ms_lodDistScale 0x8CD800, que le menu
+//  - DistanceAffichage (100-250 % ; 300 % retire, plantages chez JD le 01/10) : distance des modeles detailles (CRenderer::ms_lodDistScale 0x8CD800, que le menu
 //    du jeu met a son reglage 0,925-1,8 : FrontEndMenuManager 0xBA6748 +0x40) ; plan lointain et brouillard du cycle
 //    du temps (CTimeCycle::m_CurrentColours : m_fFarClip 0xB7C4F0, m_fFogStart 0xB7C4F4, recalcules a chaque image puis
 //    passes a RwCameraSetFarClipPlane dans Idle, 0x53EA93 et 0x53DCB6) ; memoire de chargement (CStreaming::

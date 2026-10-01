@@ -151,7 +151,7 @@ static void LoadConfig()
     g_cfg.fxaa = GetPrivateProfileIntA("SACoop", "Anticrenelage", 1, ini) != 0;
     g_cfg.drawDistance = GetPrivateProfileIntA("SACoop", "DistanceAffichage", 200, ini);
     if (g_cfg.drawDistance < 100) g_cfg.drawDistance = 100;
-    if (g_cfg.drawDistance > 300) g_cfg.drawDistance = 300;
+    if (g_cfg.drawDistance > 250) g_cfg.drawDistance = 250;   // (300 % : plantages chez JD le 01/10)
     g_cfg.zonePop = GetPrivateProfileIntA("SACoop", "ZonePopulation", 150, ini);
     if (g_cfg.zonePop < 100) g_cfg.zonePop = 100;
     if (g_cfg.zonePop > 200) g_cfg.zonePop = 200;

@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 11, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 12, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -22,6 +22,7 @@ enum MsgType : uint8_t {
     MSG_PED,         // hote -> invites : un personnage de mission (entities.cpp)
     MSG_PEDHIT,      // invite -> hote : coup porte a un personnage de mission
     MSG_MARKER,      // hote -> invites : commande LOCATE / IS_CHAR_IN_AREA a marqueur (conditions.cpp)
+    MSG_BATCH,       // plusieurs messages d'une meme image : n (1 octet) puis, pour chacun, longueur (2 octets) et octets
 };
 
 #pragma pack(push, 1)
@@ -123,6 +124,7 @@ bool NetRunning();
 void NetSendState(const MsgState &s);
 void NetSendBye();
 void NetKeepAlive();    // signe de vie envoye depuis un autre fil (watchdog.cpp), meme si le jeu ne presente plus d'image
+void NetFlush();   // envoie les messages regroupes de l'image (fin de CoopFrame)
 void NetSendToGuests(const void *data, int len);   // hote seulement
 void NetSendToAll(const void *data, int len);
 void NetSendReliable(const void *data, int len);   // hote : a tous les invites ; invite : a l'hote

@@ -66,7 +66,9 @@ static void HostSend()
         uint32_t id = MissionPedId(ped);
         if (!id) continue;
         bool ambient = Field<uint8_t>(ped, 0x484) != 2;
-        if (ambient && (cycle & 1)) continue;   // passants : 7-8 fois par seconde
+        // passants : 7-8 fois par seconde pres d'un invite (60 m), 3-4 fois plus loin (ils ne font que passer au loin)
+        if (ambient && (cycle & 1)) continue;
+        if (ambient && (cycle & 2) && !NearSharedGuestAnywhere(EntityPos(ped), 60.0f)) continue;
         MsgPed m = {};
         m.type = MSG_PED;
         m.id = id;

@@ -363,7 +363,7 @@ static void DisplayTab(float x0, float y0, float x1, float y1)
 {
     float k = K(), y = y0;
     struct Row { const char *fr, *en; int action; int vals[5]; int cur; } rows[] = {
-        { "DISTANCE D'AFFICHAGE", "DRAW DISTANCE", A_DRAWDIST, { 100, 150, 200, 250, 300 }, g_cfg.drawDistance },
+        { "DISTANCE D'AFFICHAGE", "DRAW DISTANCE", A_DRAWDIST, { 100, 125, 150, 200, 250 }, g_cfg.drawDistance },
         { "ZONE DE POPULATION", "POPULATION AREA", A_ZONE, { 100, 125, 150, 175, 200 }, g_cfg.zonePop },
         { "DENSIT\xC9" " DE POPULATION", "POPULATION DENSITY", A_DENSITY, { 50, 100, 150, 200, 300 }, g_cfg.popDensity } };
     float bw = (x1 - x0 - 4 * 8 * k) / 5;
