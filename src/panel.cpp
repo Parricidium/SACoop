@@ -40,7 +40,7 @@ static bool g_lmb, g_click;
 static int g_wheel;
 static float g_vehScroll[4];
 static uint32_t g_welcomeUntil;
-enum { T_PLAYERS, T_VEHICLES, T_TOOLS, T_OUTFIT, T_WORLD, T_HOST, T_COUNT };
+enum { T_PLAYERS, T_VEHICLES, T_TOOLS, T_OUTFIT, T_DISPLAY, T_WORLD, T_HOST, T_COUNT };
 
 bool PanelOpen() { return g_open || g_help; }
 bool PanelCapturesKeys() { return g_open || g_help || ChatTyping(); }
@@ -62,7 +62,7 @@ void PanelMouseInput(int dx, int dy, int dz, bool lmb)
 }
 
 // ======================================================================= Actions (boucle du jeu)
-enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE };
+enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO };
 struct Action { int kind, arg; };
 static std::vector<Action> g_actions;
 static void Queue(int kind, int arg = 0) { g_actions.push_back({ kind, arg }); }
@@ -186,6 +186,10 @@ void PanelFrame()
         case A_FRIENDLY: g_cfg.friendlyFire = !g_cfg.friendlyFire; SaveIni("TirAmi", g_cfg.friendlyFire); break;
         case A_SHAREWANTED: g_cfg.shareWanted = !g_cfg.shareWanted; SaveIni("RecherchePartagee", g_cfg.shareWanted); break;
         case A_HOSTPOLICE: g_cfg.hostPolice = !g_cfg.hostPolice; SaveIni("PoliceHote", g_cfg.hostPolice); break;
+        case A_DRAWDIST: g_cfg.drawDistance = a.arg; SaveIni("DistanceAffichage", a.arg); break;   // (gfx.cpp : lu a chaque image)
+        case A_ZONE: g_cfg.zonePop = a.arg; SaveIni("ZonePopulation", a.arg); break;
+        case A_DENSITY: g_cfg.popDensity = a.arg; SaveIni("DensitePopulation", a.arg); break;
+        case A_ANISO: g_cfg.aniso = !g_cfg.aniso; SaveIni("FiltrageAnisotrope", g_cfg.aniso); break;
         }
     }
     // Bienvenue : la premiere fois en jeu
@@ -354,6 +358,31 @@ static void OutfitTab(float x0, float y0, float x1, float y1)
     }
 }
 
+// Reglages graphiques du jeu d'origine (gfx.cpp), pour chaque joueur, appliques tout de suite.
+static void DisplayTab(float x0, float y0, float x1, float y1)
+{
+    float k = K(), y = y0;
+    struct Row { const char *fr, *en; int action; int vals[5]; int cur; } rows[] = {
+        { "DISTANCE D'AFFICHAGE", "DRAW DISTANCE", A_DRAWDIST, { 100, 150, 200, 250, 300 }, g_cfg.drawDistance },
+        { "ZONE DE POPULATION", "POPULATION AREA", A_ZONE, { 100, 125, 150, 175, 200 }, g_cfg.zonePop },
+        { "DENSIT\xC9" " DE POPULATION", "POPULATION DENSITY", A_DENSITY, { 50, 100, 150, 200, 300 }, g_cfg.popDensity } };
+    float bw = (x1 - x0 - 4 * 8 * k) / 5;
+    for (auto &r : rows) {
+        UiText(x0, y, 13 * k, C_GREY, UI_LEFT, g_fr ? r.fr : r.en, true);
+        y += 22 * k;
+        for (int i = 0; i < 5; i++) {
+            char t[16];
+            sprintf(t, "%d %%", r.vals[i]);
+            float bx = x0 + i * (bw + 8 * k);
+            if (Button(bx, y, bx + bw, y + 32 * k, t, r.cur == r.vals[i])) Queue(r.action, r.vals[i]);
+        }
+        y += 48 * k;
+    }
+    Toggle(x0, y + 4 * k, x1, L("Filtrage anisotrope (textures nettes de loin et de biais)", "Anisotropic filtering (sharp textures far away and at an angle)"), g_cfg.aniso, A_ANISO);
+    UiText(x0, y + 46 * k, 12.5f * k, C_GREY, UI_LEFT, L("100 % = jeu d'origine. Appliqu\xE9" " tout de suite, retenu pour les prochaines parties.",
+                                                          "100% = original game. Applied right away, kept for the next sessions."));
+}
+
 static void WorldTab(float x0, float y0, float x1, float y1)
 {
     float k = K(), y = y0;
@@ -407,7 +436,7 @@ static void DrawMenu()
     UiText(x0 + 140 * k, y0 + 18 * k, 13 * k, C_GREY, UI_LEFT, who);
     if (Button(x1 - 44 * k, y0 + 12 * k, x1 - 14 * k, y0 + 40 * k, "X")) g_open = false;
     UiRect(x0 + 16 * k, y0 + 48 * k, x1 - 16 * k, y0 + 50 * k, 1 * k, 0xFFFFFF70, 0xFFFFFF70);
-    static const char *tabFr[] = { "JOUEURS", "V\xC9" "HICULES", "OUTILS", "TENUE", "MONDE", "H\xD4" "TE" }, *tabEn[] = { "PLAYERS", "VEHICLES", "TOOLS", "OUTFIT", "WORLD", "HOST" };
+    static const char *tabFr[] = { "JOUEURS", "V\xC9" "HICULES", "OUTILS", "TENUE", "AFFICHAGE", "MONDE", "H\xD4" "TE" }, *tabEn[] = { "PLAYERS", "VEHICLES", "TOOLS", "OUTFIT", "DISPLAY", "WORLD", "HOST" };
     int tabs = g_cfg.host ? T_COUNT : T_WORLD;   // (MONDE et HOTE : l'hote)
     if (g_tab >= tabs) g_tab = 0;
     float tw = (w - 32 * k - (tabs - 1) * 8 * k) / tabs;
@@ -421,6 +450,7 @@ static void DrawMenu()
     case T_VEHICLES: VehiclesTab(cx0, cy0, cx1, cy1); break;
     case T_TOOLS: ToolsTab(cx0, cy0, cx1, cy1); break;
     case T_OUTFIT: OutfitTab(cx0, cy0, cx1, cy1); break;
+    case T_DISPLAY: DisplayTab(cx0, cy0, cx1, cy1); break;
     case T_WORLD: WorldTab(cx0, cy0, cx1, cy1); break;
     case T_HOST: HostTab(cx0, cy0, cx1, cy1); break;
     }
@@ -438,7 +468,7 @@ static void DrawHelp()
     UiRect(x0 + 16 * k, y0 + 48 * k, x1 - 16 * k, y0 + 50 * k, 1 * k, 0xFFFFFF70, 0xFFFFFF70);
     UiText(x0 + 22 * k, y0 + 60 * k, 12.5f * k, C_GREY, UI_LEFT, L("TOUCHES", "KEYS"), true);
     struct { const char *key, *fr, *en; } keys[] = {
-        { "F10", "Menu : joueurs, v\xE9" "hicules, outils, tenue, monde", "Menu: players, vehicles, tools, outfit, world" },
+        { "F10", "Menu : joueurs, v\xE9" "hicules, outils, tenue, affichage, monde", "Menu: players, vehicles, tools, outfit, display, world" },
         { "T", "Tchat (Entr\xE9" "e pour envoyer, \xC9" "chap pour annuler)", "Chat (Enter to send, Esc to cancel)" },
         { "F5", "Tableau des joueurs (touche maintenue)", "Players board (held)" },
         { "F6", "Vue \xE0" " la premi\xE8" "re personne", "First-person view" },
@@ -517,6 +547,6 @@ void PanelTest()
     if (mode == 2) { if (step == 0 && t > 25000) { step = 1; g_help = true; Log("test menu : aide"); } return; }
     if (step == 0 && t > 25000) { step = 1; g_open = true; g_tab = mode == 3 ? T_VEHICLES : T_PLAYERS; g_mx = ScreenW() * 0.47f; g_my = ScreenH() * 0.45f; Log("test menu : ouvert"); }
     else if (mode == 3 && step == 1 && t > 29000) { step = 2; g_click = true; Log("test menu : clic sur une vignette"); }
-    else if (mode == 1 && step >= 1 && step < 7 && t > 25000 + step * 4000) { g_tab = (int)step % (g_cfg.host ? T_COUNT : T_WORLD); step++; Log("test menu : onglet %d", g_tab); }
-    else if (mode == 1 && step == 7 && t > 25000 + 7 * 4000) { step = 8; g_open = false; Log("test menu : ferme"); }
+    else if (mode == 1 && step >= 1 && step < 8 && t > 25000 + step * 4000) { g_tab = (int)step % (g_cfg.host ? T_COUNT : T_WORLD); step++; Log("test menu : onglet %d", g_tab); }
+    else if (mode == 1 && step == 8 && t > 25000 + 8 * 4000) { step = 9; g_open = false; Log("test menu : ferme"); }
 }

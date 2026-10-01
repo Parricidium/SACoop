@@ -34,6 +34,8 @@ Touches
   argent, reparer, etoiles a zero, jetpack), tenue ; heure, meteo et police
   pour l'hote. Echap ou F10 pour fermer.
 - F1 : aide (touches, bon a savoir).
+- Distance d'affichage, zone et densite de population, filtrage anisotrope :
+  onglet VIDEO du lanceur ou F10 > AFFICHAGE (applique tout de suite).
 
 Il faut
 - GTA San Andreas pour PC, version 1.0 US. La version Steam actuelle

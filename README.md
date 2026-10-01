@@ -106,6 +106,9 @@ ready).
 - **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send; `/join` brings you back next to the host). **F5** (held): players board (name, health, distance). **F6**: first-person view on foot. **F10**: in-game menu, used with the mouse: players (go to a player, friendly fire), vehicles (3D thumbnails, a click
   spawns it in front of you), tools (health and armour, weapons, money, repair, clear wanted level, jetpack), outfit,
   and for the host world (time, weather) and host settings. **F1**: help (keys, tips).
+- **Original game, further** (launcher VIDEO tab or F10 > DISPLAY, applied right away): draw distance up to 300%
+  (detailed scenery, horizon and fog further away), population area (how far pedestrians and cars appear) and density,
+  anisotropic filtering.
 - **Modern rendering** (optional): ambient occlusion (corners, wall bases, under cars darker) and FXAA anti-aliasing.
 - **Widescreen**: the 3D, the HUD (radar, icons, texts) and the menus keep their proportions on wide screens, with a wider field
   of view (Hor+). Borderless mode picks your screen's resolution by itself.
@@ -218,6 +221,9 @@ quand un joueur arrive, part ou se met prêt).
   joueur, tir ami), véhicules (vignettes 3D, un clic le fait apparaître devant vous), outils (santé et gilet, armes,
   argent, réparer, étoiles à zéro, jetpack), tenue, et pour l'hôte monde (heure, météo) et réglages d'hôte. **F1** : aide
   (touches, bon à savoir).
+- **Jeu d'origine, en plus loin** (onglet VIDÉO du lanceur ou F10 > AFFICHAGE, appliqué tout de suite) : distance
+  d'affichage jusqu'à 300 % (décor détaillé, horizon et brouillard plus loin), zone de population (distance d'apparition
+  des piétons et des voitures) et densité, filtrage anisotrope.
 - **Rendu moderne** (facultatif) : occlusion ambiante (coins, pieds des murs, dessous des voitures assombris) et
   anticrénelage FXAA.
 - **Grand écran** : la 3D, le HUD (radar, icônes, textes) et les menus gardent leurs proportions sur un écran large, avec un champ

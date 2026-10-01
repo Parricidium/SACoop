@@ -907,6 +907,18 @@ static void BuildOptions()
     T2(TAB_VIDEO, "GrandEcran", 1, L"Grand \u00E9cran", L"Widescreen",
        L"La 3D et le HUD gardent leurs proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi.",
        L"The 3D and the HUD keep their proportions on wide screens, with a wider field of view.");
+    C(TAB_VIDEO, "DistanceAffichage", 200, { 100, 150, 200, 250, 300 }, L"Distance d'affichage", L"Draw distance", {}, {}, L" %",
+      L"100 % = jeu d'origine. Au-dessus : d\u00E9cor d\u00E9taill\u00E9 et horizon plus loin, brouillard repouss\u00E9 (plus de m\u00E9moire).",
+      L"100% = original game. Above it: detailed scenery and horizon farther away, fog pushed back (more memory).");
+    C(TAB_VIDEO, "ZonePopulation", 150, { 100, 125, 150, 175, 200 }, L"Zone de population", L"Population area", {}, {}, L" %",
+      L"Distance \u00E0 laquelle pi\u00E9tons et voitures apparaissent. 100 % = jeu d'origine.",
+      L"Distance at which pedestrians and cars appear. 100% = original game.");
+    C(TAB_VIDEO, "DensitePopulation", 150, { 50, 100, 150, 200, 300 }, L"Densit\u00E9 de population", L"Population density", {}, {}, L" %",
+      L"Nombre de pi\u00E9tons et de voitures dans les rues. 100 % = jeu d'origine (les missions gardent leurs r\u00E9glages).",
+      L"Number of pedestrians and cars in the streets. 100% = original game (missions keep their own settings).");
+    T2(TAB_VIDEO, "FiltrageAnisotrope", 1, L"Filtrage anisotrope", L"Anisotropic filtering",
+       L"Routes, trottoirs et murs restent nets de loin et de biais (16x).",
+       L"Roads, sidewalks and walls stay sharp far away and at an angle (16x).");
     T2(TAB_RENDER, "OcclusionAmbiante", 1, L"Occlusion ambiante", L"Ambient occlusion",
        L"Rendu moderne : coins, pieds des murs, dessous des voitures et des personnages assombris.",
        L"Modern rendering: corners, wall bases, under cars and characters get darker.");
