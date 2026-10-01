@@ -561,7 +561,19 @@ void RunScriptCommandTyped(int op, int nargs, const char *types, const int *args
     memcpy(g_script + 8, "sacoop", 7);
     int c = 2;
     *(uint16_t *)g_code = (uint16_t)op;
-    for (int k = 0; k < nargs; k++) { g_code[c++] = types[k] == 'f' ? 6 : 1; memcpy(g_code + c, &args[k], 4); c += 4; }
+    for (int k = 0; k < nargs; k++) {
+        if (types[k] == 's') {   // chaine (args[k] = son adresse) : type 0x0E, longueur puis caracteres
+            const char *str = (const char *)(uintptr_t)args[k];
+            int len = lstrlenA(str);
+            if (len > 31) len = 31;
+            g_code[c++] = 0x0E;
+            g_code[c++] = (uint8_t)len;
+            memcpy(g_code + c, str, len);
+            c += len;
+            continue;
+        }
+        g_code[c++] = types[k] == 'f' ? 6 : 1; memcpy(g_code + c, &args[k], 4); c += 4;
+    }
     ExecCommand(op);
 }
 

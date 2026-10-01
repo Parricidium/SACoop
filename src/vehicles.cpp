@@ -12,6 +12,8 @@
 #include "vehicles.h"
 #include "hud.h"
 #include "population.h"
+#include "peds.h"
+#include "mirror.h"
 #include <math.h>
 #include <string.h>
 
@@ -270,6 +272,14 @@ static void CreateCopy(NetVeh &n)
 {
     int model = n.last.model;
     if (model < 400 || model > 611) return;
+    // Pas sur le joueur : une copie qui apparaitrait a moins de 4 m de lui (ou de sa voiture) attend que la place soit
+    // libre (voitures qui surgissaient sur l'invite qui suivait l'hote, 01/10).
+    if (void *me = FindPlayerPed()) {
+        void *mine = PedVehicle(me);
+        const float *a = EntityPos(mine ? mine : me), *b = n.last.pos;
+        float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        if (dx * dx + dy * dy + dz * dz < 16.0f && !(n.last.flags & VF_MISSION && n.last.driven)) return;
+    }
     if (!ModelLoaded(model)) {
         RequestModel(model, 2);
         LoadAllRequestedModels(false);
@@ -280,6 +290,14 @@ static void CreateCopy(NetVeh &n)
     n.veh = v;
     n.ref = VehRef(v);
     uint8_t *p = (uint8_t *)v;
+    // Orientation recue tout de suite (sinon cap 0 puis rotation sur plusieurs images : voitures en travers)
+    if (uint8_t *mat = *(uint8_t **)(p + 0x14)) {
+        float *r = (float *)mat, *f = (float *)(mat + 0x10), *u = (float *)(mat + 0x20);
+        memcpy(r, n.last.right, 12);
+        memcpy(f, n.last.fwd, 12);
+        u[0] = r[1] * f[2] - r[2] * f[1]; u[1] = r[2] * f[0] - r[0] * f[2]; u[2] = r[0] * f[1] - r[1] * f[0];
+    }
+    memcpy(p + 0x44, n.last.speed, 12);
     p[0x434] = n.last.color1;
     p[0x435] = n.last.color2;
     Log("copie du vehicule %08X (modele %d, joueur %d) creee", n.id, model, n.owner);
@@ -451,12 +469,55 @@ static void GuestMissionVehicle()
     Log("vehicule de mission de l'hote (modele %d) : copie posee a cote de l'invite", model);
 }
 
+// Hote : circulation que le jeu vient de generer sous les yeux d'un invite. Le jeu ne cree les voitures que hors de la
+// vue de SON joueur : derriere l'hote, la ou l'invite qui le suit regarde. Une voiture de passage (avec conducteur)
+// apparue a moins de 90 m devant un invite partage (cone de 140 degres, cap de son vehicule ou de son pantin) est
+// retiree tout de suite (DELETE_CHAR 009B pour ses occupants, DELETE_CAR 00A6), avant d'avoir ete envoyee.
+static void HostTrafficGuard()
+{
+    static int seen[256];
+    static bool primed;
+    Pool *p = *(Pool **)0xB74494;
+    if (!p || p->size > 256) return;
+    for (int i = 0; i < p->size; i++) {
+        if (p->flags[i] & 0x80) { seen[i] = 0; continue; }
+        uint8_t *v = p->objects + i * 0xA18;
+        int ref = VehRef(v);
+        if (seen[i] == ref) continue;
+        seen[i] = ref;
+        if (!primed || v[0x4A4] != 1 || FindByVeh(v)) continue;   // passage seulement (pas mission, pas copie)
+        void *drv = Field<void *>(v, VEH_DRIVER);
+        if (!drv || drv == FindPlayerPed() || PuppetIndex(drv) >= 0) continue;
+        const float *cp = EntityPos(v);
+        for (int g = 1; g < MAX_PLAYERS; g++) {
+            void *pup = PuppetOf(g);
+            if (!pup || !g_players[g].connected) continue;
+            const float *gp = EntityPos(pup);
+            float dx = cp[0] - gp[0], dy = cp[1] - gp[1], d = sqrtf(dx * dx + dy * dy);
+            if (d > 90.0f || d < 0.1f) continue;
+            float fx, fy;
+            if (void *gv = PedVehicle(pup)) { uint8_t *m = *(uint8_t **)((uint8_t *)gv + 0x14); fx = m ? ((float *)m)[4] : 0; fy = m ? ((float *)m)[5] : 1; }
+            else { float h = Field<float>(pup, PED_ROTATION); fx = -sinf(h); fy = cosf(h); }
+            if ((dx * fx + dy * fy) / d < 0.34f) continue;   // hors du cone de vue
+            for (int k = 0; k < 8; k++) if (void *ps = Field<void *>(v, VEH_PASSENGERS + k * 4)) { int r = PedRef(ps); RunScriptCommand(0x009B, 1, &r); }
+            int r = PedRef(drv);
+            RunScriptCommand(0x009B, 1, &r);   // DELETE_CHAR
+            RunScriptCommand(0x00A6, 1, &ref); // DELETE_CAR
+            static int said;
+            if (said < 20) { said++; Log("circulation : voiture apparue devant %s (%.0f m) retiree", g_players[g].state.name, d); }
+            break;
+        }
+    }
+    primed = true;
+}
+
 void VehiclesFrame()
 {
     static bool aiHooked;
     if (!aiHooked) { aiHooked = true; HookAI<0>(); HookAI<1>(); HookAI<2>(); HookAI<3>(); HookAI<4>(); HookAI<5>(); Log("vehicules : IA des copies remplacee par les commandes de leur conducteur"); }
     g_onVehicle = OnVehicle;
     if (GameState() != 9 || !FindPlayerPed()) return;
+    if (g_cfg.host) HostTrafficGuard();
     uint32_t now = GetTickCount();
     for (auto &n : g_veh) {
         if (!n.id || n.owner == g_localId) continue;

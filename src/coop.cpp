@@ -47,7 +47,35 @@ struct Puppet {
     int carTask;         // montee (1 volant, 2 passager) / descente (3) en cours, jouee par la tache du jeu
     void *carVeh;
     uint32_t carTaskAt;
+    bool meleeKnown;     // compteur de coups deja vu (rien a rejouer a la creation)
+    uint8_t meleeSeq;
+    uint32_t meleeUntil; // coup en cours de rejeu : le suivi a pied attend
 };
+
+// Coups au corps a corps (poings, fichier d'animations PED) : vus sur le joueur (RpAnimBlendClumpGetAssociation
+// 0x4D6870 sur son clump, CEntity +0x18 ; heure de l'animation en +0x20 : un coup qui recommence repart de 0) et
+// rejoues par son pantin chez les autres (TASK_PLAY_ANIM 0605). Le joueur ne voyait pas les coups de l'hote (01/10).
+static const char *const kMeleeAnims[] = { "FIGHTA_1", "FIGHTA_2", "FIGHTA_3", "FIGHTA_G", "FIGHTA_M", "FIGHTA_BLOCK" };
+enum { MELEE_ANIMS = 6 };
+static void *AnimOf(void *ped, const char *name)
+{
+    void *clump = Field<void *>(ped, 0x18);
+    return clump ? ((void *(__cdecl *)(void *, const char *))0x4D6870)(clump, name) : nullptr;
+}
+static uint8_t g_meleeSeq, g_meleeAnim;
+static void WatchMelee(void *ped)
+{
+    static float lastT[MELEE_ANIMS];
+    static bool had[MELEE_ANIMS];
+    for (int i = 0; i < MELEE_ANIMS; i++) {
+        void *a = AnimOf(ped, kMeleeAnims[i]);
+        if (!a) { had[i] = false; continue; }
+        float t = Field<float>(a, 0x20);
+        if (!had[i] || t < lastT[i] - 0.05f) { g_meleeSeq++; g_meleeAnim = (uint8_t)i; }
+        had[i] = true;
+        lastT[i] = t;
+    }
+}
 static Puppet g_puppets[MAX_PLAYERS];
 
 // Vetements des autres joueurs (MSG_CLOTHES) : CPedClothesDesc, 30 mots.
@@ -137,6 +165,9 @@ static void SendLocalState()
         float alpha = *(float *)(0xB6F028 + 0xBFC);
         s.fade = (uint8_t)(alpha < 0 ? 0 : alpha > 255 ? 255 : alpha);
         s.wanted = (uint8_t)WantedLevel();
+        if (!PedVehicle(ped)) WatchMelee(ped);
+        s.meleeSeq = g_meleeSeq;
+        s.meleeAnim = g_meleeAnim;
         if (void *veh = PedVehicle(ped)) {
             bool driver = Field<void *>(veh, VEH_DRIVER) == ped;
             s.seat = 0;
@@ -452,6 +483,23 @@ static void UpdatePuppet(int id)
         p.carTask = 0;
         SetPrimaryTask(ped, nullptr, 3);
     }
+    // Coup au corps a corps de son joueur : rejoue (face a la meme direction), le suivi attend la fin du geste.
+    if (!p.meleeKnown) { p.meleeKnown = true; p.meleeSeq = s.meleeSeq; }
+    else if (s.meleeSeq != p.meleeSeq) {
+        p.meleeSeq = s.meleeSeq;
+        if (s.meleeAnim < MELEE_ANIMS) {
+            SetHeading(ped, s.heading);
+            float blend = 8.0f;
+            int args[9] = { PedRef(ped), (int)(uintptr_t)kMeleeAnims[s.meleeAnim], (int)(uintptr_t)"PED", 0, 0, 0, 0, 0, -1 };
+            memcpy(&args[3], &blend, 4);
+            RunScriptCommandTyped(0x0605, 9, "issfiiiii", args);   // TASK_PLAY_ANIM
+            p.meleeUntil = GetTickCount() + 600;
+            p.moveState = 0;
+            static int said;
+            if (said < 10) { said++; Log("pantin du joueur %d : coup %s rejoue", id, kMeleeAnims[s.meleeAnim]); }
+        }
+    }
+    if ((int)(p.meleeUntil - GetTickCount()) > 0) return;
 
     if (FollowOnFoot(ped, s.pos, s.speed, s.heading, s.moveState, GetTickCount() - np.lastStateAt, p.moveState)) p.lastTask = GetTickCount();
 }
@@ -844,6 +892,61 @@ static void Autotest()
             float dx = b[0] - r[0], dy = b[1] - r[1];
             Log("autotest : pantin a %.1f m de son joueur, tache %p", sqrtf(dx * dx + dy * dy), ActiveTask(target));
         }
+        return;
+    }
+    // "voodoo" (hote) : une Voodoo de Ballas de mission (conducteur + passager) a 12 m ; le passager tire par la
+    // fenetre vers l'hote (TASK_DRIVE_BY 0713, sans balles) ; types de ses taches au journal (diagnostic).
+    if (_stricmp(g_cfg.autotest, "voodoo") == 0) {
+        static void *car, *drv, *pas;
+        static uint32_t lastLog;
+        void *ped = FindPlayerPed();
+        if (!car) {
+            static const int models[] = { 412, 102, 103 };
+            for (int m : models) if (!ModelLoaded(m)) { RequestModel(m, 2); LoadAllRequestedModels(false); }
+            const float *p = EntityPos(ped);
+            car = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(412, p[0] + 12.0f, p[1], p[2] + 0.5f, false);
+            if (!car) return;
+            drv = NewCivilianPed(8, 102);   // PEDTYPE_GANG1 (Ballas)
+            pas = NewCivilianPed(8, 103);
+            if (drv) { SetCharCreatedBy(drv, 2); WorldAdd(drv); WarpPuppetIn(drv, car, 0); }
+            if (pas) { SetCharCreatedBy(pas, 2); WorldAdd(pas); WarpPuppetIn(pas, car, 1); }
+            Log("autotest : Voodoo de Ballas prete (%p %p %p)", car, drv, pas);
+            return;
+        }
+        static bool driveby;
+        if (pas && !driveby && t > 30000) {
+            driveby = true;
+            { int w = -1; EnsurePedWeapon(pas, 28, w); }   // Uzi (sans arme, pas de tir par la fenetre)
+            int cnt = -1, nocar = -1;
+            const float *p = EntityPos(ped);
+            float rad = 50.0f;
+            int args[10] = { PedRef(pas), PedRef(ped), nocar, 0, 0, 0, 0, 0, 0, 0 };
+            memcpy(&args[3], p, 12);
+            memcpy(&args[6], &rad, 4);
+            args[9] = 0;
+            (void)cnt;
+            RunScriptCommandTyped(0x0713, 10, "iiiffffiii", args);   // TASK_DRIVE_BY (cadence 0)
+            Log("autotest : le passager tire par la fenetre");
+        }
+        if (pas && t - lastLog > 2000) {
+            lastLog = t;
+            char buf[160] = "";
+            void **tk = PrimaryTasks(pas);
+            for (int k = 0; k < 11; k++)
+                for (void *task = tk[k]; task; task = ((void *(__thiscall *)(void *))(*(void ***)task)[2])(task)) {
+                    char one[16];
+                    wsprintfA(one, "%d:%d ", k, ((int(__thiscall *)(void *))(*(void ***)task)[4])(task));
+                    if (lstrlenA(buf) < 140) lstrcatA(buf, one);
+                }
+            Log("autotest : taches du passager : %s", buf);
+        }
+        return;
+    }
+    // "poing" (hote) : coups de poing dans le vide (Rond, 0x22) 3 fois entre 30 et 36 s ; l'invite doit les voir.
+    if (_stricmp(g_cfg.autotest, "poing") == 0) {
+        joy[0x22 / 2] = ((t > 30000 && t < 30200) || (t > 32000 && t < 32200) || (t > 34000 && t < 34200)) ? 255 : 0;
+        static int said;
+        if (t > 30000 && !said) { said = 1; Log("autotest : coups de poing"); }
         return;
     }
     if (_stricmp(g_cfg.autotest, "tireinv") == 0) {

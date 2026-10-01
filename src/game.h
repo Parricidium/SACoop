@@ -99,6 +99,19 @@ namespace game {
         for (int k = 1; k <= 2; k++) if (t[k]) { SetPrimaryTask(ped, nullptr, k); had = true; }
         return had;
     }
+    // Une tache de ce type (CTask vtable : [2] GetSubTask, [4] GetTaskType) dans les taches principales (5) ou
+    // secondaires (6, CTaskManager +0x14) du personnage, sous-taches comprises.
+    inline bool HasTaskType(void *ped, int type)
+    {
+        void **t = PrimaryTasks(ped);
+        for (int k = 0; k < 11; k++)
+            for (void *task = t[k], *guard = nullptr; task && guard != (void *)8; guard = (void *)((uintptr_t)guard + 1)) {
+                void **vt = *(void ***)task;
+                if (((int(__thiscall *)(void *))vt[4])(task) == type) return true;
+                task = ((void *(__thiscall *)(void *))vt[2])(task);
+            }
+        return false;
+    }
     enum : uintptr_t { VT_TaskSimpleGoToPoint = 0x86FD50 };
     // Tache principale active (CTaskManager::GetActiveTask 0x681720).
     inline void *ActiveTask(void *ped) { return ((void *(__thiscall *)(void *))0x681720)(PrimaryTasks(ped)); }
