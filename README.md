@@ -60,7 +60,8 @@ game version, and starts the game as host or guest. Options and release notes ar
   other (bullets, punches, cars; *Friendly fire* option, each player chooses), and a player who dies falls for
   everybody, then comes back at the hospital.
 - **Shared story missions**: missions run on the host, everybody plays them. The other players see the mission
-  characters (Sweet, Big Smoke... with their weapons, in their cars) and vehicles, the **cutscenes**, mission texts,
+  characters (Sweet, Big Smoke... with their weapons, in their cars), vehicles and objects, the **cutscenes** (skipped
+  together when the host skips), mission texts,
   help boxes, radar markers, dialogues, fades and mission cameras. They can fight alongside the host: their hits on
   mission characters count, and mission enemies hurt them. **Any player can move the mission on**: reaching a
   checkpoint or getting into the mission car counts for everybody, and checkpoint markers show for all. At mission
@@ -75,7 +76,7 @@ game version, and starts the game as host or guest. Options and release notes ar
 
 ## Not there yet (roadmap)
 
-1. Story missions, the rest: shared save, mission objects, skipping cutscenes together.
+1. Story missions, the rest: shared save, testing every mission.
 2. Shared traffic and pedestrians.
 3. A co-op menu in the game, and a lobby in the launcher.
 4. Modern rendering options (as in VCCoop), all optional.
@@ -143,8 +144,8 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
   (balles, coups, voitures ; option *Tir ami*, chacun choisit pour lui), et un joueur qui meurt tombe chez tout le
   monde, puis revient à l'hôpital.
 - **Missions de l'histoire partagées** : elles tournent chez l'hôte, tout le monde les joue. Les autres voient les
-  personnages de mission (Sweet, Big Smoke... avec leurs armes, dans leurs voitures) et les véhicules, les
-  **cinématiques**, textes de mission, aides, marqueurs radar, dialogues, fondus et caméras de mission. Ils peuvent
+  personnages de mission (Sweet, Big Smoke... avec leurs armes, dans leurs voitures), les véhicules et les objets,
+  les **cinématiques** (passées ensemble quand l'hôte les passe), textes de mission, aides, marqueurs radar, dialogues, fondus et caméras de mission. Ils peuvent
   se battre avec l'hôte : leurs coups sur les personnages de mission comptent, et les ennemis de mission les
   blessent. **N'importe quel joueur fait avancer la mission** : atteindre un
   point de passage ou monter dans la voiture de mission compte pour tous, et les marqueurs s'affichent chez tous.
@@ -160,7 +161,7 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 
 ## Pas encore là (feuille de route)
 
-1. Missions de l'histoire, la suite : sauvegarde partagée, objets de mission, passer les cinématiques ensemble.
+1. Missions de l'histoire, la suite : sauvegarde partagée, essai de chaque mission.
 2. Circulation et passants partagés.
 3. Un menu coop dans le jeu, et un salon dans le lanceur.
 4. Options de rendu moderne (comme dans VCCoop), toutes facultatives.

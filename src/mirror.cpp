@@ -33,7 +33,8 @@ using namespace game;
 enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4 };
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
-// q/Q sphere (entree/sortie). (A l'envoi, un P qui designe le joueur de l'hote devient H : son pantin chez l'invite.)
+// q/Q sphere (entree/sortie), o/O objet (entree/sortie). (A l'envoi, un P qui designe le joueur de l'hote devient H :
+// son pantin chez l'invite.)
 struct MirrorOp { uint16_t op; const char *sig; };
 static const MirrorOp kOps[] = {
     { 0x00BA, "sii" },     // PRINT_BIG
@@ -74,6 +75,14 @@ static const MirrorOp kOps[] = {
     { 0x02EA, "" },        // CLEAR_CUTSCENE (0x4D5ED0) : attend que celle de l'invite soit finie
     { 0x0055, "ifff" },    // SET_PLAYER_COORDINATES : l'invite est pose a cote (decale selon son numero)
     { 0x0109, "ii" },      // ADD_SCORE : l'argent gagne en mission, pour chacun
+    { 0x0107, "ifffO" },   // CREATE_OBJECT (modele negatif : table des objets utilises 0xA44B70, id a +24)
+    { 0x029B, "ifffO" },   // CREATE_OBJECT_NO_OFFSET
+    { 0x0108, "o" },       // DELETE_OBJECT
+    { 0x01BC, "offf" },    // SET_OBJECT_COORDINATES
+    { 0x0177, "of" },      // SET_OBJECT_HEADING
+    { 0x0382, "oi" },      // SET_OBJECT_COLLISION
+    { 0x0750, "oi" },      // SET_OBJECT_VISIBLE
+    { 0x0188, "oB" },      // ADD_BLIP_FOR_OBJECT
 };
 
 // Cinematiques : CCutsceneMgr::ms_cutsceneLoadStatus 0xB5F84C (2 = chargee), ms_running 0xB5F851,
@@ -138,7 +147,7 @@ struct Active { int handle; int len; bool persist; uint8_t data[256]; };
 static Active g_active[96];
 static void KeepActive(int op, const uint8_t *buf, int len, int handle)
 {
-    if (op == 0x0164 || op == 0x03BD) {   // retrait
+    if (op == 0x0164 || op == 0x03BD || op == 0x0108) {   // retrait
         for (auto &a : g_active) if (a.len && a.handle == handle) a.len = 0;
         return;
     }
@@ -256,23 +265,30 @@ void MirrorAfter(void *script, int op)
             buf[len++] = (uint8_t)n;
             memcpy(buf + len, p.text, n); len += n;
         } else {
-            int v = (p.kind == 'B' || p.kind == 'Q') && p.out ? *p.out : p.value;   // sortie : le handle de l'hote
+            int v = (p.kind == 'B' || p.kind == 'Q' || p.kind == 'O') && p.out ? *p.out : p.value;   // sortie : le handle de l'hote
             memcpy(buf + len, &v, 4); len += 4;
         }
     }
     NetSendReliable(buf, len);
     (void)script;
     // Commandes a garder pour un invite qui arrive : texte de mission, creation/retrait de marqueur ou sphere.
+    // (objets : les deplacements apres la creation ne sont pas gardes ; cle distincte de celle des marqueurs)
     int handle = 0;
-    for (int k = 0; k < g_cap.n; k++)
-        if (strchr("BQbq", g_cap.p[k].kind)) handle = (g_cap.p[k].kind == 'B' || g_cap.p[k].kind == 'Q') && g_cap.p[k].out ? *g_cap.p[k].out : g_cap.p[k].value;
-    if (op == 0x054C || handle) KeepActive(op, buf, len, handle);
+    for (int k = 0; k < g_cap.n; k++) {
+        char kd = g_cap.p[k].kind;
+        if (!strchr("BQbqOo", kd)) continue;
+        handle = (kd == 'B' || kd == 'Q' || kd == 'O') && g_cap.p[k].out ? *g_cap.p[k].out : g_cap.p[k].value;
+        if (kd == 'O' || kd == 'o') handle ^= 0x40000000;
+        break;
+    }
+    if (op == 0x0188) handle = 0;   // marqueur d'objet : rejoue avec l'objet... non garde (ordre de recreation)
+    if (op == 0x054C || (handle && op != 0x01BC && op != 0x0177 && op != 0x0382 && op != 0x0750)) KeepActive(op, buf, len, handle);
 }
 
 // --- Invite : rejeu ---
 enum { MAX_MAP = 128 };
 struct HandleMap { int host, guest; bool persist; };   // persist : icone radar (04CE, 02A7), gardee apres la mission
-static HandleMap g_blips[MAX_MAP], g_spheres[MAX_MAP];
+static HandleMap g_blips[MAX_MAP], g_spheres[MAX_MAP], g_objects[MAX_MAP];
 static int MapGet(HandleMap *m, int host)
 {
     for (int i = 0; i < MAX_MAP; i++) if (m[i].host == host && host) return m[i].guest;
@@ -327,6 +343,12 @@ static bool Replay(const uint8_t *d, int len)
             ExecCommand(0x0164);
             b.host = b.guest = 0;
         }
+        for (auto &o : g_objects) if (o.host) {   // objets de mission (chez l'hote, le nettoyage de mission les retire)
+            *(uint16_t *)g_code = 0x0108;
+            g_code[2] = 1; memcpy(g_code + 3, &o.guest, 4);
+            ExecCommand(0x0108);
+            o.host = o.guest = 0;
+        }
         for (auto &s : g_spheres) if (s.host) {
             *(uint16_t *)g_code = 0x03BD;
             g_code[2] = 1; memcpy(g_code + 3, &s.guest, 4);
@@ -365,7 +387,22 @@ static bool Replay(const uint8_t *d, int len)
     if (d[0] != RL_MIRROR || len < 4) return true;
     int op = *(const uint16_t *)(d + 1), n = d[3];
     if (op == 0x02E7 && !CutsceneLoaded()) return false;                           // chargement en cours
-    if (op == 0x02EA && CutsceneRunning() && !CutsceneFinished()) return false;   // l'invite a demarre un peu apres
+    if (op == 0x02EA && CutsceneRunning() && !CutsceneFinished()) {
+        // L'hote a fini (ou passe) sa cinematique : on passe celle de l'invite, comme un appui sur Croix
+        // (PCTempJoyState de la manette 0, +0x20), une image sur deux.
+        static uint32_t frame;
+        ((int16_t *)(0xB73458 + 0xA8))[0x20 / 2] = (++frame & 2) ? 255 : 0;
+        return false;
+    }
+    if (op == 0x02EA) ((int16_t *)(0xB73458 + 0xA8))[0x20 / 2] = 0;
+    if ((op == 0x0107 || op == 0x029B) && len >= 9 && d[4] == 'i') {   // modele de l'objet charge avant
+        int model;
+        memcpy(&model, d + 5, 4);
+        if (model < 0) model = *(int *)(0xA44B88 + -model * 28);
+        if (model <= 0 || model >= 20000) return true;
+        if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
+        if (!ModelLoaded(model)) return false;
+    }
     int pos = 4, out = 0;
     int c = 0;
     *(uint16_t *)g_code = (uint16_t)op;
@@ -404,7 +441,8 @@ static bool Replay(const uint8_t *d, int len)
         }
         case 'b': v = MapGet(g_blips, v); if (!v) return true; break;      // marqueur inconnu : rien a faire
         case 'q': v = MapGet(g_spheres, v); if (!v) return true; break;
-        case 'B': case 'Q':
+        case 'o': v = MapGet(g_objects, v); if (!v) return true; break;
+        case 'B': case 'Q': case 'O':
             outKind[out] = kind; outHost[out] = v; outIdx[out] = out;
             g_code[c++] = 3; *(uint16_t *)(g_code + c) = (uint16_t)out; c += 2;
             out++;
@@ -424,10 +462,11 @@ static bool Replay(const uint8_t *d, int len)
     if (logged < 300) { logged++; Log("miroir : %04X rejouee", op); }
     for (int k = 0; k < out; k++) {
         int guest = *(int *)(g_script + 0x3C + outIdx[k] * 4);
-        MapSet(outKind[k] == 'B' ? g_blips : g_spheres, outHost[k], guest, op == 0x04CE || op == 0x02A7);
+        MapSet(outKind[k] == 'B' ? g_blips : outKind[k] == 'O' ? g_objects : g_spheres, outHost[k], guest, op == 0x04CE || op == 0x02A7);
     }
     if (op == 0x0164) MapDel(g_blips, *(const int *)(d + 5));
     if (op == 0x03BD) MapDel(g_spheres, *(const int *)(d + 5));
+    if (op == 0x0108) MapDel(g_objects, *(const int *)(d + 5));
     return true;
 }
 
@@ -475,6 +514,35 @@ void RunScriptCommand(int op, int nargs, const int *args)
     *(uint16_t *)g_code = (uint16_t)op;
     for (int k = 0; k < nargs; k++) { g_code[c++] = 1; memcpy(g_code + c, &args[k], 4); c += 4; }
     ExecCommand(op);
+}
+
+// Autotest "objet" (hote, hors mission) : un baril (1225) cree, deplace puis supprime par le script fantome marque
+// "mission", comme le ferait une mission : les commandes passent par la capture du miroir.
+void MirrorTestObject(int step, const float *pos)
+{
+    static int handle;
+    memcpy(g_script + 8, "sacoop", 7);
+    g_script[0xDC] = 1;
+    int c = 2, op = step == 0 ? 0x0107 : step == 1 ? 0x01BC : 0x0108;
+    auto i32 = [&](uint8_t t, const void *v) { g_code[c++] = t; memcpy(g_code + c, v, 4); c += 4; };
+    *(uint16_t *)g_code = (uint16_t)op;
+    if (step == 0) {
+        int model = 1225;
+        if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
+        i32(1, &model); i32(6, &pos[0]); i32(6, &pos[1]); i32(6, &pos[2]);
+        g_code[c++] = 3; *(uint16_t *)(g_code + c) = 0; c += 2;   // sortie : locale de mission 0
+    } else {
+        i32(1, &handle);
+        if (step == 1) { i32(6, &pos[0]); i32(6, &pos[1]); i32(6, &pos[2]); }
+    }
+    *(uint8_t **)(g_script + 0x10) = g_code;
+    *(uint8_t **)(g_script + 0x14) = g_code + 2;
+    MirrorBefore(g_script, op);
+    ExecCommand(op);
+    MirrorAfter(g_script, op);
+    if (step == 0) handle = *(int *)0xA48960;
+    g_script[0xDC] = 0;
+    Log("autotest : objet %d (etape %d)", handle, step);
 }
 
 void MirrorFrame()
