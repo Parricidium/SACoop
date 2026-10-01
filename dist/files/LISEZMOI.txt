@@ -29,8 +29,11 @@ Touches
 - Rendu moderne : occlusion ambiante et anticrenelage FXAA (onglet VIDEO
   du lanceur).
 - F6 : vue a la premiere personne a pied (F6 pour revenir).
-- F10 : panneau coop (aller vers un joueur, tir ami, tenue ; heure et meteo
-  pour l'hote). Fleches et Entree pour choisir, Echap pour fermer.
+- F10 : menu en jeu, a la souris : joueurs (aller vers un joueur, tir ami),
+  vehicules (un clic le fait apparaitre devant vous), outils (sante, armes,
+  argent, reparer, etoiles a zero, jetpack), tenue ; heure, meteo et police
+  pour l'hote. Echap ou F10 pour fermer.
+- F1 : aide (touches, bon a savoir).
 
 Il faut
 - GTA San Andreas pour PC, version 1.0 US. La version Steam actuelle

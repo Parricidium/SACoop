@@ -30,8 +30,11 @@ Keys
 - Modern rendering: ambient occlusion and FXAA anti-aliasing (launcher
   VIDEO tab).
 - F6: first-person view on foot (F6 again to go back).
-- F10: co-op panel (go to a player, friendly fire, outfit; time and weather
-  for the host). Arrows and Enter to choose, Escape to close.
+- F10: in-game menu, used with the mouse: players (go to a player, friendly
+  fire), vehicles (a click spawns it in front of you), tools (health, weapons,
+  money, repair, clear wanted level, jetpack), outfit; time, weather and police
+  for the host. Escape or F10 to close.
+- F1: help (keys, tips).
 
 You need
 - GTA San Andreas for PC, version 1.0 US. The current Steam version (3.0)

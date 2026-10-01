@@ -3,7 +3,9 @@
 // RenderWare (sections Clump, FrameList, Geometry, Material, Texture Native) ; pose d'origine du modele.
 // CJ n'a pas de modele unique : il est assemble de ses vetements par defaut (player.img : tete, cheveux, debardeur,
 // jean, baskets).
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #define NOMINMAX
 #include <windows.h>
 #include "model3d.h"

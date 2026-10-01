@@ -10,6 +10,7 @@
 // attribue au pantin, puis modele 0 reconstruit avec les vetements du joueur local (sinon son prochain changement de
 // modele prendrait ceux de l'autre). Sans reconstruction juste avant, la copie etait invisible.
 #include "util.h"
+#include "panel.h"
 #include "sacoop.h"
 #include "net.h"
 #include "game.h"
@@ -944,6 +945,8 @@ void CoopFrame(bool inGameLoop)
     if (g_cfg.netAuto && !netTried) { netTried = true; NetStart(); }
     CameraFrame();   // (vue F6 et mods : en solo aussi)
     ModsFrame();
+    PanelFrame();    // (menu F10 : en solo aussi)
+    PanelTest();
     if (!NetRunning()) return;
     SaveSyncFrame();
     {   // arrivees et departs des joueurs (message a l'ecran)

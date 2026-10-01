@@ -9,12 +9,72 @@
 #include "widescreen.h"
 #include "menu.h"
 #include "net.h"
+#include "panel.h"
 #include <stdio.h>
 #include <stdlib.h>
 
 Config g_cfg;
 
 typedef HRESULT(WINAPI *DirectInput8Create_t)(HINSTANCE, DWORD, const GUID &, LPVOID *, void *);
+
+// Souris et clavier DirectInput : tant que l'interface en jeu est ouverte (menu F10, aide F1, tchat), la souris sert
+// a son curseur et le jeu ne voit ni souris ni clavier (camera, tirs, touches immobiles). A la fermeture, les touches
+// et boutons encore enfonces restent caches jusqu'a ce qu'ils soient relaches (Echap ne rouvre pas le menu du jeu,
+// le clic sur X ne tire pas). IDirectInput8::CreateDevice = vtable[3], IDirectInputDevice8::GetDeviceState = vtable[9].
+static const GUID kSysMouse = { 0x6F1D2B60, 0xD5A0, 0x11CF, { 0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00 } };
+static const GUID kSysKeyboard = { 0x6F1D2B61, 0xD5A0, 0x11CF, { 0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00 } };
+static void *g_diMouse, *g_diKeyboard;
+typedef HRESULT(WINAPI *GetDeviceState_t)(void *, DWORD, void *);
+typedef HRESULT(WINAPI *CreateDevice_t)(void *, const GUID &, void **, void *);
+static GetDeviceState_t o_GetDeviceState;
+static CreateDevice_t o_CreateDevice;
+
+static bool AnyDown(const uint8_t *b, DWORD n) { for (DWORD i = 0; i < n; i++) if (b[i] & 0x80) return true; return false; }
+
+static HRESULT WINAPI h_GetDeviceState(void *dev, DWORD size, void *data)
+{
+    HRESULT hr = o_GetDeviceState(dev, size, data);
+    if (FAILED(hr) || !data) return hr;
+    static bool holdMouse, holdKeys;
+    bool capture = PanelCapturesKeys();
+    if (dev == g_diMouse && size >= 16) {
+        LONG *m = (LONG *)data;
+        uint8_t *buttons = (uint8_t *)data + 12;
+        DWORD nb = size >= 20 ? 8 : 4;
+        if (PanelOpen()) { PanelMouseInput(m[0], m[1], m[2], (buttons[0] & 0x80) != 0); holdMouse = true; }
+        if (capture || holdMouse) {
+            if (!capture && !AnyDown(buttons, nb)) holdMouse = false;
+            memset(data, 0, size);
+        }
+    } else if (dev == g_diKeyboard && size >= 256) {
+        if (capture) holdKeys = true;
+        if (holdKeys) {
+            if (!capture && !AnyDown((uint8_t *)data, 256)) holdKeys = false;
+            memset(data, 0, size);
+        }
+    }
+    return hr;
+}
+
+static HRESULT WINAPI h_CreateDevice(void *di, const GUID &guid, void **out, void *outer)
+{
+    HRESULT hr = o_CreateDevice(di, guid, out, outer);
+    if (SUCCEEDED(hr) && out && *out) {
+        bool mouse = !memcmp(&guid, &kSysMouse, sizeof(GUID)), keyboard = !memcmp(&guid, &kSysKeyboard, sizeof(GUID));
+        if (mouse) g_diMouse = *out;
+        if (keyboard) g_diKeyboard = *out;
+        if ((mouse || keyboard) && !o_GetDeviceState) {
+            void **vt = *(void ***)*out;
+            o_GetDeviceState = (GetDeviceState_t)vt[9];
+            DWORD old;
+            VirtualProtect(&vt[9], 4, PAGE_EXECUTE_READWRITE, &old);
+            vt[9] = (void *)h_GetDeviceState;
+            VirtualProtect(&vt[9], 4, old, &old);
+            Log("entrees : souris et clavier DirectInput suivis (interface en jeu)");
+        }
+    }
+    return hr;
+}
 
 extern "C" HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE inst, DWORD ver, const GUID &riid, LPVOID *out, void *outer)
 {
@@ -25,7 +85,16 @@ extern "C" HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE inst, DWORD ver, co
         lstrcatA(path, "\\dinput8.dll");
         real = (DirectInput8Create_t)GetProcAddress(LoadLibraryA(path), "DirectInput8Create");
     }
-    return real ? real(inst, ver, riid, out, outer) : E_FAIL;
+    HRESULT hr = real ? real(inst, ver, riid, out, outer) : E_FAIL;
+    if (SUCCEEDED(hr) && out && *out && !o_CreateDevice) {
+        void **vt = *(void ***)*out;
+        o_CreateDevice = (CreateDevice_t)vt[3];
+        DWORD old;
+        VirtualProtect(&vt[3], 4, PAGE_EXECUTE_READWRITE, &old);
+        vt[3] = (void *)h_CreateDevice;
+        VirtualProtect(&vt[3], 4, old, &old);
+    }
+    return hr;
 }
 
 static void LoadConfig()
