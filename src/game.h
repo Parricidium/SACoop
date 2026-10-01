@@ -88,6 +88,17 @@ namespace game {
         // CTaskManager::SetTask(CTask *, int slot, bool) : trois parametres (ret 0Ch).
         ((void(__thiscall *)(void *, void *, int, bool))0x681AF0)(PrimaryTasks(ped), task, slot, false);
     }
+    // Reactions de l'IA (emplacements 1 et 2 : reponses aux evenements, temporaire et durable : riposte, fuite,
+    // panique...) : elles passent avant la tache principale (3, celle qui fait suivre le joueur a un pantin) puisque la
+    // tache active est la premiere non vide (GetActiveTask). Videes : renvoie vrai s'il y en avait une. L'emplacement 0
+    // (choc physique : coup recu, chute) reste au jeu.
+    inline bool ClearEventResponses(void *ped)
+    {
+        void **t = PrimaryTasks(ped);
+        bool had = false;
+        for (int k = 1; k <= 2; k++) if (t[k]) { SetPrimaryTask(ped, nullptr, k); had = true; }
+        return had;
+    }
     enum : uintptr_t { VT_TaskSimpleGoToPoint = 0x86FD50 };
     // Tache principale active (CTaskManager::GetActiveTask 0x681720).
     inline void *ActiveTask(void *ped) { return ((void *(__thiscall *)(void *))0x681720)(PrimaryTasks(ped)); }
