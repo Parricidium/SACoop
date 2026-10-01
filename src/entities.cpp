@@ -14,6 +14,7 @@
 #include "combat.h"
 #include "vehicles.h"
 #include "entities.h"
+#include "population.h"
 #include <string.h>
 
 using namespace game;
@@ -35,11 +36,16 @@ static bool IsDead(void *ped)
 }
 
 // --- Hote ---
+// Personnage partage : de mission (CharCreatedBy 2), ou ordinaire (1) a moins de 160 m d'un invite partage
+// (population.cpp). Hors joueurs et pantins.
 uint32_t MissionPedId(void *ped)
 {
     if (!ped || !g_cfg.host || (*((uint8_t *)ped + 0x36) & 7) != 3) return 0;
-    if (Field<uint8_t>(ped, 0x484) != 2 || ped == FindPlayerPed() || PuppetIndex(ped) >= 0) return 0;
-    return (uint32_t)PedRef(ped);
+    if (ped == FindPlayerPed() || PuppetIndex(ped) >= 0) return 0;
+    uint8_t by = Field<uint8_t>(ped, 0x484);
+    if (by == 2) return (uint32_t)PedRef(ped);
+    if (by == 1 && NearSharedGuest(EntityPos(ped), 160.0f)) return (uint32_t)PedRef(ped);
+    return 0;
 }
 
 static void HostSend()
@@ -49,12 +55,16 @@ static void HostSend()
     if (now - last < 66) return;
     last = now;
     HostRegisterMissionVehicles();
+    static int cycle;
+    cycle++;
     Pool *p = *(Pool **)0xB74490;
     for (int i = 0; i < p->size; i++) {
         if (p->flags[i] & 0x80) continue;
         void *ped = p->objects + i * 0x7C4;
         uint32_t id = MissionPedId(ped);
         if (!id) continue;
+        bool ambient = Field<uint8_t>(ped, 0x484) != 2;
+        if (ambient && (cycle & 1)) continue;   // passants : 7-8 fois par seconde
         MsgPed m = {};
         m.type = MSG_PED;
         m.id = id;
@@ -67,8 +77,9 @@ static void HostSend()
         m.weapon = (uint8_t)Field<int>(ped, PED_WEAPONS + Field<uint8_t>(ped, PED_WEAPONSLOT) * 0x1C);
         m.area = EntityArea(ped);
         if (IsDead(ped)) m.flags |= PF_DEAD;
+        if (ambient) m.flags |= PF_AMBIENT;
         if (void *veh = PedVehicle(ped)) {
-            m.vehicleId = HostVehicleId(veh, true);
+            m.vehicleId = HostVehicleId(veh, true, ambient);
             if (Field<void *>(veh, VEH_DRIVER) != ped)
                 for (int k = 0; k < 8; k++) if (Field<void *>(veh, VEH_PASSENGERS + k * 4) == ped) m.seat = (uint8_t)(k + 1);
         }
@@ -158,8 +169,12 @@ static void DestroyCopy(Copy &c)
     memset(&c, 0, sizeof(c));
 }
 
-static bool LoadModel(int model, const char *special)
+static bool LoadModel(int model, const char *special, bool async)
 {
+    if (async && model < 290) {   // passant : chargement en fond, la copie attend (pas d'a-coup)
+        if (!ModelLoaded(model)) RequestModel(model, 0);
+        return ModelLoaded(model);
+    }
     if (model >= 290 && model <= 299) {
         if (!special[0]) return false;
         char name[9] = {};
@@ -175,7 +190,7 @@ static bool LoadModel(int model, const char *special)
 static void CreateCopy(Copy &c)
 {
     const MsgPed &m = c.last;
-    if (m.model >= 300 || !LoadModel(m.model, m.special)) return;
+    if (m.model >= 300 || !LoadModel(m.model, m.special, (m.flags & PF_AMBIENT) != 0)) return;
     void *ped = NewCivilianPed(4, m.model);
     if (!ped) return;
     SetCharCreatedBy(ped, 2);

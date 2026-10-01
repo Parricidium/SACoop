@@ -56,6 +56,8 @@ game version, and starts the game as host or guest. Options and release notes ar
   tyres, smoke, fire, explosion), siren and repairs.
 - Each player's **name above their head** and a **radar blip** in their colour.
 - **Same time and weather** for everybody (the host's).
+- **Shared street life**: near the host, everybody sees the same pedestrians and traffic (the host's); far away,
+  each player keeps their own.
 - **Weapons and shots**: everybody sees the weapon in each player's hand and their shots. Players can hurt each
   other (bullets, punches, cars; *Friendly fire* option, each player chooses), and a player who dies falls for
   everybody, then comes back at the hospital.
@@ -77,7 +79,7 @@ game version, and starts the game as host or guest. Options and release notes ar
 ## Not there yet (roadmap)
 
 1. Story missions, the rest: testing every mission (the real test with JD and friends).
-2. Shared traffic and pedestrians.
+2. Police for guests (the host's police only chases the host).
 3. A co-op menu in the game, and a lobby in the launcher.
 4. Modern rendering options (as in VCCoop), all optional.
 
@@ -140,6 +142,8 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
   pare-chocs, phares, pneus, fumée, feu, explosion), sa sirène et ses réparations.
 - Le **pseudo de chaque joueur au-dessus de sa tête** et un **point radar** à sa couleur.
 - **Même heure et même météo** pour tout le monde (celles de l'hôte).
+- **Rues partagées** : près de l'hôte, tout le monde voit les mêmes passants et la même circulation (ceux de
+  l'hôte) ; loin de lui, chacun garde les siens.
 - **Armes et tirs** : chacun voit l'arme en main des autres joueurs et leurs tirs. Les joueurs peuvent se blesser
   (balles, coups, voitures ; option *Tir ami*, chacun choisit pour lui), et un joueur qui meurt tombe chez tout le
   monde, puis revient à l'hôpital.
@@ -163,7 +167,7 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 ## Pas encore là (feuille de route)
 
 1. Missions de l'histoire, la suite : essai de chaque mission (le vrai test entre amis).
-2. Circulation et passants partagés.
+2. Police pour les invités (celle de l'hôte ne poursuit que l'hôte).
 3. Un menu coop dans le jeu, et un salon dans le lanceur.
 4. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
 

@@ -10,6 +10,7 @@
 #include "net.h"
 #include "game.h"
 #include "vehicles.h"
+#include "population.h"
 #include <math.h>
 #include <string.h>
 
@@ -27,6 +28,7 @@ struct NetVeh {
     MsgVehicle last;     // dernier etat recu (copies)
     bool damaged;        // le dernier etat recu portait des degats (une remise a neuf = reparation)
     bool mission;        // vehicule de mission de l'hote : envoye tant qu'il existe
+    bool ambient;        // vehicule ordinaire de l'hote pres d'un invite partage (population.cpp) : envoye tant qu'il y est
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -108,7 +110,9 @@ uint32_t LocalVehicleId(void *veh, bool driver)
 
 // Hote : vehicule de mission (CreatedBy +0x4A4 == 2) ou occupe par un personnage de mission. Il devient un vehicule
 // reseau de l'hote, envoye tant qu'il existe (chez les invites, sa copie disparait 3 s apres le dernier message).
-uint32_t HostVehicleId(void *veh, bool occupied)
+bool IsNetVehicle(void *veh) { return FindByVeh(veh) != nullptr; }
+
+uint32_t HostVehicleId(void *veh, bool occupied, bool ambient)
 {
     NetVeh *n = FindByVeh(veh);
     if (n && n->owner != g_localId) return n->id;   // copie du vehicule d'un invite
@@ -121,9 +125,31 @@ uint32_t HostVehicleId(void *veh, bool occupied)
         n->owner = (uint8_t)g_localId;
         Log("vehicule de mission %08X (modele %d) enregistre", n->id, *(int16_t *)((uint8_t *)veh + 0x22));
     }
-    n->mission = true;
+    if (ambient && !n->mission) n->ambient = true;
+    else { n->mission = true; n->ambient = false; }
     if (occupied) n->lastDriven = GetTickCount();
     return n->id;
+}
+
+// Hote : vehicules ordinaires (CreatedBy 1 aleatoire, 3 gare) a moins de 150 m d'un invite partage -> vehicules reseau ;
+// oublies au-dela de 200 m (leur copie disparait chez l'invite 3 s plus tard).
+void HostRegisterAmbientVehicles()
+{
+    static uint32_t last;
+    uint32_t now = GetTickCount();
+    if (now - last < 500) return;
+    last = now;
+    Pool *p = *(Pool **)0xB74494;
+    for (int i = 0; i < p->size; i++) {
+        if (p->flags[i] & 0x80) continue;
+        uint8_t *v = p->objects + i * 0xA18;
+        if ((v[0x4A4] == 1 || v[0x4A4] == 3) && !FindByVeh(v) && NearSharedGuest(EntityPos(v), 150.0f)) HostVehicleId(v, false, true);
+    }
+    for (auto &n : g_veh) {
+        if (!n.id || !n.ambient || n.owner != g_localId) continue;
+        if (!Alive(n)) { memset(&n, 0, sizeof(n)); continue; }
+        if (now - n.lastDriven > 2000 && !NearSharedGuest(EntityPos(n.veh), 200.0f)) memset(&n, 0, sizeof(n));
+    }
 }
 
 // Hote : tous les vehicules de mission du pool (0xB74494) deviennent des vehicules reseau.
@@ -133,7 +159,7 @@ void HostRegisterMissionVehicles()
     for (int i = 0; i < p->size; i++) {
         if (p->flags[i] & 0x80) continue;
         uint8_t *v = p->objects + i * 0xA18;
-        if (v[0x4A4] == 2 && !FindByVeh(v)) HostVehicleId(v, false);
+        if (v[0x4A4] == 2 && !FindByVeh(v)) HostVehicleId(v, false, false);
     }
 }
 
@@ -169,8 +195,9 @@ static void SendOwned()
         bool driving = now - n.lastDriven < 200;
         const float *spd = (const float *)((uint8_t *)n.veh + 0x44);
         bool moving = spd[0] * spd[0] + spd[1] * spd[1] + spd[2] * spd[2] > 0.0001f;
-        uint32_t every = driving ? 33 : n.mission && moving ? 66 : 500;
-        if (!driving && !n.mission && now - n.lastDriven > 10000) continue;   // gare depuis 10 s : plus rien a envoyer
+        bool hosted = n.mission || n.ambient;
+        uint32_t every = driving ? 33 : hosted && moving ? 66 : 500;
+        if (!driving && !hosted && now - n.lastDriven > 10000) continue;   // gare depuis 10 s : plus rien a envoyer
         if (now - n.lastSend < every) continue;
         n.lastSend = now;
         uint8_t *v = (uint8_t *)n.veh;
@@ -187,7 +214,7 @@ static void SendOwned()
         memcpy(m.turn, v + 0x50, 12);
         m.driven = driving;
         m.ownerRef = n.ref;
-        if (n.mission) m.flags |= VF_MISSION;
+        if (n.mission || n.ambient) m.flags |= VF_MISSION;   // envoye tant qu'il existe (copie retiree 3 s apres)
         m.health = *(float *)(v + 0x4C0);
         if ((v[0x36] >> 3) == 5) m.flags |= VF_WRECKED;
         if (v[0x42D] & 0x80) m.flags |= VF_SIREN;
