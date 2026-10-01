@@ -21,6 +21,7 @@
 #include "mirror.h"
 #include "conditions.h"
 #include "savesync.h"
+#include "population.h"
 #include "script.h"
 #include <math.h>
 #include <string.h>
@@ -87,6 +88,7 @@ void InstallPuppetRender()
     InstallCombat();
     InstallEntities();
     InstallConditions();
+    InstallPopulation();
 }
 static uint32_t g_calmSince;   // depuis quand on est en partie sans cinematique (creation des pantins)
 
@@ -813,6 +815,7 @@ void CoopFrame(bool inGameLoop)
     EntitiesFrame();
     MirrorFrame();
     ConditionsFrame();
+    PopulationFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
     SyncWorld();

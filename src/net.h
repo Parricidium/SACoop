@@ -87,7 +87,7 @@ struct MsgPed {
     uint32_t vehicleId;         // vehicule reseau (0 : a pied)
     char special[8];            // modele special (290-299) : son nom (CStreaming::RequestSpecialModel)
 };
-enum { PF_DEAD = 1 };
+enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */ };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 // Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).
 struct MsgMarker { uint8_t type, n; uint16_t op; int vals[8]; };

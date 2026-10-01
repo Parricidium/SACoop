@@ -3,8 +3,10 @@
 #include <stdint.h>
 
 void VehiclesFrame();                            // chaque tour de la boucle en partie (coop.cpp)
-uint32_t HostVehicleId(void *veh, bool occupied);   // hote : vehicule de mission / d'un personnage de mission
+uint32_t HostVehicleId(void *veh, bool occupied, bool ambient);   // hote : vehicule de mission / d'un personnage partage
 void HostRegisterMissionVehicles();
+void HostRegisterAmbientVehicles();              // hote : vehicules ordinaires pres des invites partages
+bool IsNetVehicle(void *veh);
 uint32_t LocalVehicleId(void *veh, bool driver); // identifiant reseau du vehicule occupe par le joueur local
 void *NetVehicleByOwnerRef(int owner, int ref);  // copie d'un vehicule par son handle de script chez owner
 int VehicleRef(void *veh);
