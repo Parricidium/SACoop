@@ -634,26 +634,67 @@ static Model3D *ModelFromData(const std::vector<uint8_t> &dff, const std::vector
         }
         c.skip(k.size);
     }
-    // Matrices des cadres dans la pose d'origine, bras baisses le long du corps (rotation a l'epaule autour de l'axe
-    // avant, Z dans cet espace ou la verticale est Y) : l'apercu n'est pas en croix.
+    // Matrices des cadres dans la pose d'origine, bras baisses le long du corps : l'apercu n'est pas en croix. Le haut
+    // du corps est mesure sur le squelette (bassin -> tete : la verticale est Y chez Vice City, Z chez San Andreas) ;
+    // chaque bras tourne a l'epaule pour que le coude passe sous l'epaule, un peu ecarte du corps.
     std::vector<float> ltm(frames.size() * 12);
-    for (size_t i = 0; i < frames.size(); i++) {
-        float *M = &ltm[i * 12];
-        int par = frames[i].parent;
-        if (par >= 0 && par < (int)i) Mul(frames[i].m, &ltm[par * 12], M);
-        else memcpy(M, frames[i].m, 48);
-        if (g_lowerArms && frames[i].name.find("upperarm") != std::string::npos) {
-            float dir = M[0] >= 0 ? 1.0f : -1.0f, a = -1.2f * dir, c = cosf(a), sn = sinf(a);
-            float j[3] = { M[9], M[10], M[11] };
+    auto computeLtm = [&](bool lower) {
+        float up[3] = { 0, 0, 1 };
+        if (lower) {
+            int head = -1, pelvis = -1;
+            for (size_t i = 0; i < frames.size(); i++) {
+                const std::string &n = frames[i].name;
+                if (head < 0 && n.find("head") != std::string::npos) head = (int)i;
+                if (pelvis < 0 && n.find("pelvis") != std::string::npos) pelvis = (int)i;
+            }
+            if (head >= 0 && pelvis >= 0) {
+                float v[3] = { ltm[head * 12 + 9] - ltm[pelvis * 12 + 9], ltm[head * 12 + 10] - ltm[pelvis * 12 + 10], ltm[head * 12 + 11] - ltm[pelvis * 12 + 11] };
+                float l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                if (l > 1e-4f) for (int k = 0; k < 3; k++) up[k] = v[k] / l;
+            }
+        }
+        for (size_t i = 0; i < frames.size(); i++) {
+            float *M = &ltm[i * 12];
+            int par = frames[i].parent;
+            if (par >= 0 && par < (int)i) Mul(frames[i].m, &ltm[par * 12], M);
+            else memcpy(M, frames[i].m, 48);
+            if (!lower || frames[i].name.find("upperarm") == std::string::npos) continue;
+            int child = -1;
+            for (size_t c = i + 1; c < frames.size() && child < 0; c++) if (frames[c].parent == (int)i) child = (int)c;
+            if (child < 0) continue;
+            const float *t = &frames[child].m[9];
+            float j[3] = { M[9], M[10], M[11] }, d[3];
+            for (int k = 0; k < 3; k++) d[k] = t[0] * M[k] + t[1] * M[3 + k] + t[2] * M[6 + k];   // epaule -> coude
+            float dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            if (dl < 1e-5f) continue;
+            for (int k = 0; k < 3; k++) d[k] /= dl;
+            float du = d[0] * up[0] + d[1] * up[1] + d[2] * up[2], out[3];
+            for (int k = 0; k < 3; k++) out[k] = d[k] - du * up[k];
+            float ol = sqrtf(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
+            if (ol > 1e-4f) for (int k = 0; k < 3; k++) out[k] /= ol;
+            const float spread = 0.2f;   // ecart du bras (radians)
+            float tg[3];
+            for (int k = 0; k < 3; k++) tg[k] = -up[k] * cosf(spread) + out[k] * sinf(spread);
+            float ax[3] = { d[1] * tg[2] - d[2] * tg[1], d[2] * tg[0] - d[0] * tg[2], d[0] * tg[1] - d[1] * tg[0] };
+            float sn = sqrtf(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]), cs = d[0] * tg[0] + d[1] * tg[1] + d[2] * tg[2];
+            if (sn < 1e-4f) continue;
+            for (int k = 0; k < 3; k++) ax[k] /= sn;
+            float ang = atan2f(sn, cs), c = cosf(ang), s1 = sinf(ang), ic = 1 - c;
+            // rotation (vecteurs colonnes) Rc = c I + s [a]x + (1 - c) a aT ; ici vecteurs lignes : R = Rc transposee
+            float Rc[3][3] = { { c + ic * ax[0] * ax[0], ic * ax[0] * ax[1] - s1 * ax[2], ic * ax[0] * ax[2] + s1 * ax[1] },
+                               { ic * ax[1] * ax[0] + s1 * ax[2], c + ic * ax[1] * ax[1], ic * ax[1] * ax[2] - s1 * ax[0] },
+                               { ic * ax[2] * ax[0] - s1 * ax[1], ic * ax[2] * ax[1] + s1 * ax[0], c + ic * ax[2] * ax[2] } };
+            float R[12] = { Rc[0][0], Rc[1][0], Rc[2][0], Rc[0][1], Rc[1][1], Rc[2][1], Rc[0][2], Rc[1][2], Rc[2][2], 0, 0, 0 };
             float T1[12] = { 1, 0, 0, 0, 1, 0, 0, 0, 1, -j[0], -j[1], -j[2] };
-            float R[12] = { c, sn, 0, -sn, c, 0, 0, 0, 1, 0, 0, 0 };
             float T2[12] = { 1, 0, 0, 0, 1, 0, 0, 0, 1, j[0], j[1], j[2] };
             float W[12];
             Mul(T1, R, W);
             Mul(W, T2, W);
             Mul(M, W, M);
         }
-    }
+    };
+    computeLtm(false);
+    if (g_lowerArms) computeLtm(true);
     auto boneFrame = [&](int b) {
         if (b < 0 || b >= (int)hier.size()) return -1;
         for (size_t i = 0; i < frames.size(); i++) if (frames[i].hanim == hier[b]) return (int)i;
@@ -859,9 +900,11 @@ static Model3D *ModelFromData(const std::vector<uint8_t> &dff, const std::vector
 
 // CJ : ses vetements par defaut assembles (chacun deja dans la pose d'origine du meme squelette) ; textures de tous.
 // (modele, textures, texture voulue si le .txd en a plusieurs) ; hands : les bras, neck : le cou, torso : le corps sous le debardeur
-static const char *const kCJ[][3] = { { "head", "head", "" }, { "afro", "afro", "" }, { "vest", "vest", "" }, { "jeans", "jeansdenim", "" },
-                                      { "sneaker", "sneakerbincblk", "" }, { "hands", "player_torso", "torso" }, { "neck", "player_torso", "torso" },
-                                      { "torso", "player_torso", "torso" } };   // (corps en dernier : a egale profondeur, le debardeur gagne)
+// CJ d'origine : une piece par emplacement du jeu (tete, cheveux, haut, bas, chaussures, mains). Le haut (debardeur)
+// est le torse entier, bras compris : sa texture n'a que le vetement, la peau est la ou son alpha est nul et le jeu y
+// fond la peau du torse (player_torso.txd "torso", meme placement) -> 4e colonne : texture de peau a fondre dessous.
+static const char *const kCJ[][4] = { { "head", "head", "", "" }, { "afro", "afro", "", "" }, { "vest", "vest", "", "torso" },
+                                      { "jeans", "jeansdenim", "", "" }, { "sneaker", "sneakerbincblk", "", "" }, { "hands", "hands", "", "" } };
 static void Merge(Model3D *into, Model3D *part)
 {
     int base = (int)into->pos.size() / 3, matBase = (int)into->mats.size(), texBase = (int)into->texs.size();
@@ -893,6 +936,24 @@ Model3D *ModelLoadCJ()
         // l'alpha des textures de vetements est un masque d'assemblage du jeu, pas une transparence (sauf les cheveux)
         bool opaque = strcmp(p[0], "afro") != 0;
         if (!m->texs.empty()) for (auto &mt : m->mats) if (mt.ti < 0 && mt.tex.empty()) { mt.ti = ti; mt.opaque = opaque; }
+        if (p[3][0] && ti < (int)m->texs.size()) {   // peau fondue sous le vetement, comme le jeu
+            std::vector<uint8_t> skinTxd;
+            std::vector<Tex> skins;
+            if (GetFile("player_torso.txd", skinTxd) && ParseTxd(skinTxd, skins)) {
+                for (auto &sk : skins) {
+                    if (sk.name != p[3] || sk.w <= 0 || sk.h <= 0) continue;
+                    Tex &cl = m->texs[ti];
+                    for (int y = 0; y < cl.h; y++)
+                        for (int x = 0; x < cl.w; x++) {
+                            uint32_t &c = cl.px[y * cl.w + x], k = sk.px[(y * sk.h / cl.h) * sk.w + x * sk.w / cl.w];
+                            uint32_t a = c >> 24, r = 0;
+                            for (int sh = 0; sh < 24; sh += 8) r |= ((((c >> sh) & 255) * a + ((k >> sh) & 255) * (255 - a)) / 255) << sh;
+                            c = 0xFF000000 | r;
+                        }
+                    break;
+                }
+            }
+        }
         if (!all) all = m;
         else { Merge(all, m); delete m; }
     }
