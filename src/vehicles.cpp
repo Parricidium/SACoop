@@ -99,7 +99,7 @@ uint32_t LocalVehicleId(void *veh, bool driver)
         n->veh = veh;
         n->ref = VehRef(veh);
         n->owner = (uint8_t)g_localId;
-        Log("vehicule %08X (modele %d) enregistre", n->id, *(int16_t *)((uint8_t *)veh + 0x22));
+        Log("vehicule %08X (modele %d, %p, cree par %d) enregistre", n->id, *(int16_t *)((uint8_t *)veh + 0x22), veh, ((uint8_t *)veh)[0x4A4]);
     } else if (driver && n->owner != g_localId) {
         n->owner = (uint8_t)g_localId;   // au volant d'une copie : elle devient la notre
         Log("vehicule %08X : on en prend la propriete", n->id);
@@ -123,7 +123,7 @@ uint32_t HostVehicleId(void *veh, bool occupied, bool ambient)
         n->veh = veh;
         n->ref = VehRef(veh);
         n->owner = (uint8_t)g_localId;
-        Log("vehicule de mission %08X (modele %d) enregistre", n->id, *(int16_t *)((uint8_t *)veh + 0x22));
+        Log("vehicule de mission %08X (modele %d, %p, cree par %d) enregistre", n->id, *(int16_t *)((uint8_t *)veh + 0x22), veh, ((uint8_t *)veh)[0x4A4]);
     }
     if (ambient && !n->mission) n->ambient = true;
     else { n->mission = true; n->ambient = false; }
