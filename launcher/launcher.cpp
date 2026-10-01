@@ -668,7 +668,7 @@ static DWORD WINAPI NotesOnlyThread(void *)
 }
 
 // ---------------------------------------------------------------- boutons
-enum { B_HOST, B_JOIN, B_EXE, B_BUY, B_THEME, B_CLOSE, B_MIN, B_COUNT };
+enum { B_HOST, B_JOIN, B_EXE, B_BUY, B_THEME, B_CLOSE, B_MIN, B_LOGS, B_COUNT };
 struct Button { RectF r; float hover; bool visible, enabled; };
 static Button g_btn[B_COUNT];
 static int g_hot = -1, g_pressed = -1;
@@ -684,6 +684,7 @@ static void Layout()
     g_btn[B_CLOSE].r = RectF(938, 76, 28, 28);
     g_btn[B_MIN].r = RectF(904, 76, 28, 28);
     g_btn[B_THEME].r = RectF(62, 100, 26, 26);   // coin du panneau, a gauche du logo
+    g_btn[B_LOGS].r = RectF(368, 100, 26, 26);   // coin oppose : page des journaux (comme VCCoop)
 }
 
 static void UpdateButtons()
@@ -702,6 +703,8 @@ static void UpdateButtons()
     }
     if (g_goWait) g_btn[B_HOST].enabled = g_btn[B_JOIN].enabled = false;
     g_btn[B_CLOSE].enabled = g_btn[B_MIN].enabled = g_btn[B_BUY].enabled = g_btn[B_THEME].enabled = true;
+    g_btn[B_LOGS].visible = menu && !g_gameDir.empty();
+    g_btn[B_LOGS].enabled = true;
 }
 
 // ---------------------------------------------------------------- dessin
@@ -852,7 +855,7 @@ static void DrawBar(Graphics &g, RectF r, float p)
 
 // ---------------------------------------------------------------- options (sacoop.ini du jeu)
 // Les memes cles et valeurs par defaut que dllmain.cpp LoadConfig ; ecrites tout de suite, prises au prochain lancement.
-enum { TAB_VIDEO, TAB_COOP, TAB_NOTES, TAB_LOBBY, TAB_LOGS, TAB_COUNT };   // (TAB_LOBBY : seulement pendant un salon)
+enum { TAB_VIDEO, TAB_COOP, TAB_NOTES, TAB_LOBBY, TAB_LOGS, TAB_RENDER, TAB_MODS, TAB_COUNT };   // (TAB_LOGS : page du bouton journaux, pas d'onglet)   // (TAB_LOBBY : seulement pendant un salon)
 enum { O_TOGGLE, O_CHOICE };
 struct Opt {
     int tab; const char *key; int def; int kind; std::vector<int> vals;
@@ -891,10 +894,10 @@ static void BuildOptions()
     T2(TAB_VIDEO, "GrandEcran", 1, L"Grand \u00E9cran", L"Widescreen",
        L"La 3D et le HUD gardent leurs proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi.",
        L"The 3D and the HUD keep their proportions on wide screens, with a wider field of view.");
-    T2(TAB_VIDEO, "OcclusionAmbiante", 1, L"Occlusion ambiante", L"Ambient occlusion",
+    T2(TAB_RENDER, "OcclusionAmbiante", 1, L"Occlusion ambiante", L"Ambient occlusion",
        L"Rendu moderne : coins, pieds des murs, dessous des voitures et des personnages assombris.",
        L"Modern rendering: corners, wall bases, under cars and characters get darker.");
-    T2(TAB_VIDEO, "Anticrenelage", 1, L"Anticr\u00E9nelage (FXAA)", L"Anti-aliasing (FXAA)",
+    T2(TAB_RENDER, "Anticrenelage", 1, L"Anticr\u00E9nelage (FXAA)", L"Anti-aliasing (FXAA)",
        L"Bords des objets adoucis sur la sc\u00E8ne 3D (l'interface reste nette).",
        L"Smoother object edges on the 3D scene (the HUD stays sharp).");
     T2(TAB_VIDEO, "VuePremierePersonne", 1, L"Vue \u00E0 la 1re personne (F6)", L"First-person view (F6)",
@@ -927,26 +930,51 @@ static void OptSet(const Opt &o, int v) { char b[16]; wsprintfA(b, "%d", v); Wri
 
 static const wchar_t *TabName(int t)
 {
-    static const wchar_t *fr[] = { L"VID\u00C9O", L"COOP", L"NOUVEAUT\u00C9S", L"SALON", L"JOURNAUX" }, *en[] = { L"VIDEO", L"CO-OP", L"UPDATES", L"LOBBY", L"LOGS" };
+    static const wchar_t *fr[] = { L"VID\u00C9O", L"COOP", L"NOUVEAUT\u00C9S", L"SALON", L"JOURNAUX", L"RENDU", L"MODS" }, *en[] = { L"VIDEO", L"CO-OP", L"UPDATES", L"LOBBY", L"LOGS", L"RENDERING", L"MODS" };
     return g_fr ? fr[t] : en[t];
 }
-static bool TabVisible(int t) { return t != TAB_LOBBY || g_lobby != LB_NONE; }
+static bool TabVisible(int t)
+{
+    if (t == TAB_LOBBY) return g_lobby != LB_NONE;
+    if (t == TAB_MODS) return g_lobby != LB_GUEST && g_lobby != LB_CONNECTING;   // (l'invite prend ceux de l'hote)
+    return t != TAB_LOGS;
+}
+static float g_tabFont = 11.5f;   // police des onglets (plus petite quand ils ne tiennent pas sur la ligne)
+// Meme ordre et memes regles que VCCoop : marges et ecarts resserres quand les onglets ne tiennent pas jusqu'aux
+// boutons reduire / fermer.
 static void LayoutTabs()
 {
     float x = 440;
-    Bitmap bm(1, 1);
-    Graphics mg(&bm);
-    for (int t = 0; t < TAB_COUNT; t++) {
-        if (!TabVisible(t)) { g_tabR[t] = RectF(0, 0, 0, 0); continue; }
-        float w = 24 + MeasureW(mg, TabName(t), 11.5f, FontStyleBold);
-        g_tabR[t] = RectF(x, 78, w, 26);
-        x += w + 6;
+    static const int order[] = { TAB_LOBBY, TAB_MODS, TAB_VIDEO, TAB_RENDER, TAB_COOP, TAB_NOTES };
+    float tw[TAB_COUNT] = {}, total = 0, pad = 12, gap = 6;
+    int n = 0;
+    {
+        Bitmap bm(1, 1);
+        Graphics mg(&bm);
+        for (int t : order) if (TabVisible(t)) { tw[t] = MeasureW(mg, TabName(t), 11.5f, FontStyleBold); total += tw[t]; n++; }
     }
+    while (pad > 4 && total + n * pad + (n - 1) * gap > 458) { pad -= 2; gap = 4; }
+    g_tabFont = 11.5f;
+    float room = 458 - n * pad - (n - 1) * gap;
+    if (total > room && total > 0) {
+        float k = max(0.72f, room / total);
+        g_tabFont = 11.5f * k;
+        for (int t = 0; t < TAB_COUNT; t++) tw[t] *= k;
+    }
+    for (int t = 0; t < TAB_COUNT; t++) g_tabR[t] = RectF(0, 0, 0, 0);
+    for (int t : order) {
+        if (!TabVisible(t)) continue;
+        float w = pad + tw[t];
+        g_tabR[t] = RectF(x, 78, w, 26);
+        x += w + gap;
+    }
+    if (g_tab >= 0 && g_tab != TAB_LOGS && !TabVisible(g_tab)) g_tab = -1;
 }
 static std::vector<int> TabRows(int t) { std::vector<int> r; for (int i = 0; i < (int)g_opts.size(); i++) if (g_opts[i].tab == t) r.push_back(i); return r; }
 static float NotesMaxScroll();
 static float LogsMaxScroll();
-static float MaxScroll(int t) { return t == TAB_LOBBY ? 0.0f : t == TAB_LOGS ? LogsMaxScroll() : t == TAB_NOTES ? NotesMaxScroll() : max(0.0f, TabRows(t).size() * kRowH - kOptList.Height); }
+static float ModsMaxScroll();
+static float MaxScroll(int t) { return t == TAB_LOBBY ? 0.0f : t == TAB_LOGS ? LogsMaxScroll() : t == TAB_MODS ? ModsMaxScroll() : t == TAB_NOTES ? NotesMaxScroll() : max(0.0f, TabRows(t).size() * kRowH - kOptList.Height); }
 
 static int ValueIndex(const Opt &o, int v)
 {
@@ -987,7 +1015,7 @@ static void DrawTabs(Graphics &g)
         bool on = g_tab == t, hot = g_tabHot == t;
         if (on) { LinearGradientBrush lg(r, kGreen, kGold, LinearGradientModeHorizontal); g.FillPath(&lg, &p); }
         else { SolidBrush b(hot ? TH(tabHot) : TH(tab)); g.FillPath(&b, &p); }
-        Text(g, TabName(t), r, 11.5f, FontStyleBold, on ? kOnAcc : Mix(kGrey, kInk, hot ? 1.0f : 0.0f));
+        Text(g, TabName(t), r, g_tabFont, FontStyleBold, on ? kOnAcc : Mix(kGrey, kInk, hot ? 1.0f : 0.0f));
         if (t == TAB_NOTES && !on && NotesUnseen()) {   // pastille : des notes pas encore lues
             SolidBrush dot(Color(255, 214, 48, 72));
             g.FillEllipse(&dot, r.X + r.Width - 7, r.Y - 1, 8.0f, 8.0f);
@@ -1008,6 +1036,7 @@ static void DrawPanel(Graphics &g)
 static void DrawNotes(Graphics &g);
 static void DrawLobby(Graphics &g);
 static void DrawLogs(Graphics &g);
+static void DrawMods(Graphics &g);
 
 static void DrawOptions(Graphics &g)
 {
@@ -1015,6 +1044,7 @@ static void DrawOptions(Graphics &g)
     if (g_tab == TAB_NOTES) { DrawNotes(g); return; }
     if (g_tab == TAB_LOBBY) { DrawLobby(g); return; }
     if (g_tab == TAB_LOGS) { DrawLogs(g); return; }
+    if (g_tab == TAB_MODS) { DrawMods(g); return; }
     DrawPanel(g);
     std::vector<int> rows = TabRows(g_tab);
     float sc = g_scroll[g_tab];
@@ -1064,7 +1094,7 @@ static void DrawOptions(Graphics &g)
 static void HitOption(float x, float y, int *row, int *part)
 {
     *row = -1; *part = 0;
-    if (g_tab < 0 || g_tab == TAB_NOTES || g_tab == TAB_LOBBY || g_tab == TAB_LOGS || !kOptList.Contains(x, y)) return;
+    if (g_tab < 0 || g_tab == TAB_NOTES || g_tab == TAB_LOBBY || g_tab == TAB_LOGS || g_tab == TAB_MODS || !kOptList.Contains(x, y)) return;
     std::vector<int> rows = TabRows(g_tab);
     int k = (int)((y - kOptList.Y + g_scroll[g_tab]) / kRowH);
     if (k < 0 || k >= (int)rows.size()) return;
@@ -1194,6 +1224,21 @@ static void DrawUI(Graphics &g)
             ray.SetStartCap(LineCapRound); ray.SetEndCap(LineCapRound);
             for (int k = 0; k < 8; k++) { float a = k * 0.7854f; g.DrawLine(&ray, cx + cosf(a) * 6.5f, cy + sinf(a) * 6.5f, cx + cosf(a) * 9.0f, cy + sinf(a) * 9.0f); }
         }
+    }
+    if (g_btn[B_LOGS].visible) {   // journaux : feuille lignee ; libelle au survol
+        Button &b = g_btn[B_LOGS];
+        bool on = g_tab == TAB_LOGS;
+        if (on) { SolidBrush ob(kInk); g.FillEllipse(&ob, b.r); }
+        else { SolidBrush cb(Mix(TH(circle), TH(circleHot), b.hover)); g.FillEllipse(&cb, b.r); }
+        Color ic = on ? TH(panel) : Mix(kInk, kGreen, b.hover);
+        float cx = b.r.X + b.r.Width / 2, cy = b.r.Y + b.r.Height / 2;
+        Pen pen(ic, 1.5f);
+        pen.SetLineJoin(LineJoinRound); pen.SetStartCap(LineCapRound); pen.SetEndCap(LineCapRound);
+        GraphicsPath sheet;
+        RoundRect(sheet, RectF(cx - 5.5f, cy - 7.0f, 11.0f, 14.0f), 2.0f);
+        g.DrawPath(&pen, &sheet);
+        for (int k = 0; k < 3; k++) g.DrawLine(&pen, cx - 3.0f, cy - 3.5f + k * 3.5f, k == 2 ? cx + 1.0f : cx + 3.0f, cy - 3.5f + k * 3.5f);
+        if (b.hover > 0.02f && !on) Text(g, T(L"Journaux", L"Logs"), RectF(b.r.X - 84, b.r.Y, 78, b.r.Height), 11.5f, FontStyleBold, WithA(kInk, b.hover), StringAlignmentFar);
     }
     for (int id : { B_MIN, B_CLOSE }) {
         Button &b = g_btn[id];
@@ -2487,6 +2532,150 @@ static bool LogsMouseDown(float x, float y)
     return true;
 }
 
+
+// ---------------------------------------------------------------- onglet MODS (comme VCCoop, sans l'apercu 3D)
+// Un mod = un sous-dossier de SACoop\mods (les fichiers poses a la racine forment "(fichiers isoles)"). Interrupteur :
+// le dossier passe dans SACoop\mods-off (desactive : ni charge, ni envoye aux invites) et revient.
+struct ModRow { std::wstring name; int files; uint64_t bytes; bool on, root; };
+static std::vector<ModRow> g_modRows;
+static int g_modHot = -1, g_modPart = 0;   // g_modPart : 1 = interrupteur
+static const RectF kModsFolderR(826, 124, 110, 22), kModsR(452, 152, 488, 374);
+static const float kModRowH = 50;
+
+static void CountDir(const std::wstring &dir, int &files, uint64_t &bytes)
+{
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((dir + L"*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (fd.cFileName[0] == L'.') continue;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { CountDir(dir + fd.cFileName + L"\\", files, bytes); continue; }
+        size_t n = wcslen(fd.cFileName);
+        if (n > 4 && !_wcsicmp(fd.cFileName + n - 4, L".txt")) continue;
+        files++;
+        bytes += ((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+}
+static void ModsTabScan()
+{
+    std::vector<ModRow> rows;
+    for (int pass = 0; pass < 2; pass++) {
+        std::wstring base = g_gameDir + (pass ? L"SACoop\\mods-off\\" : L"SACoop\\mods\\");
+        ModRow root = { T(L"(fichiers isol\u00E9s)", L"(loose files)"), 0, 0, true, true };
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((base + L"*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        do {
+            if (fd.cFileName[0] == L'.') continue;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                ModRow r = { fd.cFileName, 0, 0, pass == 0, false };
+                CountDir(base + fd.cFileName + L"\\", r.files, r.bytes);
+                rows.push_back(r);
+            } else if (pass == 0) {
+                size_t n = wcslen(fd.cFileName);
+                if (n > 4 && !_wcsicmp(fd.cFileName + n - 4, L".txt")) continue;
+                root.files++;
+                root.bytes += ((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+            }
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+        if (root.files) rows.push_back(root);
+    }
+    std::sort(rows.begin(), rows.end(), [](const ModRow &a, const ModRow &b) { return a.root != b.root ? b.root : _wcsicmp(a.name.c_str(), b.name.c_str()) < 0; });
+    g_modRows.swap(rows);
+}
+static float ModsMaxScroll() { return max(0.0f, g_modRows.size() * kModRowH - kModsR.Height); }
+static RectF ModRowRect(int i) { return RectF(kModsR.X, kModsR.Y + i * kModRowH - g_scroll[TAB_MODS], kModsR.Width - 10, kModRowH - 6); }
+static RectF ModToggleRect(const RectF &r) { return RectF(r.X + r.Width - 58, r.Y + 12, 44, 20); }
+
+static void DrawMods(Graphics &g)
+{
+    DrawPanel(g);
+    int on = 0;
+    for (auto &m : g_modRows) on += m.on;
+    Text(g, L"MODS", RectF(460, 122, 120, 26), 17, FontStyleBold, kInk, StringAlignmentNear);
+    wchar_t cnt[64];
+    swprintf_s(cnt, T(L"%d actif(s) / %d", L"%d active / %d"), on, (int)g_modRows.size());
+    Text(g, cnt, RectF(540, 122, 160, 26), 12.5f, FontStyleBold, kGrey, StringAlignmentNear);
+    Text(g, T(L"Ouvrir le dossier", L"Open folder"), kModsFolderR, 12, FontStyleUnderline, kInk, StringAlignmentFar);
+    if (g_modRows.empty())
+        Text(g, T(L"Aucun mod : posez-les dans SACoop\\mods (un dossier par mod).", L"No mods: put them in SACoop\\mods (one folder per mod)."), kModsR, 13, FontStyleRegular, kGrey);
+    g.SetClip(kModsR);
+    for (int i = 0; i < (int)g_modRows.size(); i++) {
+        const ModRow &m = g_modRows[i];
+        RectF r = ModRowRect(i);
+        if (r.Y + r.Height < kModsR.Y || r.Y > kModsR.Y + kModsR.Height) continue;
+        bool hot = i == g_modHot;
+        GraphicsPath rp;
+        RoundRect(rp, r, 10);
+        SolidBrush rb(hot ? TH(cardSel) : TH(card));
+        g.FillPath(&rb, &rp);
+        Pen rpen(m.on ? kInk : TH(choiceBorder), m.on ? 1.4f : 1.2f);
+        g.DrawPath(&rpen, &rp);
+        Text(g, m.name, RectF(r.X + 16, r.Y + 4, r.Width - 100, 20), 12.5f, FontStyleBold, m.on ? kInk : kGrey, StringAlignmentNear);
+        wchar_t info[96];
+        swprintf_s(info, T(L"%d fichier(s) \u00B7 %.1f Mo%s", L"%d file(s) \u00B7 %.1f MB%s"), m.files, m.bytes / 1048576.0,
+                   m.on ? L"" : T(L" \u00B7 d\u00E9sactiv\u00E9", L" \u00B7 off"));
+        Text(g, info, RectF(r.X + 16, r.Y + 23, r.Width - 100, 18), 10.5f, FontStyleRegular, kGrey, StringAlignmentNear);
+        if (m.root) continue;
+        RectF t = ModToggleRect(r);   // interrupteur, comme les options
+        GraphicsPath tp;
+        RoundRect(tp, t, t.Height / 2);
+        if (m.on) { SolidBrush tb(kInk); g.FillPath(&tb, &tp); }
+        else { SolidBrush tb(TH(toggleOff)); g.FillPath(&tb, &tp); }
+        SolidBrush knob(m.on ? TH(panel) : Color(255, 255, 255, 255));
+        g.FillEllipse(&knob, m.on ? t.X + t.Width - 18 : t.X + 2, t.Y + 2, 16.0f, 16.0f);
+    }
+    g.ResetClip();
+    Pen sep(WithA(kGrey, 0.4f), 1);
+    g.DrawLine(&sep, kOptPanel.X + 18, 532.0f, kOptPanel.X + kOptPanel.Width - 18, 532.0f);
+    FontFamily fam(L"Segoe UI");
+    Font font(&fam, 12, FontStyleRegular, UnitPixel);
+    StringFormat sf;
+    sf.SetLineAlignment(StringAlignmentCenter);
+    SolidBrush db(kGrey);
+    g.DrawString(T(L"Les mods actifs remplacent ceux du jeu et sont envoy\u00E9s aux invit\u00E9s. D\u00E9sactiv\u00E9s : rang\u00E9s dans SACoop\\mods-off.",
+                   L"Active mods replace the game's files and are sent to the guests. Disabled: moved to SACoop\\mods-off."),
+                 -1, &font, RectF(kOptPanel.X + 20, 536, kOptPanel.Width - 40, 44), &sf, &db);
+}
+
+static int ModRowAt(float x, float y, int *part)
+{
+    *part = 0;
+    if (!kModsR.Contains(x, y)) return -1;
+    int i = (int)((y - kModsR.Y + g_scroll[TAB_MODS]) / kModRowH);
+    if (i < 0 || i >= (int)g_modRows.size() || !ModRowRect(i).Contains(x, y)) return -1;
+    RectF t = ModToggleRect(ModRowRect(i));
+    t.Inflate(4, 4);
+    *part = !g_modRows[i].root && t.Contains(x, y) ? 1 : 0;
+    return i;
+}
+
+static bool ModsMouseDown(float x, float y)
+{
+    if (kModsFolderR.Contains(x, y)) {
+        CreateDirectoryW((g_gameDir + L"SACoop\\mods").c_str(), NULL);
+        ShellExecuteW(g_wnd, L"open", (g_gameDir + L"SACoop\\mods").c_str(), NULL, NULL, SW_SHOWNORMAL);
+        return true;
+    }
+    int part, i = ModRowAt(x, y, &part);
+    if (i < 0) return kOptPanel.Contains(x, y);
+    const ModRow &m = g_modRows[i];
+    if (part == 1) {
+        std::wstring on = g_gameDir + L"SACoop\\mods\\" + m.name, off = g_gameDir + L"SACoop\\mods-off\\" + m.name;
+        CreateDirectoryW((g_gameDir + (m.on ? L"SACoop\\mods-off" : L"SACoop\\mods")).c_str(), NULL);
+        if (MoveFileExW((m.on ? on : off).c_str(), (m.on ? off : on).c_str(), 0))
+            SetStatus(K_OK, m.on ? T(L"%s d\u00E9sactiv\u00E9", L"%s disabled") : T(L"%s activ\u00E9", L"%s enabled"), m.name.c_str());
+        else SetStatus(K_ERR, T(L"Impossible de d\u00E9placer %s (jeu lanc\u00E9 ?)", L"Could not move %s (game running?)"), m.name.c_str());
+        ModsTabScan();
+    } else {
+        std::wstring path = g_gameDir + (m.on ? L"SACoop\\mods\\" : L"SACoop\\mods-off\\") + (m.root ? L"" : m.name);
+        ShellExecuteW(g_wnd, L"open", path.c_str(), NULL, NULL, SW_SHOWNORMAL);
+    }
+    return true;
+}
+
 static void OnButton(int id)
 {
     switch (id) {
@@ -2503,6 +2692,7 @@ static void OnButton(int id)
     case B_EXE: ChooseExe(); break;
     case B_CLOSE: g_state = ST_CLOSING; break;
     case B_MIN: ShowWindow(g_wnd, SW_MINIMIZE); break;
+    case B_LOGS: g_tab = g_tab == TAB_LOGS ? -1 : TAB_LOGS; g_optHot = -1; if (g_tab == TAB_LOGS) LogsScan(); break;
     case B_THEME: g_dark = !g_dark; WritePrivateProfileStringW(L"Lanceur", L"Theme", g_dark ? L"sombre" : L"clair", g_iniLauncher.c_str()); break;
     case B_BUY: ShellExecuteW(g_wnd, L"open", kStoreUrl, NULL, NULL, SW_SHOWNORMAL); break;
     }
@@ -2591,9 +2781,10 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         g_tabHot = HitTab(x, y);
         HitOption(x, y, &g_optHot, &g_optPart);
         g_logRowHot = g_tab == TAB_LOGS ? LogRowAt(x, y, &g_logPart) : -1;
+        g_modHot = g_tab == TAB_MODS ? ModRowAt(x, y, &g_modPart) : -1;
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, h, 0 };
         TrackMouseEvent(&tme);
-        SetCursor(LoadCursor(NULL, ((g_hot >= 0 && g_btn[g_hot].enabled) || g_tabHot >= 0 || g_optHot >= 0 || g_logRowHot >= 0) ? IDC_HAND
+        SetCursor(LoadCursor(NULL, ((g_hot >= 0 && g_btn[g_hot].enabled) || g_tabHot >= 0 || g_optHot >= 0 || g_logRowHot >= 0 || g_modHot >= 0) ? IDC_HAND
                                    : HitField(x, y) >= 0 ? IDC_IBEAM : IDC_ARROW));
         return 0;
     }
@@ -2615,9 +2806,10 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         if (f >= 0) { g_focus = f; g_time = 0; return 0; }
         g_focus = -1;
         int t = HitTab(x, y);
-        if (t >= 0) { g_tab = g_tab == t ? -1 : t; g_optHot = -1; if (g_tab == TAB_NOTES) NotesMarkSeen(); if (g_tab == TAB_LOGS) LogsScan(); return 0; }   // un 2e clic referme
+        if (t >= 0) { g_tab = g_tab == t ? -1 : t; g_optHot = -1; if (g_tab == TAB_NOTES) NotesMarkSeen(); if (g_tab == TAB_LOGS) LogsScan(); if (g_tab == TAB_MODS) ModsTabScan(); return 0; }   // un 2e clic referme
         if (g_tab == TAB_LOBBY && LobbyClick(x, y)) return 0;
         if (g_tab == TAB_LOGS && LogsMouseDown(x, y)) return 0;
+        if (g_tab == TAB_MODS && ModsMouseDown(x, y)) return 0;
         int row, part;
         HitOption(x, y, &row, &part);
         if (row >= 0) { OptStep(row, part < 0 ? -1 : 1); return 0; }
@@ -2803,7 +2995,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
         else if (st == L"sansexe") { g_exeKind = EXE_OTHER; g_gameDir.clear(); g_localVer.clear(); SetStatus(K_ERR, T(L"Ce gta_sa.exe n'est pas la version 1.0 US", L"This gta_sa.exe is not version 1.0 US")); }
         else if (st == L"options" || st == L"coop") { g_tab = st == L"coop" ? TAB_COOP : TAB_VIDEO; g_optHot = TabRows(g_tab)[0]; g_optPart = 1; }
         else if (st == L"notes") { NotesOnlyThread(NULL); g_tab = TAB_NOTES; }
-        else if (st == L"journaux") { g_tab = TAB_LOGS; LogsScan(); g_logRowHot = 1; g_logPart = 2; }
+        else if (st == L"journaux") { g_tab = TAB_LOGS; LogsScan(); g_logRowHot = 1; g_logPart = 2; g_btn[B_LOGS].hover = 1; }
+        else if (st == L"mods") { g_tab = TAB_MODS; ModsTabScan(); g_modHot = 0; }
+        else if (st == L"rendu") { g_tab = TAB_RENDER; g_optHot = TabRows(TAB_RENDER)[0]; g_optPart = 1; }
         else if (st == L"salon" || st == L"salon-invite") {   // salon a 3 joueurs (faux), vu par l'hote ou par un invite
             bool host = st == L"salon";
             ReadSaves();
