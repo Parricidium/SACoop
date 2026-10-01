@@ -69,6 +69,7 @@ struct MsgVehicle {
     uint8_t flags;      // VF_*
     uint8_t wheels[4], doors[6];   // CDamageManager (voitures seulement)
     uint32_t lights, panels;
+    int ownerRef;       // reference de pool du vehicule chez son proprietaire (handle de ses scripts)
 };
 enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */ };
 // Coup porte par le joueur "from" au joueur "to" : touche decidee chez le tireur, degats appliques par le jeu du joueur

@@ -18,6 +18,8 @@
 #include "combat.h"
 #include "peds.h"
 #include "entities.h"
+#include "mirror.h"
+#include "script.h"
 #include <math.h>
 #include <string.h>
 
@@ -517,6 +519,31 @@ static void Autotest()
         ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);   // CCamera::SetCameraDirectlyBehindForFollowPed_CamOnAString
         return;
     }
+    // "mission" (hote) : lance la mission de l'histoire TestMission (13 SWEET1 par defaut) a 24 s, comme le script
+    // principal (START_MISSION 0417) : les invites doivent en voir les textes, marqueurs, fondus et personnages.
+    if (_stricmp(g_cfg.autotest, "mission") == 0) {
+        static bool started;
+        static uint32_t freeSince;
+        const char *running = RunningMissionScript();
+        static const char *lastRunning = (const char *)1;
+        if (running != lastRunning) { lastRunning = running; Log("autotest : mission en cours : %.8s", running ? running : "aucune"); }
+        if (running) freeSince = 0; else if (!freeSince) freeSince = t;
+        if (!started && t > 24000 && freeSince && t - freeSince > 2000) {   // une seule mission a la fois (espace partage)
+            started = true;
+            int m = g_cfg.testMission ? g_cfg.testMission : 13;
+            MirrorMissionStart();
+            RunScriptCommand(0x0417, 1, &m);
+            Log("autotest : mission %d lancee", m);
+        }
+        // Echec voulu a 85 s (l'hote meurt) : la fin de mission doit retablir l'ecran des invites.
+        static bool failed;
+        if (started && !failed && t > 85000 && running) {
+            failed = true;
+            ApplyPedHit(FindPlayerPed(), nullptr, 0, 1000, 3);
+            Log("autotest : l'hote meurt (echec de mission)");
+        }
+        return;
+    }
     // "pnj" (hote) : un personnage de mission (Big Smoke, modele special 290 "SMOKE") pose a 4 m, qui fait des
     // allers-retours dans la ruelle, avec un pistolet ; tue a 60 s s'il vit encore (sa copie doit tomber chez l'invite).
     if (_stricmp(g_cfg.autotest, "pnj") == 0) {
@@ -739,6 +766,7 @@ void CoopFrame(bool inGameLoop)
     if (others) *(uint8_t *)0xB7CB49 = 0;
     VehiclesFrame();
     EntitiesFrame();
+    MirrorFrame();
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
     SyncWorld();

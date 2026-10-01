@@ -59,9 +59,11 @@ game version, and starts the game as host or guest. Options and release notes ar
 - **Weapons and shots**: everybody sees the weapon in each player's hand and their shots. Players can hurt each
   other (bullets, punches, cars; *Friendly fire* option, each player chooses), and a player who dies falls for
   everybody, then comes back at the hospital.
-- **Story missions, first step**: missions run on the host only. The other players see the mission characters
-  (Sweet, Big Smoke... with their weapons, in their cars) and the mission vehicles, can fight alongside the host:
-  their hits on mission characters count, and mission enemies hurt them. Side activities stay local to each player.
+- **Shared story missions**: missions run on the host, everybody plays them. The other players see the mission
+  characters (Sweet, Big Smoke... with their weapons, in their cars) and vehicles, the **cutscenes**, mission texts,
+  help boxes, radar markers, dialogues, fades and mission cameras. They can fight alongside the host: their hits on
+  mission characters count, and mission enemies hurt them. At mission start, far-away players are brought behind
+  the host. Side activities stay local to each player.
 - The pause menu no longer freezes the world while other players are connected, and switching windows does not
   pause the game.
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
@@ -70,7 +72,8 @@ game version, and starts the game as host or guest. Options and release notes ar
 
 ## Not there yet (roadmap)
 
-1. Shared story missions, the rest: mission texts, markers, cutscenes and camera for everybody (the VCCoop method).
+1. Story missions, the rest: guests counted in mission checkpoints, shared story progress (save, globals), joining
+   in the middle of a mission.
 2. Shared traffic and pedestrians.
 3. A co-op menu in the game, and a lobby in the launcher.
 4. Modern rendering options (as in VCCoop), all optional.
@@ -137,10 +140,12 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 - **Armes et tirs** : chacun voit l'arme en main des autres joueurs et leurs tirs. Les joueurs peuvent se blesser
   (balles, coups, voitures ; option *Tir ami*, chacun choisit pour lui), et un joueur qui meurt tombe chez tout le
   monde, puis revient à l'hôpital.
-- **Missions de l'histoire, premier pas** : les missions ne tournent que chez l'hôte. Les autres voient les
-  personnages de mission (Sweet, Big Smoke... avec leurs armes, dans leurs voitures) et les véhicules de mission,
-  et peuvent se battre avec l'hôte : leurs coups sur les personnages de mission comptent, et les ennemis de mission
-  les blessent. Les activités annexes restent locales à chacun.
+- **Missions de l'histoire partagées** : elles tournent chez l'hôte, tout le monde les joue. Les autres voient les
+  personnages de mission (Sweet, Big Smoke... avec leurs armes, dans leurs voitures) et les véhicules, les
+  **cinématiques**, textes de mission, aides, marqueurs radar, dialogues, fondus et caméras de mission. Ils peuvent
+  se battre avec l'hôte : leurs coups sur les personnages de mission comptent, et les ennemis de mission les
+  blessent. Au début d'une mission, les joueurs éloignés sont ramenés derrière l'hôte. Les activités annexes restent
+  locales à chacun.
 - Le menu Pause ne fige plus le monde tant que d'autres joueurs sont connectés, et changer de fenêtre ne met pas le
   jeu en pause.
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture
@@ -150,7 +155,8 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 
 ## Pas encore là (feuille de route)
 
-1. Missions de l'histoire, la suite : textes, marqueurs, cinématiques et caméra de mission pour tout le monde (la méthode de VCCoop).
+1. Missions de l'histoire, la suite : invités pris en compte aux points de passage, progression partagée (sauvegarde,
+   variables), arrivée en cours de mission.
 2. Circulation et passants partagés.
 3. Un menu coop dans le jeu, et un salon dans le lanceur.
 4. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
