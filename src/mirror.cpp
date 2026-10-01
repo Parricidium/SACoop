@@ -428,7 +428,8 @@ static bool Replay(const uint8_t *d, int len)
         // L'hote a fini (ou passe) sa cinematique : on passe celle de l'invite, comme un appui sur Croix
         // (PCTempJoyState de la manette 0, +0x20), une image sur deux.
         static uint32_t frame;
-        ((int16_t *)(0xB73458 + 0xA8))[0x20 / 2] = (++frame & 2) ? 255 : 0;
+        static const bool noSkip = GetPrivateProfileIntA("SACoop", "TestSansPasser", 0, IniPath()) != 0;   // test : passer impossible
+        if (!noSkip) ((int16_t *)(0xB73458 + 0xA8))[0x20 / 2] = (++frame & 2) ? 255 : 0;
         return false;
     }
     if (op == 0x02EA) ((int16_t *)(0xB73458 + 0xA8))[0x20 / 2] = 0;
@@ -636,6 +637,19 @@ static void UnstickFade()
     Log("miroir : ecran noir alors que l'hote voit clair, fondu d'entree");
 }
 
+// Fin de cinematique forcee (CCutsceneMgr, comme CLEAR_CUTSCENE 0x4D5ED0), commandes et camera rendues au joueur.
+// Avant, un CLEAR_CUTSCENE qui ne passait pas a temps etait abandonne : la cinematique restait "en cours" et le jeu
+// coupait les commandes de l'invite pour de bon (1er test reel, GG : il voyait l'hote bouger sans pouvoir bouger).
+static void ForceCutsceneEnd(const char *why)
+{
+    ((int16_t *)(0xB73458 + 0xA8))[0x20 / 2] = 0;
+    if (CutsceneRunning()) ((void(__cdecl *)())0x4D5ED0)();
+    int ctl[2] = { 0, 1 };
+    RunScriptCommand(0x01B4, 2, ctl);    // SET_PLAYER_CONTROL joueur 0, oui
+    RunScriptCommand(0x02EB, 0, nullptr);   // RESTORE_CAMERA_JUMPCUT
+    Log("miroir : fin de cinematique forcee (%s), commandes rendues", why);
+}
+
 void MirrorFrame()
 {
     g_onReliable = OnReliable;
@@ -651,7 +665,8 @@ void MirrorFrame()
             int op = p.len > 2 ? *(const uint16_t *)(p.data + 1) : 0;
             uint32_t patience = op == 0x02E7 ? 20000 : op == 0x02EA ? 10000 : 3000;
             if (now - p.since < patience) break;   // entite ou cinematique pas encore prete : on attend (dans l'ordre)
-            Log("miroir : commande %04X abandonnee (entite absente)", p.len > 2 ? *(const uint16_t *)(p.data + 1) : 0);
+            if (op == 0x02EA) ForceCutsceneEnd("la cinematique n'a pas pu etre passee");   // jamais abandonnee
+            else Log("miroir : commande %04X abandonnee (entite absente)", op);
         }
         g_qHead = (g_qHead + 1) % QUEUE;
     }
