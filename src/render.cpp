@@ -17,6 +17,9 @@
 #include "sacoop.h"
 #include "game.h"
 #include "render.h"
+#include "ui.h"
+#include "thumbs.h"
+#include "panel.h"
 #include <d3d9.h>
 #include <d3dcompiler.h>
 #include <float.h>
@@ -253,7 +256,8 @@ static void Create(IDirect3DDevice9 *dev, const D3DPRESENT_PARAMETERS *pp)
 }
 
 void RenderDeviceCreated(IDirect3DDevice9 *dev, const D3DPRESENT_PARAMETERS *pp) { Create(dev, pp); }
-void RenderBeforeReset() { Release(); }
+void RenderBeforeReset() { UiRelease(); ThumbRelease(); Release(); }
+IDirect3DDevice9 *GameDevice() { return g_dev; }
 void RenderAfterReset(IDirect3DDevice9 *dev, const D3DPRESENT_PARAMETERS *pp) { Create(dev, pp); }
 
 // ---------------------------------------------------------------- passes
@@ -349,12 +353,13 @@ static void __cdecl h_Render2dStuff()
 {
     PostProcess();
     ((void(__cdecl *)())0x53E230)();
+    PanelRender();   // interface en jeu (menu F10, aide F1), par-dessus celle du jeu
 }
 
+// (toujours pose : l'interface en jeu en a besoin, meme sans occlusion ni FXAA)
 void InstallRender()
 {
-    if (!g_cfg.ao && !g_cfg.fxaa) return;
     const uint8_t *p = (const uint8_t *)0x53EB12;
     if (p[0] == 0xE8 && 0x53EB17 + *(const int32_t *)(p + 1) == 0x53E230) PatchCall(0x53EB12, (void *)h_Render2dStuff);
-    else Log("rendu : appel de Render2dStuff inattendu, rendu moderne coupe");
+    else Log("rendu : appel de Render2dStuff inattendu, rendu moderne et menu en jeu coupes");
 }

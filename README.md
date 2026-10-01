@@ -103,8 +103,9 @@ ready).
 - **Shared mods**: put car, weapon or character mods (`.dff`, `.txd`, handling lines...) in `SACoop\mods`; the host
   sends them to the guests in the launcher lobby, and everybody plays with the host's mods.
 - **COOP menu in the game** (main and pause menus): host, join an address, change your name, see the session.
-- **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send; `/join` brings you back next to the host). **F5** (held): players board (name, health, distance). **F6**: first-person view on foot. **F10**: co-op panel (go to a player, friendly fire,
-  outfit, and time / weather for the host).
+- **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send; `/join` brings you back next to the host). **F5** (held): players board (name, health, distance). **F6**: first-person view on foot. **F10**: in-game menu, used with the mouse: players (go to a player, friendly fire), vehicles (3D thumbnails, a click
+  spawns it in front of you), tools (health and armour, weapons, money, repair, clear wanted level, jetpack), outfit,
+  and for the host world (time, weather) and host settings. **F1**: help (keys, tips).
 - **Modern rendering** (optional): ambient occlusion (corners, wall bases, under cars darker) and FXAA anti-aliasing.
 - **Widescreen**: the 3D, the HUD (radar, icons, texts) and the menus keep their proportions on wide screens, with a wider field
   of view (Hor+). Borderless mode picks your screen's resolution by itself.
@@ -213,8 +214,10 @@ quand un joueur arrive, part ou se met prêt).
   dans `SACoop\mods` ; l'hôte les envoie aux invités dans le salon du lanceur, et tout le monde joue avec ses mods.
 - **Menu COOP dans le jeu** (menus principal et pause) : héberger, rejoindre une adresse, changer de pseudo, voir la
   session.
-- **G** : monter en passager dans la voiture d'un autre joueur (F aussi). **T** : tchat (Entrée pour envoyer ; `/rejoindre` vous ramène près de l'hôte). **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance). **F6** : vue à la première personne à pied. **F10** : panneau coop (aller vers un
-  joueur, tir ami, tenue, et heure / météo pour l'hôte).
+- **G** : monter en passager dans la voiture d'un autre joueur (F aussi). **T** : tchat (Entrée pour envoyer ; `/rejoindre` vous ramène près de l'hôte). **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance). **F6** : vue à la première personne à pied. **F10** : menu en jeu, à la souris : joueurs (aller vers un
+  joueur, tir ami), véhicules (vignettes 3D, un clic le fait apparaître devant vous), outils (santé et gilet, armes,
+  argent, réparer, étoiles à zéro, jetpack), tenue, et pour l'hôte monde (heure, météo) et réglages d'hôte. **F1** : aide
+  (touches, bon à savoir).
 - **Rendu moderne** (facultatif) : occlusion ambiante (coins, pieds des murs, dessous des voitures assombris) et
   anticrénelage FXAA.
 - **Grand écran** : la 3D, le HUD (radar, icônes, textes) et les menus gardent leurs proportions sur un écran large, avec un champ
