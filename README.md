@@ -52,6 +52,8 @@ game version, and starts the game as host or guest. Options and release notes ar
   running and sprinting with the game's animations, in the right place. A pedestrian model can be picked instead.
 - **Shared vehicles**: whoever drives a car sends it to the others, who see it move with that player's CJ at the
   wheel (or as a passenger). Getting into someone else's car and driving off hands it over to you.
+  Everybody sees the others open the door and get in or out, and the car's damage (doors, bumpers, lights,
+  tyres, smoke, fire, explosion), siren and repairs.
 - Each player's **name above their head** and a **radar blip** in their colour.
 - **Same time and weather** for everybody (the host's).
 - **Weapons and shots**: everybody sees the weapon in each player's hand and their shots. Players can hurt each
@@ -65,11 +67,10 @@ game version, and starts the game as host or guest. Options and release notes ar
 
 ## Not there yet (roadmap)
 
-1. Vehicles, the rest: enter / exit animations for the other players, damage, radio, lights, sirens.
-2. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
-3. Shared traffic and pedestrians.
-4. A co-op menu in the game, and a lobby in the launcher.
-5. Modern rendering options (as in VCCoop), all optional.
+1. Shared story missions (the host runs them, everybody plays them), the approach that works in VCCoop.
+2. Shared traffic and pedestrians.
+3. A co-op menu in the game, and a lobby in the launcher.
+4. Modern rendering options (as in VCCoop), all optional.
 
 ## Installation
 
@@ -126,6 +127,8 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
   qui marche, court et sprinte avec les animations du jeu, au bon endroit. On peut choisir un piéton à la place.
 - **Véhicules partagés** : celui qui conduit envoie sa voiture aux autres, qui la voient rouler avec le CJ de ce
   joueur au volant (ou en passager). Monter dans la voiture d'un autre et partir avec vous la confie.
+  Chacun voit les autres ouvrir la portière, monter et descendre, et les dégâts de la voiture (portières,
+  pare-chocs, phares, pneus, fumée, feu, explosion), sa sirène et ses réparations.
 - Le **pseudo de chaque joueur au-dessus de sa tête** et un **point radar** à sa couleur.
 - **Même heure et même météo** pour tout le monde (celles de l'hôte).
 - **Armes et tirs** : chacun voit l'arme en main des autres joueurs et leurs tirs. Les joueurs peuvent se blesser
@@ -140,11 +143,10 @@ vérifie la version du jeu et lance la partie en hôte ou en invité. Options et
 
 ## Pas encore là (feuille de route)
 
-1. Véhicules, la suite : animations de montée / descente des autres joueurs, dégâts, radio, phares, sirènes.
-2. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
-3. Circulation et passants partagés.
-4. Un menu coop dans le jeu, et un salon dans le lanceur.
-5. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
+1. Missions de l'histoire partagées (l'hôte les lance, tout le monde les joue) : la méthode qui marche dans VCCoop.
+2. Circulation et passants partagés.
+3. Un menu coop dans le jeu, et un salon dans le lanceur.
+4. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
 
 ## Installation
 

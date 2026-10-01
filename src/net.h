@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 5, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 6, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -47,6 +47,9 @@ struct MsgState {
     uint8_t seat;       // 0 : au volant, 1..8 : passager
     uint8_t shots;      // compteur de tirs (chaque nouveau tir est rejoue par son pantin)
     float aim[3];       // point vise au dernier tir
+    uint8_t carTask;    // 0, 1 : monte au volant, 2 : monte en passager (porte carDoor), 3 : descend
+    uint8_t carDoor;
+    uint32_t carTaskVeh;// vehicule reseau de cette montee / descente
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };
@@ -60,7 +63,12 @@ struct MsgVehicle {
     uint8_t color1, color2;
     float pos[3], right[3], fwd[3], speed[3], turn[3];
     uint8_t driven;     // un joueur est dedans en ce moment
+    float health;       // CVehicle +0x4C0 (1000 neuf, < 250 en feu)
+    uint8_t flags;      // VF_*
+    uint8_t wheels[4], doors[6];   // CDamageManager (voitures seulement)
+    uint32_t lights, panels;
 };
+enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */ };
 // Coup porte par le joueur "from" au joueur "to" : touche decidee chez le tireur, degats appliques par le jeu du joueur
 // touche (regles du joueur, gilet, reaction, mort).
 struct MsgDamage { uint8_t type, from, to, weapon, bodyPart, pad[3]; float damage; };

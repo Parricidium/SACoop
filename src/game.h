@@ -89,6 +89,27 @@ namespace game {
         ((void(__thiscall *)(void *, void *, int, bool))0x681AF0)(PrimaryTasks(ped), task, slot, false);
     }
     enum : uintptr_t { VT_TaskSimpleGoToPoint = 0x86FD50 };
+    // Tache principale active (CTaskManager::GetActiveTask 0x681720).
+    inline void *ActiveTask(void *ped) { return ((void *(__thiscall *)(void *))0x681720)(PrimaryTasks(ped)); }
+    inline uintptr_t TaskVtable(void *task) { return task ? *(uintptr_t *)task : 0; }
+    // Montee / descente de vehicule (vehicule cible en +0xC) :
+    //  CTaskComplexEnterCarAsDriver (0x50 octets, ctor 0x6402F0(veh)), type 701 ;
+    //  CTaskComplexEnterCarAsPassenger (0x50, ctor 0x640340(veh, porte +0x1C, bool)), type 700 ;
+    //  CTaskComplexLeaveCar (0x34, ctor 0x63B8C0(veh, porte, delai, sensee, forcee)), type 704.
+    enum : uintptr_t { VT_TaskEnterCarAsDriver = 0x86EAAC, VT_TaskEnterCarAsPassenger = 0x86EADC, VT_TaskLeaveCar = 0x86E828 };
+    inline void *NewEnterCarTask(void *veh, int door)   // door < 0 : au volant
+    {
+        void *mem = ((void *(__cdecl *)(unsigned))0x61A5A0)(0x50);
+        if (!mem) return nullptr;
+        if (door < 0) return ((void *(__thiscall *)(void *, void *))0x6402F0)(mem, veh);
+        return ((void *(__thiscall *)(void *, void *, int, bool))0x640340)(mem, veh, door, false);
+    }
+    inline void *NewLeaveCarTask(void *veh)
+    {
+        void *mem = ((void *(__cdecl *)(unsigned))0x61A5A0)(0x34);
+        if (!mem) return nullptr;
+        return ((void *(__thiscall *)(void *, void *, int, int, bool, bool))0x63B8C0)(mem, veh, 0, 0, true, false);
+    }
     // CTaskSimpleGoToPoint (0x24 octets) : move state +8, cible +0xC, rayon +0x18.
     inline void *NewGoToPoint(int moveState, const CVector &target, float radius)
     {

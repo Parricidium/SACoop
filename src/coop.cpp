@@ -29,6 +29,9 @@ struct Puppet {
     int model;           // 0 = CJ habille
     uint32_t clothes;    // empreinte des vetements avec lesquels il a ete construit
     uint32_t builtAt;    // GetTickCount de la derniere construction (pas plus d'une toutes les 2 s)
+    int carTask;         // montee (1 volant, 2 passager) / descente (3) en cours, jouee par la tache du jeu
+    void *carVeh;
+    uint32_t carTaskAt;
 };
 static Puppet g_puppets[MAX_PLAYERS];
 
@@ -117,6 +120,18 @@ static void SendLocalState()
             if (!driver)
                 for (int i = 0; i < 8; i++) if (Field<void *>(veh, VEH_PASSENGERS + i * 4) == ped) s.seat = (uint8_t)(i + 1);
             if (driver || s.seat) s.vehicleId = LocalVehicleId(veh, driver);
+        }
+        // Montee / descente en cours : rejouee par le pantin (animation de portiere comprise).
+        void *task = ActiveTask(ped);
+        uintptr_t vt = TaskVtable(task);
+        if (vt == VT_TaskEnterCarAsDriver || vt == VT_TaskEnterCarAsPassenger || vt == VT_TaskLeaveCar) {
+            void *veh = Field<void *>(task, 0xC);
+            if (veh) {
+                s.carTask = vt == VT_TaskEnterCarAsDriver ? 1 : vt == VT_TaskEnterCarAsPassenger ? 2 : 3;
+                s.carDoor = (uint8_t)Field<int>(task, 0x1C);
+                s.carTaskVeh = LocalVehicleId(veh, false);
+                if (!s.carTaskVeh) s.carTask = 0;
+            }
         }
     }
     NetSendState(s);
@@ -348,25 +363,57 @@ static void UpdatePuppet(int id)
     if (puppetDead) { DestroyPuppet(id); return; }
     CombatUpdatePuppet(id, ped, s);
 
-    // En vehicule : le pantin est mis a sa place dans la copie ; il en sort quand le joueur est a pied.
+    // Montee / descente : le pantin joue la tache du jeu (marche jusqu'a la portiere, ouverture, assise ; ou sortie).
+    // Pendant ce temps sa position n'est plus suivie ; s'il n'a pas fini a temps, il est place d'un coup.
     void *inVeh = PedVehicle(ped);
+    uint32_t now = GetTickCount();
+    uintptr_t vt = TaskVtable(ActiveTask(ped));
+    bool entering = vt == VT_TaskEnterCarAsDriver || vt == VT_TaskEnterCarAsPassenger, leaving = vt == VT_TaskLeaveCar;
+    if ((s.carTask == 1 || s.carTask == 2) && !inVeh && !s.vehicleId) {
+        void *veh = NetVehicleById(s.carTaskVeh);
+        if (veh && (p.carTask != s.carTask || p.carVeh != veh)) {
+            if (void *task = NewEnterCarTask(veh, s.carTask == 1 ? -1 : s.carDoor)) {
+                SetPrimaryTask(ped, task, 3);
+                p.carTask = s.carTask; p.carVeh = veh; p.carTaskAt = now; p.moveState = 0;
+                Log("pantin du joueur %d : monte dans le vehicule %08X (%s)", id, s.carTaskVeh, s.carTask == 1 ? "volant" : "passager");
+            }
+        }
+        if (p.carTask == s.carTask) return;
+    }
+    if (s.carTask == 3 && inVeh && p.carTask != 3) {
+        if (void *task = NewLeaveCarTask(inVeh)) {
+            SetPrimaryTask(ped, task, 3);
+            p.carTask = 3; p.carVeh = inVeh; p.carTaskAt = now;
+            Log("pantin du joueur %d : descend du vehicule", id);
+        }
+    }
+    // (descente : le pantin attend aussi que son joueur ait fini la sienne, sinon il serait remis dedans)
+    bool busy = (p.carTask == 3 ? leaving || inVeh || s.carTask == 3 || s.vehicleId : entering) && now - p.carTaskAt < 5000;
+    if (p.carTask && !busy) p.carTask = 0;
+
+    // En vehicule : le pantin est mis a sa place dans la copie ; il en sort quand le joueur est a pied.
     if (s.vehicleId) {
         void *veh = NetVehicleById(s.vehicleId);
         if (!veh) return;   // copie pas encore creee (modele en chargement)
         bool placed = inVeh == veh && (s.seat == 0 ? Field<void *>(veh, VEH_DRIVER) == ped : Field<void *>(veh, VEH_PASSENGERS + (s.seat - 1) * 4) == ped);
-        if (!placed) {
-            if (inVeh) WarpPuppetOut(ped, s.pos);
-            WarpPuppetIn(ped, veh, s.seat);
-            p.moveState = 0;
-            Log("pantin du joueur %d mis dans le vehicule %08X (place %d)", id, s.vehicleId, s.seat);
-        }
+        if (placed) { if (p.carTask != 3) p.carTask = 0; return; }
+        if (p.carTask) return;   // montee (ou descente) en cours : on la laisse finir
+        if (inVeh) WarpPuppetOut(ped, s.pos);
+        WarpPuppetIn(ped, veh, s.seat);
+        p.moveState = 0;
+        Log("pantin du joueur %d mis dans le vehicule %08X (place %d)", id, s.vehicleId, s.seat);
         return;
     }
+    if (p.carTask == 3) return;   // descente en cours
     if (inVeh) {
         WarpPuppetOut(ped, s.pos);
         p.moveState = 0;
         Log("pantin du joueur %d sorti du vehicule", id);
         return;
+    }
+    if (p.carTask) {   // montee abandonnee par le joueur : le pantin s'arrete
+        p.carTask = 0;
+        SetPrimaryTask(ped, nullptr, 3);
     }
 
     // Position visee : un peu en avant selon la vitesse (le joueur a continue d'avancer depuis l'envoi).
@@ -410,6 +457,8 @@ static void UpdatePuppet(int id)
 // Pas de tache sur le joueur (un CTaskSimpleGoToPoint donne au CPlayerPed faisait planter le jeu) : on pousse le
 // manche gauche de la manette 0 comme le ferait une vraie manette. CPad[0] en 0xB73458 ; PCTempJoyState (+0xA8) est
 // fusionne dans NewState a chaque CPad::Update ; LeftStickY (+2) = -128 : en avant.
+static void *g_testCar;
+
 static void Autotest()
 {
     if (!g_cfg.autotest[0] || !InGame()) return;
@@ -441,7 +490,8 @@ static void Autotest()
         static uint32_t hostCar, tookAt;
         if (g_players[0].state.vehicleId) hostCar = g_players[0].state.vehicleId;
         if (hostCar && !g_players[0].state.vehicleId && t > 36000 && !tookAt) {
-            if (void *veh = NetVehicleById(hostCar)) {
+            void *veh = NetVehicleById(hostCar);
+            if (veh && (((uint8_t *)veh)[0x36] >> 3) != 5 && *(float *)((uint8_t *)veh + 0x4C0) > 500.0f) {   // pas une epave
                 WarpPuppetIn(ped, veh, 0);
                 tookAt = t;
                 Log("autotest : je prends le volant du vehicule %08X", hostCar);
@@ -452,6 +502,50 @@ static void Autotest()
             return;
         }
         ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);   // CCamera::SetCameraDirectlyBehindForFollowPed_CamOnAString
+        return;
+    }
+    // "monte" (hote) : un Greenwood pose a 5 m, l'hote a cote de la portiere conducteur ; Triangle a 22 s (il monte),
+    // avance un peu, Triangle a 30 s (il descend).
+    if (_stricmp(g_cfg.autotest, "monte") == 0) {
+        static bool done;
+        void *ped = FindPlayerPed();
+        if (!done) {
+            done = true;
+            float pos[3] = { 2245.5f, -1260.4f, 23.9f };
+            PlacePuppet(ped, pos, -1.5708f);
+            if (!ModelLoaded(492)) { RequestModel(492, 2); LoadAllRequestedModels(false); }
+            static void *car;
+            car = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(492, 2247.0f, -1262.3f, 24.2f, false);
+            g_testCar = car;
+            if (car)
+                if (uint8_t *m = *(uint8_t **)((uint8_t *)car + 0x14)) {
+                    float *r = (float *)m, *f = (float *)(m + 0x10);
+                    r[0] = 0; r[1] = -1; r[2] = 0; f[0] = 1; f[1] = 0; f[2] = 0;
+                }
+            ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);
+            Log("autotest : Greenwood pose, je vais monter");
+            return;
+        }
+        // Apres la descente : portiere avant gauche arrachee, pare-chocs avant pendant (a 32 s), explosion (a 36 s).
+        if (uint8_t *car = (uint8_t *)g_testCar) {
+            static int step;
+            if (step == 0 && t > 32000) {
+                step = 1;
+                car[0x5A0 + 9 + 2] = 4;   // portiere avant gauche : absente
+                ((void(__thiscall *)(void *, int, bool))0x6B1600)(car, 2, false);
+                uint32_t &panels = *(uint32_t *)(car + 0x5A0 + 0x14);
+                panels = (panels & ~(0xFu << 20)) | (2u << 20);   // pare-chocs avant : pendant
+                ((void(__thiscall *)(void *, int, bool))0x6B1350)(car, 5, false);
+                *(float *)(car + 0x4C0) = 400.0f;
+                Log("autotest : voiture abimee");
+            } else if (step == 1 && t > 36000) {
+                step = 2;
+                ((void(__thiscall *)(void *, void *, bool))((*(void ***)car)[41]))(car, nullptr, false);
+                Log("autotest : voiture explosee");
+            }
+        }
+        joy[0x1E / 2] = ((t > 22000 && t < 22300) || (t > 30000 && t < 30300)) ? 255 : 0;   // Triangle
+        joy[0x20 / 2] = (t > 26500 && t < 27300) ? 255 : 0;                                  // Croix : avance un peu
         return;
     }
     // "voiture" (hote) : un Greenwood (492) pose a 5 m, l'hote mis au volant, puis avance 2 s / s'arrete 2 s / recule 2 s
