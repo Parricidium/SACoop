@@ -26,6 +26,7 @@
 #include "script.h"
 #include "mirror.h"
 #include "savesync.h"
+#include "chat.h"
 #include <string.h>
 #include <math.h>
 
@@ -337,6 +338,7 @@ static void OnReliable(int from, const uint8_t *data, int len)
 {
     (void)from;
     if (SaveSyncReliable(data, len)) return;   // sauvegarde partagee (savesync.cpp) : traitee tout de suite
+    if (ChatReliable(from, data, len)) return;  // tchat (chat.cpp)
     if (len >= 2 && data[0] == RL_SESSION) {   // partie de l'hote : l'invite encore au menu la suit
         if (g_cfg.host) return;
         int slot = (int8_t)data[1];
@@ -605,11 +607,33 @@ void MirrorMenuFrame()
     if (g_cfg.host && GameState() == 7) { int s = MenuLoadingSlot(); if (s >= 0) g_seenSlot = s; }
 }
 
+// Invite arrive apres les fondus de l'hote (sa propre INTRO est bloquee) : reste noir alors que l'hote voit clair.
+// Si l'ecran est noir sans fondu en cours (CCamera +0xBFC alpha, +0x51 m_bFading) depuis 2 s, joueur vivant, hors
+// cinematique, et que l'hote est clair : fondu d'entree (DO_FADE 500 ms).
+static void UnstickFade()
+{
+    static uint32_t stuckSince;
+    uint8_t *cam = (uint8_t *)0xB6F028;
+    float alpha = *(float *)(cam + 0xBFC);
+    int st = Field<int>(FindPlayerPed(), PED_STATE);
+    const NetPlayer &host = g_players[0];
+    bool stuck = alpha > 200.0f && !cam[0x51] && st != 54 && st != 55 && !CutsceneRunning() &&
+                 host.connected && host.state.inGame && host.state.fade < 20;
+    if (!stuck) { stuckSince = 0; return; }
+    if (!stuckSince) stuckSince = GetTickCount();
+    if (GetTickCount() - stuckSince < 2000) return;
+    stuckSince = 0;
+    int args[2] = { 500, 1 };
+    RunScriptCommand(0x016A, 2, args);
+    Log("miroir : ecran noir alors que l'hote voit clair, fondu d'entree");
+}
+
 void MirrorFrame()
 {
     g_onReliable = OnReliable;
     if (g_cfg.host) { if (NetRunning()) HostGlobalsFrame(); return; }
     if (GameState() != 9 || !FindPlayerPed()) return;
+    UnstickFade();
     memcpy(g_script + 8, "sacoop", 7);
     uint32_t now = GetTickCount();
     for (int budget = 0; budget < 64 && g_qHead != g_qTail; budget++) {

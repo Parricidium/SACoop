@@ -124,10 +124,20 @@ bool IsMissionCopy(void *ped)
     for (auto &c : g_copies) if (c.id && c.ped == ped && CopyAlive(c)) return true;
     return false;
 }
+// Copie vivante la plus proche du joueur local, a moins de 60 m (autotests).
 void *AnyMissionCopy()
 {
-    for (auto &c : g_copies) if (c.id && CopyAlive(c) && !IsDead(c.ped)) return c.ped;
-    return nullptr;
+    void *me = FindPlayerPed(), *best = nullptr;
+    if (!me) return nullptr;
+    const float *mp = EntityPos(me);
+    float bestD = 60.0f * 60.0f;
+    for (auto &c : g_copies) {
+        if (!c.id || !CopyAlive(c) || IsDead(c.ped) || PedVehicle(c.ped)) continue;
+        const float *p = EntityPos(c.ped);
+        float dx = p[0] - mp[0], dy = p[1] - mp[1], dz = p[2] - mp[2], d = dx * dx + dy * dy + dz * dz;
+        if (d < bestD) { bestD = d; best = c.ped; }
+    }
+    return best;
 }
 void *MissionCopyById(uint32_t id)
 {
