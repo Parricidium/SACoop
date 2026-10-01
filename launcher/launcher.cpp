@@ -891,6 +891,12 @@ static void BuildOptions()
     T2(TAB_VIDEO, "GrandEcran", 1, L"Grand \u00E9cran", L"Widescreen",
        L"La 3D et le HUD gardent leurs proportions sur un \u00E9cran large, avec un champ de vision \u00E9largi.",
        L"The 3D and the HUD keep their proportions on wide screens, with a wider field of view.");
+    T2(TAB_VIDEO, "OcclusionAmbiante", 1, L"Occlusion ambiante", L"Ambient occlusion",
+       L"Rendu moderne : coins, pieds des murs, dessous des voitures et des personnages assombris.",
+       L"Modern rendering: corners, wall bases, under cars and characters get darker.");
+    T2(TAB_VIDEO, "Anticrenelage", 1, L"Anticr\u00E9nelage (FXAA)", L"Anti-aliasing (FXAA)",
+       L"Bords des objets adoucis sur la sc\u00E8ne 3D (l'interface reste nette).",
+       L"Smoother object edges on the 3D scene (the HUD stays sharp).");
     T2(TAB_VIDEO, "VuePremierePersonne", 1, L"Vue \u00E0 la 1re personne (F6)", L"First-person view (F6)",
        L"F6 en jeu : la cam\u00E9ra \u00E0 pied passe dans les yeux de CJ, et revient avec F6.",
        L"F6 in game: the on-foot camera goes into CJ's eyes, and back with F6.");

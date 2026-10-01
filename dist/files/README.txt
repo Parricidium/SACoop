@@ -25,6 +25,8 @@ Keys
 - F5 (held): players board.
 - Shared mods: SACoop\mods folder (see LISEZMOI-MODS.txt), sent by the
   host to the guests in the launcher lobby.
+- Modern rendering: ambient occlusion and FXAA anti-aliasing (launcher
+  VIDEO tab).
 - F6: first-person view on foot (F6 again to go back).
 - F10: co-op panel (go to a player, friendly fire, outfit; time and weather
   for the host). Arrows and Enter to choose, Escape to close.

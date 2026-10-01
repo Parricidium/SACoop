@@ -38,6 +38,12 @@
 </p>
 <p align="center"><i>A wanted guest: the host's cops come for them too (Grove Street).</i></p>
 
+<p align="center">
+  <img src="docs/img/rendu-avec.jpg" width="49%" alt="Grove Street with ambient occlusion and FXAA">
+  <img src="docs/img/rendu-occlusion.jpg" width="49%" alt="The ambient occlusion alone">
+</p>
+<p align="center"><i>Optional modern rendering: ambient occlusion and FXAA (right: the occlusion alone).</i></p>
+
 # SACoop — the San Andreas story in co-op (work in progress)
 
 A co-op mod for **Grand Theft Auto: San Andreas** (PC, version 1.0 US), by the authors of
@@ -96,6 +102,7 @@ ready).
 - **COOP menu in the game** (main and pause menus): host, join an address, change your name, see the session.
 - **G**: ride as a passenger in another player's car (F too). **T**: chat (Enter to send; `/join` brings you back next to the host). **F5** (held): players board (name, health, distance). **F6**: first-person view on foot. **F10**: co-op panel (go to a player, friendly fire,
   outfit, and time / weather for the host).
+- **Modern rendering** (optional): ambient occlusion (corners, wall bases, under cars darker) and FXAA anti-aliasing.
 - **Widescreen**: the 3D, the HUD (radar, icons, texts) and the menus keep their proportions on wide screens, with a wider field
   of view (Hor+). Borderless mode picks your screen's resolution by itself.
 - Windowed or borderless play, fixed frame rate (30 by default), logos and intro videos skipped.
@@ -106,7 +113,7 @@ ready).
 
 1. Story missions, the rest: testing every mission (the real test with JD and friends).
 2. Police cars ramming guests' cars (cops on foot already chase them).
-3. Modern rendering options (as in VCCoop), all optional.
+3. More modern rendering (sun shadows, reflections, as in VCCoop), all optional.
 
 ## Installation
 
@@ -201,6 +208,8 @@ quand un joueur arrive, part ou se met prêt).
   session.
 - **G** : monter en passager dans la voiture d'un autre joueur (F aussi). **T** : tchat (Entrée pour envoyer ; `/rejoindre` vous ramène près de l'hôte). **F5** (maintenue) : tableau des joueurs (pseudo, vie, distance). **F6** : vue à la première personne à pied. **F10** : panneau coop (aller vers un
   joueur, tir ami, tenue, et heure / météo pour l'hôte).
+- **Rendu moderne** (facultatif) : occlusion ambiante (coins, pieds des murs, dessous des voitures assombris) et
+  anticrénelage FXAA.
 - **Grand écran** : la 3D, le HUD (radar, icônes, textes) et les menus gardent leurs proportions sur un écran large, avec un champ
   de vision élargi. En plein écran sans bordure, la résolution de l'écran est choisie toute seule.
 - Jeu en fenêtre ou plein écran sans bordure, images par seconde fixes (30 par défaut), logos et vidéos d'ouverture
@@ -212,7 +221,7 @@ quand un joueur arrive, part ou se met prêt).
 
 1. Missions de l'histoire, la suite : essai de chaque mission (le vrai test entre amis).
 2. Voitures de police qui éperonnent celle d'un invité (les policiers à pied le poursuivent déjà).
-3. Options de rendu moderne (comme dans VCCoop), toutes facultatives.
+3. Plus de rendu moderne (ombres du soleil, reflets, comme dans VCCoop), tout facultatif.
 
 ## Installation
 

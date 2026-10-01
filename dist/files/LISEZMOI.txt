@@ -24,6 +24,8 @@ Touches
 - F5 (maintenue) : tableau des joueurs.
 - Mods partages : dossier SACoop\mods (voir LISEZMOI-MODS.txt), envoyes
   par l'hote aux invites dans le salon du lanceur.
+- Rendu moderne : occlusion ambiante et anticrenelage FXAA (onglet VIDEO
+  du lanceur).
 - F6 : vue a la premiere personne a pied (F6 pour revenir).
 - F10 : panneau coop (aller vers un joueur, tir ami, tenue ; heure et meteo
   pour l'hote). Fleches et Entree pour choisir, Echap pour fermer.
