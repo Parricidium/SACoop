@@ -12,6 +12,7 @@
 #include "util.h"
 #include "panel.h"
 #include "gfx.h"
+#include "prefs.h"
 #include "sacoop.h"
 #include "net.h"
 #include "game.h"
@@ -1011,6 +1012,7 @@ void CoopFrame(bool inGameLoop)
     ModsFrame();
     PanelFrame();    // (menu F10 : en solo aussi)
     GfxFrame();      // (distance d'affichage, population)
+    PrefsFrame();    // (souris inversee ou non)
     PanelTest();
     if (!NetRunning()) return;
     SaveSyncFrame();

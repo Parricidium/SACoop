@@ -10,8 +10,10 @@
 #include "menu.h"
 #include "net.h"
 #include "panel.h"
+#include "game.h"
 #include "gfx.h"
 #include "fps.h"
+#include "prefs.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -31,11 +33,15 @@ typedef HRESULT(WINAPI *CreateDevice_t)(void *, const GUID &, void **, void *);
 static GetDeviceState_t o_GetDeviceState;
 static CreateDevice_t o_CreateDevice;
 
+static const HRESULT DI_OK_TEST = 0;
 static bool AnyDown(const uint8_t *b, DWORD n) { for (DWORD i = 0; i < n; i++) if (b[i] & 0x80) return true; return false; }
 
 static HRESULT WINAPI h_GetDeviceState(void *dev, DWORD size, void *data)
 {
     HRESULT hr = o_GetDeviceState(dev, size, data);
+    static int testMouseAny = -1;   // (TestSouris : instance de test sans le premier plan, souris non acquise)
+    if (testMouseAny < 0) testMouseAny = GetPrivateProfileIntA("SACoop", "TestSouris", 0, IniPath());
+    if (FAILED(hr) && testMouseAny > 0 && dev == g_diMouse && data) { memset(data, 0, size); hr = DI_OK_TEST; }
     if (FAILED(hr) || !data) return hr;
     static bool holdMouse, holdKeys;
     bool capture = PanelCapturesKeys();
@@ -43,6 +49,19 @@ static HRESULT WINAPI h_GetDeviceState(void *dev, DWORD size, void *data)
         LONG *m = (LONG *)data;
         uint8_t *buttons = (uint8_t *)data + 12;
         DWORD nb = size >= 20 ? 8 : 4;
+        static int testMouse = -1;   // TestSouris=1 : souris poussee vers l'avant 1 s, 30 s apres l'arrivee en partie
+        if (testMouse < 0) testMouse = GetPrivateProfileIntA("SACoop", "TestSouris", 0, IniPath());
+        if (testMouse > 0 && game::GameState() == 9) {
+            static DWORD since;
+            if (!since) since = GetTickCount();
+            DWORD t = GetTickCount() - since;
+            float *at = nullptr;
+            if (void *cam = *(void **)0xC1703C) if (uint8_t *fr = *(uint8_t **)((uint8_t *)cam + 4)) at = (float *)(fr + 0x70);   // RwFrame LTM : at
+            static float z0;
+            static int phase;
+            if (phase == 0 && t > 30000 && at) { phase = 1; z0 = at[2]; }
+            if (phase == 1) { m[1] = -15; if (t > 31000) { phase = 2; Log("test souris : vers l'avant, regard z %.3f -> %.3f (%s)", z0, at ? at[2] : 0.0f, at && at[2] > z0 ? "vers le haut" : "vers le bas"); } }
+        }
         if (PanelOpen()) { PanelMouseInput(m[0], m[1], m[2], (buttons[0] & 0x80) != 0); holdMouse = true; }
         if (capture || holdMouse) {
             if (!capture && !AnyDown(buttons, nb)) holdMouse = false;
@@ -140,6 +159,8 @@ static void LoadConfig()
     if (g_cfg.popDensity < 50) g_cfg.popDensity = 50;
     if (g_cfg.popDensity > 300) g_cfg.popDensity = 300;
     g_cfg.aniso = GetPrivateProfileIntA("SACoop", "FiltrageAnisotrope", 1, ini) != 0;
+    g_cfg.gameLang = GetPrivateProfileIntA("SACoop", "LangueJeu", -1, ini);
+    g_cfg.invertMouseY = GetPrivateProfileIntA("SACoop", "SourisInverseeY", 0, ini) != 0;
     g_cfg.fpsView = GetPrivateProfileIntA("SACoop", "VuePremierePersonne", 1, ini) != 0;
     g_cfg.testFirstPerson = GetPrivateProfileIntA("SACoop", "TestPremierePersonne", 0, ini) != 0;
     {   // ToucheVue : F1-F12 ou une lettre / un chiffre
@@ -243,5 +264,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallRender();
     InstallGfx();
     InstallFps();
+    InstallPrefs();
     return TRUE;
 }

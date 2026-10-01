@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.39.0-prealpha"
+#define SACOOP_VERSION "0.40.0-prealpha"
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)
@@ -35,6 +35,8 @@ struct Config {
     int drawDistance;       // DistanceAffichage : 100-300 % (gfx.cpp)
     int zonePop;            // ZonePopulation : 100-200 %, distance d'apparition des pietons et voitures
     int popDensity;         // DensitePopulation : 50-300 %
+    int gameLang;           // LangueJeu : -1 = celle de Windows, 0 anglais, 1 francais, 2 allemand, 3 italien, 4 espagnol
+    bool invertMouseY;      // SourisInverseeY : axe vertical de la souris inverse (0 par defaut)
     bool aniso;             // FiltrageAnisotrope : textures nettes de biais (render.cpp)
     bool friendlyFire;      // TirAmi : les joueurs peuvent se blesser entre eux (chacun decide pour lui)
     int skin;               // Tenue : ce que les autres voient (0 = CJ avec ses vetements, par defaut ; 1-299 = un pieton du jeu)
