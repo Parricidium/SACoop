@@ -5,6 +5,7 @@ void MirrorBefore(void *script, int op);   // hote : avant chaque commande (capt
 void MirrorAfter(void *script, int op);    // hote : apres (sorties, envoi)
 void MirrorFrame();
 void MirrorMenuFrame();                   // chaque tour de boucle, menu compris
+void MirrorTestStuckCamera(const float *pos);   // autotest "camcoince" (invite)
 void MirrorTestObject(int step, const float *pos);   // autotest "objet" (hote)
 void MirrorMissionStart();                 // hote : une mission de l'histoire demarre (regroupement)
 bool ScriptReadValues(void *script, unsigned char *ip, int n, int *vals);

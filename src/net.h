@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 17, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 18, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -68,6 +68,7 @@ struct MsgState {
     uint8_t air;        // a pied : 1 en l'air (saut, chute), 2 accroche a un mur (escalade) ; le pantin suit sa hauteur
     uint8_t radio;      // au volant : station de radio ecoutee (les passagers l'entendent aussi) ; 0xFF sinon
     uint8_t gear;       // accessoires : 1 jetpack (tache 1303), 4 telephone (tache 1600) ; a pied
+    uint8_t camScripted;// camera tenue par un script (TheCamera +0x2B m_bLookingAtPlayer a 0 : fixe, cinematique de mission)
     int16_t attModel;   // objet attache au joueur par un script (parachute ouvert, colis...) : modele, 0 aucun
     float attOff[3], attRot[3];   // son decalage et sa rotation (CPhysical +0x100, +0x10C, radians)
     char name[24];

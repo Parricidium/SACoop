@@ -32,6 +32,7 @@ struct NetVeh {
     bool damaged;        // le dernier etat recu portait des degats (une remise a neuf = reparation)
     bool mission;        // vehicule de mission de l'hote : envoye tant qu'il existe
     bool ambient;        // vehicule ordinaire de l'hote pres d'un invite partage (population.cpp) : envoye tant qu'il y est
+    uint32_t blownAt;    // derniere demande d'explosion de la copie
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -328,6 +329,10 @@ static void ApplyBody(NetVeh &n)
         return;
     }
     if (m.flags & VF_WRECKED) {   // CVehicle::BlowUpCar(auteur, bool) : vtable[41] (0x6B3780 pour les voitures)
+        // (une fois toutes les 2 s : une copie a l'epreuve des explosions (vehicule de mission protege) la refusait,
+        // et l'explosion etait redemandee a chaque image, test reel du 02/10)
+        if (GetTickCount() - n.blownAt < 2000) return;
+        n.blownAt = GetTickCount();
         ((void(__thiscall *)(void *, void *, bool))((*(void ***)v)[41]))(v, nullptr, false);
         Log("copie du vehicule %08X : explosion", n.id);
         return;
