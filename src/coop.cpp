@@ -184,6 +184,7 @@ static void SendLocalState()
         s.animCount = (uint8_t)AnimsCollect(ped, s.anims, ANIMS_MAX);
         void *myVeh = PedVehicle(ped);
         s.radio = myVeh && Field<void *>(myVeh, VEH_DRIVER) == ped ? *(uint8_t *)(0x8CB6F8 + 0xAD) : 0xFF;
+        s.camScripted = *(uint8_t *)(0xB6F028 + 0x2B) == 0;
         if (!myVeh) {
             if (HasTaskType(ped, 1303)) s.gear |= 1;   // CTaskSimpleJetPack
             if (HasTaskType(ped, 1600)) s.gear |= 4;   // CTaskComplexUseMobilePhone
@@ -834,6 +835,14 @@ static void Autotest()
             int n = *(int *)0xA9AD70;
             if (n > 0) { void *tag = *(void **)0xA9A8C0; ((void(__cdecl *)(void *, uint8_t))0x49CEC0)(tag, 255); Log("autotest : tag 0 peint (%d tags)", n); }
         }
+        return;
+    }
+    // "camcoince" (invite) : camera fixe en l'air a 32 s, que l'hote n'a pas : rendue au bout de 2,5 s (mirror.cpp).
+    if (_stricmp(g_cfg.autotest, "camcoince") == 0) {
+        static bool done;
+        if (!done && t > 32000) { done = true; MirrorTestStuckCamera(EntityPos(FindPlayerPed())); }
+        static uint32_t lastLog;
+        if (done && t < 40000 && t - lastLog > 1000) { lastLog = t; Log("autotest : camera sur le joueur %d", *(uint8_t *)(0xB6F028 + 0x2B)); }
         return;
     }
     // "flic" (hote) : a 34 s, une voiture de police (596, policier 280 au volant, comme une voiture aleatoire :

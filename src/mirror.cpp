@@ -407,7 +407,17 @@ static void ExecCommand(int op)
 }
 
 static void RestoreScreen();
-static uint32_t g_teleportedAt;   // invite : derniere teleportation avec l'hote (SET_AREA_VISIBLE a suivre)
+static uint32_t g_teleportedAt;
+static uint32_t g_mirrorCamAt;   // invite : derniere commande de camera rejouee (garde-fou CameraWatch)
+
+// Mouvements de camera en cours (CAMERA_SET_VECTOR_MOVE/TRACK 0936/0920, gardes par CAMERA_PERSIST_* 092F/0930) :
+// effaces comme le fait le jeu (0x50D2D0 : actifs +0xC8C/+0xCEC, persistants +0xCEE/+0xCEF de TheCamera) au retour de
+// la camera derriere le joueur. Apres la cinematique des velos (02/10), la camera de l'invite restait en l'air.
+static void CameraVectorReset()
+{
+    uint8_t *cam = (uint8_t *)0xB6F028;
+    cam[0xC8C] = cam[0xCEC] = cam[0xCEE] = cam[0xCEF] = 0;
+}   // invite : derniere teleportation avec l'hote (SET_AREA_VISIBLE a suivre)
 
 // Rejoue une commande ; faux si une entite manque encore (on reessaiera).
 static bool Replay(const uint8_t *d, int len)
@@ -565,6 +575,8 @@ static bool Replay(const uint8_t *d, int len)
         }
         if (!closeBy && GetTickCount() - g_teleportedAt > 3000) return true;
     }
+    if (op == 0x015A || op == 0x02EB || op == 0x0373) CameraVectorReset();
+    if (op == 0x015F || op == 0x0160 || (op >= 0x0157 && op <= 0x0159) || (op >= 0x0679 && op <= 0x067E) || op == 0x0936 || op == 0x0920) g_mirrorCamAt = GetTickCount();
     ExecCommand(op);
     static int logged;
     if (logged < 300) { logged++; Log("miroir : %04X rejouee", op); }
@@ -584,6 +596,7 @@ static bool Replay(const uint8_t *d, int len)
 // Ecran de l'invite apres une mission de l'hote : fondu d'entree, format normal, controles, camera, textes, sons.
 static void RestoreScreen()
 {
+    CameraVectorReset();
     static const struct { uint16_t op; int args[2]; int n; } cmds[] = {
         { 0x016A, { 500, 1 }, 2 }, { 0x02A3, { 0 }, 1 }, { 0x01B4, { 0, 1 }, 2 }, { 0x02EB, {}, 0 },
         { 0x00BE, {}, 0 }, { 0x03E6, {}, 0 }, { 0x040D, { 1 }, 1 }, { 0x040D, { 2 }, 1 },
@@ -723,12 +736,44 @@ static void ForceCutsceneEnd(const char *why)
     Log("miroir : fin de cinematique forcee (%s), commandes rendues", why);
 }
 
+// Garde-fou : la camera de l'invite est tenue (fixe, mouvement de mission) alors que l'hote a retrouve la sienne depuis
+// 2,5 s, hors cinematique, et une camera de mission a ete rejouee dans les 3 dernieres minutes (pas celle d'un magasin
+// de l'invite) : elle lui est rendue (mouvements effaces, RESTORE_CAMERA_JUMPCUT 02EB, camera dans le dos 0373).
+static void CameraWatch()
+{
+    static uint32_t since;
+    uint32_t now = GetTickCount();
+    const NetPlayer &h = g_players[0];
+    bool stuck = *(uint8_t *)(0xB6F028 + 0x2B) == 0 && h.connected && h.state.inGame && !h.state.camScripted
+                 && now - h.lastStateAt < 1000 && !CutsceneRunning() && g_mirrorCamAt && now - g_mirrorCamAt < 180000;
+    if (!stuck) { since = 0; return; }
+    if (!since) { since = now; return; }
+    if (now - since < 2500) return;
+    since = 0;
+    CameraVectorReset();
+    static const uint16_t ops[2] = { 0x02EB, 0x0373 };
+    for (uint16_t op : ops) { *(uint16_t *)g_code = op; ExecCommand(op); }
+    Log("miroir : camera de l'invite rendue (l'hote n'est plus en camera de mission)");
+}
+
+// Autotest "camcoince" (invite) : une camera fixe comme celle d'une mission, que l'hote n'a pas : CameraWatch doit la rendre.
+void MirrorTestStuckCamera(const float *pos)
+{
+    int a[6]; float f[6] = { pos[0], pos[1], pos[2] + 25.0f, 0, 0, 0 }; memcpy(a, f, 24);
+    RunScriptCommandTyped(0x015F, 6, "ffffff", a);
+    int b[4]; float g[3] = { pos[0], pos[1], pos[2] }; memcpy(b, g, 12); b[3] = 2;
+    RunScriptCommandTyped(0x0160, 4, "fffi", b);
+    g_mirrorCamAt = GetTickCount();
+    Log("autotest : camera fixe en l'air (comme une mission)");
+}
+
 void MirrorFrame()
 {
     g_onReliable = OnReliable;
     if (g_cfg.host) { if (NetRunning()) HostGlobalsFrame(); return; }
     if (GameState() != 9 || !FindPlayerPed()) return;
     UnstickFade();
+    CameraWatch();
     memcpy(g_script + 8, "sacoop", 7);
     uint32_t now = GetTickCount();
     for (int budget = 0; budget < 64 && g_qHead != g_qTail; budget++) {
