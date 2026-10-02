@@ -55,6 +55,7 @@ struct Puppet {
     AnimMirror anims;    // animations d'action donnees au pantin (anims.cpp)
     float dbAim[3];      // tir par la fenetre : point vise donne au pantin
     uint32_t dbAt;
+    bool air;            // suit la hauteur de son joueur (en l'air, accroche) : sans gravite
 };
 
 // Coups au corps a corps (poings, fichier d'animations PED) : vus sur le joueur (RpAnimBlendClumpGetAssociation
@@ -140,6 +141,8 @@ static bool InGame()
     return GameState() == 9 && FindPlayerPed() != nullptr;
 }
 
+static void LocalSkin();
+
 // --- Etat du joueur local, envoye 30 fois par seconde ---
 static void SendLocalState()
 {
@@ -174,6 +177,10 @@ static void SendLocalState()
         s.meleeSeq = g_meleeSeq;
         s.meleeAnim = g_meleeAnim;
         s.animCount = (uint8_t)AnimsCollect(ped, s.anims, ANIMS_MAX);
+        if (!PedVehicle(ped)) {
+            if (AnimsClimbing(ped)) s.air = 2;
+            else if (!(Field<uint8_t>(ped, 0x46C) & 1)) s.air = 1;   // CPed::bIsStanding (+0x46C bit 0) a zero
+        }
         // Visee (tache secondaire d'attaque = CTaskSimpleUseGun, type 1017, mesure 01/10) : point vise = 40 m devant la
         // camera (cadre de la camera RenderWare de la scene, 0xC1703C : at +0x70, position +0x80 de sa matrice LTM).
         void *sec = PrimaryTasks(ped)[5];
@@ -398,6 +405,37 @@ static void CreatePuppet(int id, const MsgState &s)
     Log("pantin du joueur %d (%s, modele %d) cree en %.1f %.1f %.1f", id, s.name, model, s.pos[0], s.pos[1], s.pos[2]);
 }
 
+// Saut, chute, escalade : le pantin suit la position de son joueur EN HAUTEUR aussi. Avant, il restait au sol (gravite)
+// et jouait l'escalade a hauteur d'homme au pied du mur (test du 01/10). Sans gravite (CPhysical +0x40 bit 2) et, accroche
+// a un mur, sans collision (CEntity +0x1C bit 0 : le mur le repoussait), place a chaque image ; rendu au jeu ensuite.
+static void PuppetAir(void *ped, const MsgState &s, uint32_t ageMs, Puppet &p)
+{
+    uint8_t *e = (uint8_t *)ped;
+    if (!p.air) {
+        p.air = true;
+        SetPrimaryTask(ped, nullptr, 3);
+        p.moveState = 0;
+    }
+    *(uint32_t *)(e + 0x40) &= ~2u;
+    if (s.air == 2) e[0x1C] &= ~1; else e[0x1C] |= 1;
+    float lead = ageMs / 1000.0f;
+    if (lead > 0.15f) lead = 0.15f;
+    float *pos = EntityPos(ped);
+    for (int k = 0; k < 3; k++) pos[k] = s.pos[k] + s.speed[k] * 50.0f * lead;
+    memcpy(MoveSpeed(ped), s.speed, 12);
+    SetHeading(ped, s.heading);
+    static int said;
+    static uint32_t lastSaid;
+    if (said < 20 && GetTickCount() - lastSaid > 200) { said++; lastSaid = GetTickCount(); Log("pantin : %s, hauteur %.2f (recue %.2f)", s.air == 2 ? "accroche" : "en l'air", pos[2], s.pos[2]); }
+}
+static void PuppetAirEnd(void *ped, Puppet &p)
+{
+    uint8_t *e = (uint8_t *)ped;
+    *(uint32_t *)(e + 0x40) |= 2u;
+    e[0x1C] |= 1;
+    p.air = false;
+}
+
 static int PuppetMove(int remoteMove)
 {
     if (remoteMove >= MOVE_SPRINT) return MOVE_SPRINT;
@@ -435,6 +473,7 @@ static void UpdatePuppet(int id)
         return;
     }
     if (puppetDead) { DestroyPuppet(id); return; }
+    if (p.air && (!s.air || s.vehicleId)) PuppetAirEnd(ped, p);
     CombatUpdatePuppet(id, ped, s);
     // Le pantin n'a pas d'IA a lui : frappe ou menace, le jeu lui donnait une reaction de PNJ (riposte, fuite) qui
     // passait avant sa tache de suivi, il partait de son cote puis etait replace d'un coup (teleportations vues par JD
@@ -547,6 +586,7 @@ static void UpdatePuppet(int id)
     AimMirror(ped, s.aiming == 1 && s.weapon >= 22 && s.weapon <= 38, s.aim);
     AnimsApply(ped, s.anims, s.animCount, p.anims);
 
+    if (s.air) { PuppetAir(ped, s, GetTickCount() - np.lastStateAt, p); return; }
     if (FollowOnFoot(ped, s.pos, s.speed, s.heading, s.moveState, GetTickCount() - np.lastStateAt, p.moveState)) p.lastTask = GetTickCount();
 }
 
@@ -1030,6 +1070,29 @@ static void Autotest()
         }
         return;
     }
+    // "escalade" (hote) : face au muret de la ruelle de Ganton (dessus a 25,4), saute toutes les 8 s et s'y accroche ;
+    // "escalade-vue" (invite) : 7 m derriere lui, camera dans le dos. Hauteur du joueur au journal.
+    if (_stricmp(g_cfg.autotest, "escalade") == 0 || _stricmp(g_cfg.autotest, "escalade-vue") == 0) {
+        bool host = _stricmp(g_cfg.autotest, "escalade") == 0;
+        void *ped = FindPlayerPed();
+        int e = (int)t - 25000;
+        joy[1] = 0; joy[0x1C / 2] = 0;
+        if (e < 0) return;
+        static int round = -1;
+        if (e / 8000 != round) {
+            round = e / 8000;
+            float pos[3] = { host ? 2232.0f : 2238.0f, host ? -1260.5f : -1259.0f, 24.2f };
+            PlacePuppet(ped, pos, host ? 3.1416f : 2.15f);   // hote face au sud (-y) ; invite de biais, tourne vers lui
+            ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);
+        }
+        if (!host) return;
+        int r = e % 8000;
+        joy[0x1C / 2] = r > 1000 && r < 1150 ? 255 : 0;
+        joy[1] = r > 1000 && r < 4000 ? -128 : 0;   // pousse vers le mur : traction et retablissement
+        static uint32_t lastLog;
+        if (r > 900 && r < 5000 && t - lastLog > 200) { lastLog = t; Log("autotest : escalade, hauteur %.2f, debout %d, accroche %d", EntityPos(ped)[2], Field<uint8_t>(ped, 0x46C) & 1, AnimsClimbing(ped)); }
+        return;
+    }
     // "anims" (diagnostic) : enchaine marche, course, sprint, sauts, accroupi, coups ; animations du joueur au journal
     // (groupe:numero poids temps drapeaux), pour la synchro des animations.
     if (_stricmp(g_cfg.autotest, "anims") == 0) {
@@ -1392,6 +1455,7 @@ static void CoopFrameInner(bool inGameLoop)
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
     SyncWorld();
+    LocalSkin();
     Autotest();
 
     static uint32_t lastLog;
@@ -1409,6 +1473,68 @@ static void CoopFrameInner(bool inGameLoop)
                     Field<int>(g_puppets[i].ped, PED_MOVESTATE), g_players[i].state.pos[0], g_players[i].state.pos[1], g_players[i].state.pos[2]);
             }
     }
+}
+
+// Tenue du joueur local : le reglage Tenue changeait seulement ce que voient les autres, le joueur se voyait toujours
+// en CJ (test du 01/10). Le modele du joueur est change comme le fait le jeu (opcode 09C7 : garde sa demarche, groupe
+// de deplacement +0x4D4), a pied, hors cinematique ; le jeu remet CJ quand il le reconstruit (magasin de vetements,
+// coiffeur, fin de cinematique, reapparition : CClothes::RebuildPlayer 0x5A82C0) et la tenue est alors reposee. Un
+// modele pose par un script de mission (ni CJ ni la tenue) n'est pas touche. Retour a CJ : 09C7 modele 0 puis 070D.
+// CClothes::RebuildPlayer (0x5A82C0, cdecl ped, bool) construit les vetements de CJ DANS le modele en cours du joueur
+// (ConstructPedModel(ped->m_nModelIndex...)) : appele par un script (070D) apres la pose de la tenue, il ecrasait le
+// modele du pieton par le maillage de CJ, peau mal accrochee (corps desarticule au premier essai). On repasse d'abord le
+// joueur au modele 0 comme 09C7 (demarche gardee) ; LocalSkin repose la tenue ensuite.
+typedef void(__cdecl *RebuildPlayer_t)(void *, bool);
+static RebuildPlayer_t o_RebuildPlayer;
+static void __cdecl h_RebuildPlayer(void *ped, bool ignoreFat)
+{
+    int16_t &mi = *(int16_t *)((uint8_t *)ped + 0x22);
+    if (mi > 0) {
+        int mg = Field<int>(ped, 0x4D4);
+        ((void(__thiscall *)(void *))(*(void ***)ped)[8])(ped);         // DeleteRwObject
+        mi = -1;
+        ((void(__thiscall *)(void *, int))(*(void ***)ped)[5])(ped, 0); // SetModelIndex
+        Field<int>(ped, 0x4D4) = mg;
+        static int said;
+        if (said < 10) { said++; Log("tenue : le jeu reconstruit CJ, passe d'abord au modele 0"); }
+    }
+    o_RebuildPlayer(ped, ignoreFat);
+}
+
+static void LocalSkin()
+{
+    static const uint8_t pro[] = { 0x56, 0x8B, 0x74, 0x24, 0x08, 0x8B, 0x46, 0x18 };
+    if (!o_RebuildPlayer) {
+        o_RebuildPlayer = (RebuildPlayer_t)MakeDetour(0x5A82C0, pro, sizeof(pro), (void *)h_RebuildPlayer);
+        if (!o_RebuildPlayer) { o_RebuildPlayer = (RebuildPlayer_t)1; Log("tenue : detour de RebuildPlayer impossible, tenue non posee sur soi"); }
+    }
+    if (o_RebuildPlayer == (RebuildPlayer_t)1) return;
+    static uint32_t last;
+    static int applied;   // modele pose par nous (0 : aucun)
+    uint32_t now = GetTickCount();
+    if (now - last < 500) return;
+    last = now;
+    void *me = FindPlayerPed();
+    if (!me || !InGame() || !WorldCalm() || PedVehicle(me) || Field<float>(me, PED_HEALTH) <= 0.0f) return;
+    int want = g_cfg.skin, cur = *(int16_t *)((uint8_t *)me + 0x22);
+    if (want == 0) {
+        if (applied && cur == applied) {
+            int a[2] = { 0, 0 };
+            RunScriptCommand(0x09C7, 2, a);
+            RunScriptCommand(0x070D, 1, a);
+            Log("tenue : retour a CJ");
+        }
+        applied = 0;
+        return;
+    }
+    if (cur == want) { applied = want; return; }
+    if (cur != 0 && cur != applied) return;
+    if (!ModelLoaded(want)) { RequestModel(want, 2); return; }   // (charge en fond ; 2 : garde en memoire)
+    int a[2] = { 0, want };
+    RunScriptCommand(0x09C7, 2, a);
+    applied = want;
+    static int said;
+    if (said < 10) { said++; Log("tenue : modele %d pose sur le joueur", want); }
 }
 
 void OnFrame()

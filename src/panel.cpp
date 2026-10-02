@@ -378,8 +378,8 @@ static void OutfitTab(float x0, float y0, float x1, float y1)
 {
     LoadSkinList();
     float k = K();
-    UiText(x0, y0, 12.5f * k, C_GREY, UI_LEFT, L("Ce que les autres joueurs voient (CJ : avec vos v\xEA" "tements, magasins compris). Molette : d\xE9" "filer.",
-                                                  "What the other players see (CJ: with your clothes, shops included). Wheel: scroll."));
+    UiText(x0, y0, 12.5f * k, C_GREY, UI_LEFT, L("Votre tenue, sur vous et chez les autres (CJ : avec vos v\xEA" "tements, magasins compris). Molette : d\xE9" "filer.",
+                                                  "Your outfit, for you and the others (CJ: with your clothes, shops included). Wheel: scroll."));
     const int cols = 9, rows = 3, per = cols * rows;
     int total = (int)g_skinList.size(), pages = (total + per - 1) / per;
     if (g_skinScroll < 0) {   // a l'ouverture : la page de la tenue portee
@@ -598,8 +598,11 @@ void PanelTest()
     if (!start) start = now;
     uint32_t t = now - start;
     if (mode == 2) { if (step == 0 && t > 25000) { step = 1; g_help = true; Log("test menu : aide"); } return; }
-    if (step == 0 && t > 25000) { step = 1; g_open = true; g_tab = mode == 3 ? T_VEHICLES : T_PLAYERS; g_mx = ScreenW() * 0.47f; g_my = ScreenH() * 0.45f; Log("test menu : ouvert"); }
+    if (step == 0 && t > 25000) { step = 1; g_open = true; g_tab = mode == 3 ? T_VEHICLES : mode == 4 ? T_OUTFIT : T_PLAYERS; g_mx = ScreenW() * 0.47f; g_my = ScreenH() * 0.45f; Log("test menu : ouvert"); }
     else if (mode == 3 && step == 1 && t > 29000) { step = 2; g_click = true; Log("test menu : clic sur une vignette"); }
+    else if (mode == 4 && step == 1 && t > 29000) { step = 2; Queue(A_SKIN, 50); Log("test menu : tenue 50 choisie"); }
+    else if (mode == 4 && step == 2 && t > 33000) { step = 3; g_open = false; Log("test menu : ferme, tenue %d", g_cfg.skin); }
+    else if (mode == 4 && step == 3 && t > 37000) { step = 4; Queue(A_SKIN, 0); Log("test menu : retour a CJ"); }   // (4 : tenue choisie puis CJ)
     else if (mode == 1 && step >= 1 && step < 8 && t > 25000 + step * 4000) { g_tab = (int)step % (g_cfg.host ? T_COUNT : T_WORLD); step++; Log("test menu : onglet %d", g_tab); }
     else if (mode == 1 && step == 8 && t > 25000 + 8 * 4000) { step = 9; g_open = false; Log("test menu : ferme"); }
 }

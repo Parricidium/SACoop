@@ -191,3 +191,13 @@ bool AimOf(void *ped, float *aim)
     } else memcpy(aim, (uint8_t *)sec + 0x20, 12);
     return true;
 }
+
+// Escalade (accroche a un mur, traction, retablissement) : animations CLIMB_* 0:128 a 0:134 du fichier PED.
+bool AnimsClimbing(void *ped)
+{
+    void *clump = Field<void *>(ped, 0x18);
+    if (!clump) return false;
+    for (int id = 128; id <= 134; id++)
+        if (((void *(__cdecl *)(void *, int))0x4D68B0)(clump, id)) return true;
+    return false;
+}

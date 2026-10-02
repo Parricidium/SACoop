@@ -11,3 +11,4 @@ int AnimsCollect(void *ped, NetAnim *out, int max);         // animations d'acti
 void AnimsApply(void *ped, const NetAnim *in, int n, AnimMirror &m);
 void AimMirror(void *ped, bool want, const float *aim);     // visee rejouee (tache secondaire, mise a jour a chaque image)
 bool AimOf(void *ped, float *aim);                          // le personnage vise-t-il ? (point vise)
+bool AnimsClimbing(void *ped);                              // escalade en cours (animations CLIMB_*)
