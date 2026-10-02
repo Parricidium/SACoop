@@ -14,7 +14,12 @@
 #include "mirror.h"
 #include "conditions.h"
 #include "npc.h"
+#include "game.h"
+#include "peds.h"
+#include "vehicles.h"
 #include <string.h>
+
+using namespace game;
 
 static ScriptHandler_t g_orig[27];
 
@@ -53,6 +58,24 @@ static char Dispatch(int index, void *script, int op)
         }
         Log("script %.8s : mission %d lancee", ScriptName(script), mission);
         if (g_cfg.host && IsStoryMission(mission)) MirrorMissionStart();
+    }
+    // STORE_CAR_CHAR_IS_IN (00D9 / 03C0) sur un personnage a pied : le jeu lit +0x4A4 d'un vehicule nul (plantage
+    // 0x46952A, test reel du 02/10 : l'hote tombe du velo au skatepark pendant la mission des velos). La condition
+    // "dans un vehicule" (00DF) est elargie aux invites (conditions.cpp) : vraie grace au velo de l'invite, et le script
+    // demandait ensuite le vehicule de l'hote. Le resultat est alors le vehicule de l'invite (copie chez l'hote), sinon -1.
+    if (op == 0x00D9 || op == 0x03C0) {
+        int vals[1];
+        void *ped = ScriptReadValues(script, *(uint8_t **)((uint8_t *)script + 0x14), 1, vals) ? PedFromRef(vals[0]) : nullptr;
+        if (ped && !PedVehicle(ped)) {
+            CollectParameters(script, 1);
+            int handle = -1;
+            for (int i = 1; i < MAX_PLAYERS && handle == -1; i++)
+                if (void *pup = PuppetOf(i)) if (void *veh = PedVehicle(pup)) handle = VehicleRef(veh);
+            ScriptStoreResult(script, handle);
+            static int said;
+            if (said < 10) { said++; Log("script %.8s : %04X sur un personnage a pied -> vehicule %08X (invite) au lieu d'un plantage", ScriptName(script), op, handle); }
+            return 0;
+        }
     }
     NpcScriptCommand(script, op);
     MirrorBefore(script, op);
