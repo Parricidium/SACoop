@@ -230,6 +230,7 @@ static void SendOwned()
         m.health = *(float *)(v + 0x4C0);
         if ((v[0x36] >> 3) == 5) m.flags |= VF_WRECKED;
         if (v[0x42D] & 0x80) m.flags |= VF_SIREN;
+        if (*(uint32_t *)(v + 0x514)) m.flags |= VF_HORN;   // compteur du klaxon (1 tant que le joueur klaxonne, 45 pour l'IA)
         if (HasDamageManager(v)) {
             const uint8_t *dm = v + 0x5A0;
             m.flags |= VF_DAMAGE;
@@ -418,6 +419,7 @@ static bool RemoteControls(void *veh)
     *(float *)(v + 0x49C) = n->last.gas;
     *(float *)(v + 0x4A0) = n->last.brake;
     v[0x428] = n->last.handbrake ? (v[0x428] | 0x20) : (v[0x428] & ~0x20);
+    if (n->last.flags & VF_HORN) *(uint32_t *)(v + 0x514) = 2;   // le jeu le decompte : klaxon tant qu'il est recu
     if (g_cfg.logScripts) {   // releve : commandes rejouees par la copie
         static uint32_t lastLog;
         if (GetTickCount() - lastLog > 2000) { lastLog = GetTickCount(); const float *sp = (const float *)(v + 0x44); Log("vehicules : copie %08X volant %.2f gaz %.2f frein %.2f vitesse %.1f km/h", n->id, n->last.steer, n->last.gas, n->last.brake, sqrtf(sp[0] * sp[0] + sp[1] * sp[1] + sp[2] * sp[2]) * 180.0f); }

@@ -7,5 +7,8 @@ void PlacePuppet(void *ped, const float *pos, float heading);   // pose d'un cou
 void WarpPuppetIn(void *ped, void *veh, int seat);              // seat 0 : volant, 1..8 : passager
 void WarpPuppetOut(void *ped, const float *pos);
 bool FollowOnFoot(void *ped, const float *pos, const float *speed, float heading, int remoteMove, uint32_t ageMs, int &moveState);
+// Saut, chute, escalade (air : 1 en l'air, 2 accroche) : suit aussi la hauteur ; FollowAirEnd rend la physique au jeu.
+void FollowAir(void *ped, const float *pos, const float *speed, float heading, int air, uint32_t ageMs, bool &airState);
+void FollowAirEnd(void *ped, bool &airState);
 void *PuppetOf(int id);                                         // pantin du joueur id (nullptr : aucun / soi)
 int PuppetIndex(void *ped);                                     // joueur dont c'est le pantin, sinon -1

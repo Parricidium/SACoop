@@ -86,6 +86,10 @@ static void HostSend()
         if (ambient) m.flags |= PF_AMBIENT;
         if (PedVehicle(ped) && HasTaskType(ped, 1022)) m.flags |= PF_DRIVEBY;   // CTaskSimpleGangDriveBy (tir par la fenetre)
         m.animCount = (uint8_t)AnimsCollect(ped, m.anims, 2);
+        if (!PedVehicle(ped)) {   // hauteur suivie par la copie (escalade, saut, chute)
+            if (AnimsClimbing(ped)) m.flags |= PF_CLIMB;
+            else if (!(Field<uint8_t>(ped, 0x46C) & 1)) m.flags |= PF_AIR;
+        }
         if (void *veh = PedVehicle(ped)) {
             m.vehicleId = HostVehicleId(veh, true, ambient);
             if (Field<void *>(veh, VEH_DRIVER) != ped)
@@ -123,6 +127,7 @@ struct Copy {
     bool shotsKnown;
     bool driveby;        // tir par la fenetre en cours (TASK_DRIVE_BY donnee a la copie)
     AnimMirror anims;    // animations d'action donnees a la copie (anims.cpp)
+    bool air;            // suit la hauteur de l'original (FollowAir)
 };
 static Copy g_copies[MAX_COPIES];
 
@@ -236,6 +241,7 @@ static void UpdateCopy(Copy &c, uint32_t now)
     const MsgPed &m = c.last;
     void *ped = c.ped;
     if (EntityArea(ped) != m.area) EntityArea(ped) = m.area;
+    if (c.air && (m.flags & PF_DEAD)) FollowAirEnd(ped, c.air);
     if (m.flags & PF_DEAD) {
         if (!c.killed && !IsDead(ped)) CombatKillPuppet(ped, m.weapon);
         c.killed = true;
@@ -246,6 +252,7 @@ static void UpdateCopy(Copy &c, uint32_t now)
     CombatReplayCopyShots(ped, m.weapon, m.shots, m.aim, c.lastShots, c.shotsKnown);
     ClearEventResponses(ped);   // (pas d'IA locale : la copie suit le personnage de l'hote, voir coop.cpp)
     void *inVeh = PedVehicle(ped);
+    if (c.air && (inVeh || m.vehicleId)) FollowAirEnd(ped, c.air);
     if (m.vehicleId) {
         void *veh = NetVehicleById(m.vehicleId);
         if (!veh) {
@@ -285,6 +292,9 @@ static void UpdateCopy(Copy &c, uint32_t now)
     // Visee (policiers, gangs : arme levee vers leur cible) et animations d'action, comme les pantins des joueurs.
     AimMirror(ped, (m.flags & PF_AIMING) && m.weapon >= 22 && m.weapon <= 38, m.aim);
     AnimsApply(ped, m.anims, m.animCount, c.anims);
+    int air = (m.flags & PF_CLIMB) ? 2 : (m.flags & PF_AIR) ? 1 : 0;
+    if (air) { FollowAir(ped, m.pos, m.speed, m.heading, air, now - c.lastRecv, c.air); c.moveState = 0; return; }
+    if (c.air) FollowAirEnd(ped, c.air);
     FollowOnFoot(ped, m.pos, m.speed, m.heading, m.moveState, now - c.lastRecv, c.moveState);
 }
 
