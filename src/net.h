@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 15, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 16, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -64,6 +64,7 @@ struct MsgState {
     uint8_t aiming;     // 1 : vise a pied (CTaskSimpleUseGun 1017) ; 2 : tire par la fenetre (CTaskSimpleGangDriveBy 1022) ; aim = point vise
     uint8_t animCount;  // animations d'action en cours (sauts, accroupi, coups, nage...), rejouees par le pantin
     NetAnim anims[ANIMS_MAX];
+    uint8_t air;        // a pied : 1 en l'air (saut, chute), 2 accroche a un mur (escalade) ; le pantin suit sa hauteur
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };

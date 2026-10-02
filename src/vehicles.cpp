@@ -408,8 +408,11 @@ static AIHook g_aiHooks[6] = { { 0x871120 }, { 0x871680 }, { 0x8717D8 }, { 0x871
 
 static bool RemoteControls(void *veh)
 {
+    // (Aussi les copies conduites par une copie de PNJ : depuis la 0.43 la copie du conducteur est assise au volant et
+    // l'IA du jeu reprenait la voiture, frein a fond, feux stop allumes chez l'invite, test du 01/10.)
     NetVeh *n = FindByVeh(veh);
-    if (!n || n->owner == g_localId || !n->last.driven || GetTickCount() - n->lastRecv > 1500) return false;
+    if (!n || n->owner == g_localId || GetTickCount() - n->lastRecv > 1500) return false;
+    if (!n->last.driven && !Field<void *>(veh, VEH_DRIVER)) return false;
     uint8_t *v = (uint8_t *)veh;
     *(float *)(v + 0x494) = n->last.steer;
     *(float *)(v + 0x49C) = n->last.gas;
