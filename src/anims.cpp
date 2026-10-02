@@ -44,12 +44,26 @@ int AnimsCollect(void *ped, NetAnim *out, int max)
     return n;
 }
 
+// Association jouee de ce groupe et de ce numero (les numeros sont propres a chaque groupe : 33:214 poings, 37:214
+// batte ; RpAnimBlendClumpGetAssociation 0x4D68B0 ne compare que le numero).
+static void *FindAssoc(void *clump, int group, int id)
+{
+    for (uint8_t *lk = FirstLink(clump); lk; lk = *(uint8_t **)lk) {
+        uint8_t *as = lk - 4;
+        if (*(int16_t *)(as + 0xE) == group && *(int16_t *)(as + 0x2C) == id) return as;
+    }
+    return nullptr;
+}
+
 static bool GroupReady(int group)
 {
     uint8_t *groups = *(uint8_t **)0xB4EA34;
-    if (!groups || group < 0 || group > 200) return false;
+    if (!groups || group < 0 || group >= 118) return false;
     uint8_t *g = groups + group * 20, *block = *(uint8_t **)g;
     if (block && block[0x10] && *(void **)(g + 4)) return true;
+    // Groupe jamais cree (bloc d'une arme de melee jamais chargee ici : batte, couteau...) : nom de son bloc dans la
+    // table des definitions du jeu (0x8AA5B8, 0x30 par groupe, nom du bloc en tete : 0 ped, 7 bmx, 37 baseball, 39 knife).
+    if (!block && group < 118) block = (uint8_t *)(0x8AA5B8 + group * 0x30);
     if (block) {   // bloc pas charge : demande (une fois toutes les 2 s)
         static uint32_t asked[256];
         uint32_t now = GetTickCount();
@@ -119,9 +133,9 @@ void AnimsApply(void *ped, const NetAnim *in, int n, AnimMirror &m)
     for (int i = 0; i < n && i < ANIMS_MAX; i++) {
         const NetAnim &a = in[i];
         uint8_t *as = nullptr;
-        for (int k = 0; k < m.count; k++) if (m.ids[k] == a.id && m.assoc[k]) as = (uint8_t *)m.assoc[k];
+        for (int k = 0; k < m.count; k++) if (m.ids[k] == a.id && m.assoc[k] && *(int16_t *)((uint8_t *)m.assoc[k] + 0xE) == a.group) as = (uint8_t *)m.assoc[k];
         if (!as) {
-            if (((void *(__cdecl *)(void *, int))0x4D68B0)(clump, a.id)) continue;   // deja jouee par le jeu lui-meme
+            if (FindAssoc(clump, a.group, a.id)) continue;   // deja jouee par le jeu lui-meme
             if (!GroupReady(a.group)) continue;
             as = (uint8_t *)((void *(__cdecl *)(void *, int, int, float))0x4D4610)(clump, a.group, a.id, 8.0f);
             if (!as) continue;
@@ -198,6 +212,6 @@ bool AnimsClimbing(void *ped)
     void *clump = Field<void *>(ped, 0x18);
     if (!clump) return false;
     for (int id = 128; id <= 134; id++)
-        if (((void *(__cdecl *)(void *, int))0x4D68B0)(clump, id)) return true;
+        if (FindAssoc(clump, 0, id)) return true;
     return false;
 }

@@ -14,6 +14,7 @@
 #include "gfx.h"
 #include "fps.h"
 #include "prefs.h"
+#include "events.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -265,5 +266,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallGfx();
     InstallFps();
     InstallPrefs();
+    InstallEvents();
     return TRUE;
 }

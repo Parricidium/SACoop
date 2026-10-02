@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 
+extern void *g_testCopCar;
 using namespace game;
 
 // CWorld::Players[0].m_PlayerData.m_pWanted (0xB7CD9C), CWanted +0x2C : niveau
@@ -162,7 +163,8 @@ static void HostPoliceChasesGuests()
     for (int i = 0; i < vp->size; i++) {
         if (vp->flags[i] & 0x80) continue;
         uint8_t *v = vp->objects + i * 0xA18;
-        if (!(v[0x428] & 1) || v[0x4A4] != 1 || IsRemoteVehicle(v) || (v[0x36] >> 3) == 5) continue;   // aleatoire, a nous, pas une epave
+        if ((!(v[0x428] & 1) || v[0x4A4] != 1) && v != g_testCopCar) continue;
+        if (IsRemoteVehicle(v) || (v[0x36] >> 3) == 5) continue;   // aleatoire, a nous, pas une epave
         void *drv = Field<void *>(v, VEH_DRIVER);
         if (!drv || Field<int>(drv, 0x598) != 6 || PuppetIndex(drv) >= 0 || Field<float>(drv, PED_HEALTH) <= 0.0f) continue;
         float dh = me && WantedLevel() ? Dist2D(EntityPos(v), EntityPos(me)) : 1e12f;
@@ -187,6 +189,26 @@ static void HostPoliceChasesGuests()
             if (g_cfg.logScripts) Log("police : voiture %08X arrivee pres du joueur %d, les policiers descendent", VehicleRef(v), who);
             continue;
         }
+        // Invite en voiture a moins de 80 m : la voiture de police l'eperonne, comme le joueur de l'hote (pilote
+        // automatique +0x390 : mission +0x3BA RAMCAR_FARAWAY 15 / RAMCAR_CLOSE 16, voiture cible +0x41C enregistree comme
+        // le fait CAR_FOLLOW_CAR 0x41C960 : CEntity::CleanUpOldReference 0x571A00, RegisterReference 0x571B70 ;
+        // vitesse de croisiere +0x3D0). A chaque image, la mission passe de loin a pres selon la distance.
+        if (st.vehicleId && bestD < 80.0f * 80.0f) {
+            if (void *target = NetVehicleById(st.vehicleId)) {
+                void **slot = (void **)(v + 0x41C);
+                if (*slot != target || (v[0x3BA] != 15 && v[0x3BA] != 16)) {
+                    if (*slot && *slot != target) ((void(__thiscall *)(void *, void **))0x571A00)(*slot, slot);
+                    *slot = nullptr;
+                    ((void(__cdecl *)(void *, void *))0x41C8A0)(v, target);   // CCarCtrl : eperonner cette voiture (mission 15)
+                    Log("police : voiture %08X eperonne le joueur %d (%.0f m)", VehicleRef(v), who, sqrtf(bestD));
+                }
+                static uint32_t lastRam;
+                if (g_cfg.logScripts && now - lastRam > 2000) { lastRam = now; const float *sp = (const float *)(v + 0x44); Log("police : eperonnage, %.1f m, mission %d, %.0f km/h, statut %d, +428 %02X, croisiere %d, style %d", sqrtf(bestD), v[0x3BA], sqrtf(sp[0] * sp[0] + sp[1] * sp[1]) * 180.0f, v[0x36] >> 3, v[0x428], v[0x3D0], v[0x3B9]); }
+                if (v[0x3D0] < 40) v[0x3D0] = 40;
+                continue;
+            }
+        }
+        if (v[0x3BA] == 15 || v[0x3BA] == 16) v[0x3BA] = 1;   // l'invite est descendu ou loin : plus d'eperonnage
         if (!drive) continue;
         int a[4] = { VehicleRef(v) };
         memcpy(&a[1], st.pos, 12);
@@ -197,6 +219,7 @@ static void HostPoliceChasesGuests()
 
 // Un policier de l'hote a sorti le pantin d'un invite de son vehicule (il y est encore d'apres l'invite, plus chez
 // l'hote, policier a moins de 4 m) : l'invite descend aussi chez lui (RL_EJECT ; TASK_LEAVE_ANY_CAR sur lui-meme).
+void *g_testCopCar;   // autotest "flic" : voiture de police de script traitee comme une aleatoire
 enum : uint8_t { RL_EJECT = 21 };
 static void HostEjections()
 {

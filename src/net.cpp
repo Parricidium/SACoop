@@ -17,6 +17,7 @@ void (*g_onClothes)(const MsgClothes &c);
 void (*g_onVehicle)(const MsgVehicle &v);
 void (*g_onDamage)(const MsgDamage &d);
 void (*g_onPed)(const MsgPed &p);
+void (*g_onObject)(const MsgObject &o);
 void (*g_onPedHit)(const MsgPedHit &h);
 void (*g_onMarker)(const MsgMarker &m);
 
@@ -337,6 +338,12 @@ static void HostReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         if (g_onVehicle) g_onVehicle(*(const MsgVehicle *)buf);
         for (int i = 1; i < MAX_PLAYERS; i++)   // relais aux autres invites
             if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], buf, len);
+    } else if (buf[0] == MSG_OBJECT && len >= (int)sizeof(MsgObject)) {
+        MsgObject o = *(const MsgObject *)buf;
+        o.from = (uint8_t)id;
+        if (g_onObject) g_onObject(o);
+        for (int i = 1; i < MAX_PLAYERS; i++)   // relais aux autres invites
+            if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &o, sizeof(o));
     } else if (buf[0] == MSG_PING && len >= (int)sizeof(MsgPing)) {
         MsgPing p = *(const MsgPing *)buf;
         p.type = MSG_PONG;
@@ -420,6 +427,9 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         break;
     case MSG_VEHICLE:
         if (len >= (int)sizeof(MsgVehicle) && g_onVehicle) g_onVehicle(*(const MsgVehicle *)buf);
+        break;
+    case MSG_OBJECT:
+        if (len >= (int)sizeof(MsgObject) && g_onObject) g_onObject(*(const MsgObject *)buf);
         break;
     case MSG_CLOTHES:
         if (len >= (int)sizeof(MsgClothes) && ((const MsgClothes *)buf)->id != g_localId && g_onClothes) g_onClothes(*(const MsgClothes *)buf);

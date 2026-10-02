@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 16, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 17, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -23,6 +23,7 @@ enum MsgType : uint8_t {
     MSG_PEDHIT,      // invite -> hote : coup porte a un personnage de mission
     MSG_MARKER,      // hote -> invites : commande LOCATE / IS_CHAR_IN_AREA a marqueur (conditions.cpp)
     MSG_BATCH,       // plusieurs messages d'une meme image : n (1 octet) puis, pour chacun, longueur (2 octets) et octets
+    MSG_OBJECT,      // objet du decor deplace (objects.cpp), par le joueur le plus proche ; relaye par l'hote
 };
 
 #pragma pack(push, 1)
@@ -65,6 +66,10 @@ struct MsgState {
     uint8_t animCount;  // animations d'action en cours (sauts, accroupi, coups, nage...), rejouees par le pantin
     NetAnim anims[ANIMS_MAX];
     uint8_t air;        // a pied : 1 en l'air (saut, chute), 2 accroche a un mur (escalade) ; le pantin suit sa hauteur
+    uint8_t radio;      // au volant : station de radio ecoutee (les passagers l'entendent aussi) ; 0xFF sinon
+    uint8_t gear;       // accessoires : 1 jetpack (tache 1303), 4 telephone (tache 1600) ; a pied
+    int16_t attModel;   // objet attache au joueur par un script (parachute ouvert, colis...) : modele, 0 aucun
+    float attOff[3], attRot[3];   // son decalage et sa rotation (CPhysical +0x100, +0x10C, radians)
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
 };
@@ -86,7 +91,7 @@ struct MsgVehicle {
     float steer, gas, brake;   // commandes du conducteur (CVehicle +0x494, +0x49C, +0x4A0), rejouees par la copie
     uint8_t handbrake;  // frein a main (+0x428, bit 0x20)
 };
-enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */, VF_SCRIPT = 16 /* cree par un script de mission (CreatedBy 2) */ };
+enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */, VF_SCRIPT = 16 /* cree par un script de mission (CreatedBy 2) */, VF_HORN = 32 /* klaxon (CVehicle +0x514) */ };
 // Coup porte par le joueur "from" au joueur "to" : touche decidee chez le tireur, degats appliques par le jeu du joueur
 // touche (regles du joueur, gilet, reaction, mort).
 // pedId : coup d'un personnage de mission de l'hote (son id MsgPed), 0 : du joueur "from".
@@ -105,7 +110,10 @@ struct MsgPed {
     uint8_t animCount;          // animations d'action en cours (anims.cpp)
     NetAnim anims[2];
 };
-enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */, PF_DRIVEBY = 4 /* tire par la fenetre d'un vehicule */, PF_AIMING = 8 /* vise (CTaskSimpleUseGun) */ };
+enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */, PF_DRIVEBY = 4 /* tire par la fenetre d'un vehicule */, PF_AIMING = 8 /* vise (CTaskSimpleUseGun) */,
+       PF_AIR = 16 /* en l'air (saut, chute) */, PF_CLIMB = 32 /* accroche a un mur */ };
+// Objet du decor deplace : identifie par son modele et la position de son objet factice d'origine.
+struct MsgObject { uint8_t type, from; int16_t model; float orig[3], pos[3], right[3], fwd[3], speed[3]; };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 // Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).
 struct MsgMarker { uint8_t type, n; uint16_t op; int vals[8]; };
@@ -148,6 +156,7 @@ extern uint16_t g_myPing;
 extern void (*g_onClothes)(const MsgClothes &c);   // vetements d'un autre joueur
 extern void (*g_onVehicle)(const MsgVehicle &v);   // etat d'un vehicule d'un autre joueur
 extern void (*g_onDamage)(const MsgDamage &d);     // coup porte par un joueur a un autre
+extern void (*g_onObject)(const MsgObject &o);     // objet du decor deplace par un autre joueur
 extern void (*g_onPed)(const MsgPed &p);           // invite : personnage de mission de l'hote
 extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite sur un personnage de mission
 extern void (*g_onMarker)(const MsgMarker &m);     // invite : marqueur de zone de l'hote

@@ -96,6 +96,10 @@ static void GivePuppetWeapon(int id, void *ped, int type) { EnsurePedWeapon(ped,
 
 void CombatPuppetCreated(int id) { g_puppetWeapon[id] = -1; g_shotsKnown[id] = false; }
 
+// Armes rejouees : a feu (22-38, roquettes comprises : le projectile part du pantin) et lancees (16 grenade, 17 gaz
+// lacrymogene, 18 cocktail Molotov : le projectile vole et explose chez chacun).
+static bool Replayable(int w) { return (w >= 22 && w <= 38) || (w >= 16 && w <= 18); }
+
 // Rejoue les tirs recus : l'arme du pantin tire vers le point vise (au plus 3 par image).
 static void ReplayShots(void *ped, int weaponId, int n, const float *aim);
 void CombatUpdatePuppet(int id, void *ped, const MsgState &s)
@@ -104,7 +108,7 @@ void CombatUpdatePuppet(int id, void *ped, const MsgState &s)
     if (!g_shotsKnown[id]) { g_shotsKnown[id] = true; g_lastShots[id] = s.shots; return; }
     int n = (uint8_t)(s.shots - g_lastShots[id]);
     g_lastShots[id] = s.shots;
-    if (n <= 0 || n > 20 || s.weapon < 22 || s.weapon > 38) return;   // armes a feu seulement
+    if (n <= 0 || n > 20 || !Replayable(s.weapon)) return;   // armes a feu et armes lancees
     if (n > 3) n = 3;
     ReplayShots(ped, s.weapon, n, s.aim);
 }
@@ -115,7 +119,7 @@ void CombatReplayCopyShots(void *ped, int weaponId, uint8_t shots, const float *
     if (!known) { known = true; last = shots; return; }
     int n = (uint8_t)(shots - last);
     last = shots;
-    if (n <= 0 || n > 20 || weaponId < 22 || weaponId > 38 || PedVehicle(ped)) return;
+    if (n <= 0 || n > 20 || !Replayable(weaponId) || PedVehicle(ped)) return;
     ReplayShots(ped, weaponId, n > 3 ? 3 : n, aim);
 }
 
@@ -132,6 +136,7 @@ static void ReplayShots(void *ped, int weaponId, int n, const float *aimIn)
         Field<float>(ped, PED_ROTATION) = h;
         Field<float>(ped, PED_AIMROT) = h;
     }
+    if (weaponId >= 16 && weaponId <= 18) { static int said; if (said < 10) { said++; Log("lancer rejoue (arme %d) par %p", weaponId, ped); } }
     g_replaying = true;
     for (int k = 0; k < n; k++) {
         weapon[1] = 0;        // pret

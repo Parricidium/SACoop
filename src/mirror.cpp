@@ -28,6 +28,7 @@
 #include "police.h"
 #include "savesync.h"
 #include "chat.h"
+#include "events.h"
 #include <string.h>
 #include <math.h>
 
@@ -36,7 +37,7 @@ using namespace game;
 enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5 };
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
-// q/Q sphere (entree/sortie), o/O objet (entree/sortie). (A l'envoi, un P qui designe le joueur de l'hote devient H :
+// q/Q sphere (entree/sortie), o/O objet (entree/sortie), k/K pickup, r/R feu de script. (A l'envoi, un P qui designe le joueur de l'hote devient H :
 // son pantin chez l'invite.)
 struct MirrorOp { uint16_t op; const char *sig; };
 static const MirrorOp kOps[] = {
@@ -73,6 +74,21 @@ static const MirrorOp kOps[] = {
     { 0x015F, "ffffff" },  // SET_FIXED_CAMERA_POSITION
     { 0x0160, "fffi" },    // POINT_CAMERA_AT_POINT
     { 0x015A, "" },        // RESTORE_CAMERA
+    // Cameras des mini-cinematiques (nombre de parametres lu dans les gestionnaires du jeu, run\saop.py) :
+    { 0x0157, "iii" },     // POINT_CAMERA_AT_PLAYER : envoyee comme 0159 vers le pantin de l'hote
+    { 0x0158, "Vii" },     // POINT_CAMERA_AT_CAR
+    { 0x0159, "Pii" },     // POINT_CAMERA_AT_CHAR
+    { 0x0679, "Vfffffffi" }, // ATTACH_CAMERA_TO_VEHICLE (decalage, rotation, inclinaison, transition)
+    { 0x067A, "VfffVfi" }, // ATTACH_CAMERA_TO_VEHICLE_LOOK_AT_VEHICLE
+    { 0x067B, "VfffPfi" }, // ATTACH_CAMERA_TO_VEHICLE_LOOK_AT_CHAR
+    { 0x067C, "Pfffffffi" }, // ATTACH_CAMERA_TO_CHAR
+    { 0x067D, "PfffVfi" }, // ATTACH_CAMERA_TO_CHAR_LOOK_AT_VEHICLE
+    { 0x067E, "PfffPfi" }, // ATTACH_CAMERA_TO_CHAR_LOOK_AT_CHAR
+    { 0x0936, "ffffffii" },// CAMERA_SET_VECTOR_MOVE : la camera glisse d'un point a un autre (duree ms, lissage)
+    { 0x0920, "ffffffii" },// CAMERA_SET_VECTOR_TRACK : le point vise glisse
+    { 0x0922, "ffii" },    // CAMERA_SET_LERP_FOV
+    { 0x092F, "i" },       // CAMERA_PERSIST_TRACK
+    { 0x0930, "i" },       // CAMERA_PERSIST_POS
     { 0x02EB, "" },        // RESTORE_CAMERA_JUMPCUT
     { 0x0373, "" },        // SET_CAMERA_BEHIND_PLAYER
     { 0x02E4, "s" },       // LOAD_CUTSCENE (CCutsceneMgr::LoadCutsceneData 0x4D5E80)
@@ -91,6 +107,14 @@ static const MirrorOp kOps[] = {
     { 0x0382, "oi" },      // SET_OBJECT_COLLISION
     { 0x0750, "oi" },      // SET_OBJECT_VISIBLE
     { 0x0188, "oB" },      // ADD_BLIP_FOR_OBJECT
+    { 0x0213, "iifffK" },  // CREATE_PICKUP (objets de mission : ramasses par un invite, ils comptent chez l'hote, events.cpp)
+    { 0x032B, "iiifffK" }, // CREATE_PICKUP_WITH_AMMO
+    { 0x0215, "k" },       // REMOVE_PICKUP
+    { 0x020C, "fffi" },    // ADD_EXPLOSION
+    { 0x0565, "fffi" },    // ADD_EXPLOSION_NO_SOUND
+    { 0x0948, "fffif" },   // ADD_EXPLOSION_VARIABLE_SHAKE
+    { 0x02CF, "fffiiR" },  // START_SCRIPT_FIRE
+    { 0x02D1, "r" },       // REMOVE_SCRIPT_FIRE
 };
 
 // Cinematiques : CCutsceneMgr::ms_cutsceneLoadStatus 0xB5F84C (2 = chargee), ms_running 0xB5F851,
@@ -146,28 +170,30 @@ static bool ReadParam(void *script, uint8_t *&ip, Param &p)
     return false;   // type inconnu : la commande n'est pas capturee
 }
 
-struct Capture { const MirrorOp *op; int n; Param p[8]; };
+struct Capture { const MirrorOp *op; int n; Param p[10]; };
 static Capture g_cap;
 static bool g_capturing;
 
 // Hote : commandes encore actives (texte de mission, marqueurs, spheres), rejouees pour un invite qui arrive.
-struct Active { int handle; int len; bool persist; uint8_t data[256]; };
-static Active g_active[96];
+struct Active { int handle; int len; bool persist, after; uint8_t data[256]; };   // after : apres les creations
+static Active g_active[160];
 static void KeepActive(int op, const uint8_t *buf, int len, int handle)
 {
-    if (op == 0x0164 || op == 0x03BD || op == 0x0108) {   // retrait
+    if (op == 0x0164 || op == 0x03BD || op == 0x0108 || op == 0x0215) {   // retrait
         for (auto &a : g_active) if (a.len && a.handle == handle) a.len = 0;
+        if (op == 0x0108) for (auto &a : g_active) if (a.len && a.after && (a.handle & 0xFFFFFF) == (handle & 0xFFFFFF)) a.len = 0;
         return;
     }
     if (op == 0x054C) handle = -1;   // un seul texte de mission
     for (auto &a : g_active) if (a.len && a.handle == handle) a.len = 0;
     for (auto &a : g_active)
-        if (!a.len) { a.handle = handle; a.len = len; a.persist = op == 0x04CE || op == 0x02A7; memcpy(a.data, buf, len); return; }
+        if (!a.len) { a.handle = handle; a.len = len; a.persist = op == 0x04CE || op == 0x02A7; a.after = op == 0x01BC || op == 0x0177 || op == 0x0382 || op == 0x0750; memcpy(a.data, buf, len); return; }
 }
 static void SendActive(int peer)
 {
     for (auto &a : g_active) if (a.len && a.handle == -1) NetSendReliableTo(peer, a.data, a.len);   // texte d'abord
-    for (auto &a : g_active) if (a.len && a.handle != -1) NetSendReliableTo(peer, a.data, a.len);
+    for (auto &a : g_active) if (a.len && a.handle != -1 && !a.after) NetSendReliableTo(peer, a.data, a.len);
+    for (auto &a : g_active) if (a.len && a.handle != -1 && a.after) NetSendReliableTo(peer, a.data, a.len);   // etat des objets
 }
 
 // --- Variables globales ---
@@ -283,6 +309,7 @@ void MirrorAfter(void *script, int op)
     uint8_t buf[256];
     int len = 0;
     buf[len++] = RL_MIRROR;
+    if (op == 0x0157) { op = 0x0159; g_cap.p[0].kind = 'H'; }   // camera sur le joueur de l'hote : sur son pantin
     *(uint16_t *)(buf + len) = (uint16_t)op; len += 2;
     buf[len++] = (uint8_t)g_cap.n;
     for (int k = 0; k < g_cap.n; k++) {
@@ -293,7 +320,7 @@ void MirrorAfter(void *script, int op)
             buf[len++] = (uint8_t)n;
             memcpy(buf + len, p.text, n); len += n;
         } else {
-            int v = (p.kind == 'B' || p.kind == 'Q' || p.kind == 'O') && p.out ? *p.out : p.value;   // sortie : le handle de l'hote
+            int v = strchr("BQOKR", p.kind) && p.out ? *p.out : p.value;   // sortie : le handle de l'hote
             memcpy(buf + len, &v, 4); len += 4;
         }
     }
@@ -304,19 +331,26 @@ void MirrorAfter(void *script, int op)
     int handle = 0;
     for (int k = 0; k < g_cap.n; k++) {
         char kd = g_cap.p[k].kind;
-        if (!strchr("BQbqOo", kd)) continue;
-        handle = (kd == 'B' || kd == 'Q' || kd == 'O') && g_cap.p[k].out ? *g_cap.p[k].out : g_cap.p[k].value;
+        if (!strchr("BQbqOoKk", kd)) continue;
+        handle = (kd == 'B' || kd == 'Q' || kd == 'O' || kd == 'K') && g_cap.p[k].out ? *g_cap.p[k].out : g_cap.p[k].value;
         if (kd == 'O' || kd == 'o') handle ^= 0x40000000;
+        if (kd == 'K' || kd == 'k') handle ^= 0x60000000;
         break;
     }
     if (op == 0x0188) handle = 0;   // marqueur d'objet : rejoue avec l'objet... non garde (ordre de recreation)
-    if (op == 0x054C || (handle && op != 0x01BC && op != 0x0177 && op != 0x0382 && op != 0x0750)) KeepActive(op, buf, len, handle);
+    // Etat d'un objet de mission (position, cap, collision, visibilite) : le dernier de chaque sorte est garde aussi,
+    // renvoye apres les creations a un invite qui arrive en cours de mission (cle : objet + sorte, bit 0x10000000).
+    if (handle && (op == 0x01BC || op == 0x0177 || op == 0x0382 || op == 0x0750)) {
+        int kind = op == 0x01BC ? 0 : op == 0x0177 ? 1 : op == 0x0382 ? 2 : 3;
+        handle = (handle & 0x00FFFFFF) | 0x10000000 | (kind << 24);
+    }
+    if (op == 0x054C || handle) KeepActive(op, buf, len, handle);
 }
 
 // --- Invite : rejeu ---
 enum { MAX_MAP = 128 };
 struct HandleMap { int host, guest; bool persist; };   // persist : icone radar (04CE, 02A7), gardee apres la mission
-static HandleMap g_blips[MAX_MAP], g_spheres[MAX_MAP], g_objects[MAX_MAP];
+static HandleMap g_blips[MAX_MAP], g_spheres[MAX_MAP], g_objects[MAX_MAP], g_pickups[MAX_MAP], g_fires[MAX_MAP];
 static int MapGet(HandleMap *m, int host)
 {
     for (int i = 0; i < MAX_MAP; i++) if (m[i].host == host && host) return m[i].guest;
@@ -343,6 +377,7 @@ static void OnReliable(int from, const uint8_t *data, int len)
     if (SaveSyncReliable(data, len)) return;   // sauvegarde partagee (savesync.cpp) : traitee tout de suite
     if (ChatReliable(from, data, len)) return;  // tchat (chat.cpp)
     if (PoliceReliable(data, len)) return;      // ejection par un policier de l'hote (police.cpp)
+    if (EventsReliable(from, data, len)) return;   // pickups, tags (events.cpp)
     if (len >= 2 && data[0] == RL_SESSION) {   // partie de l'hote : l'invite encore au menu la suit
         if (g_cfg.host) return;
         int slot = (int8_t)data[1];
@@ -396,6 +431,18 @@ static bool Replay(const uint8_t *d, int len)
             ExecCommand(0x03BD);
             s.host = s.guest = 0;
         }
+        for (auto &k : g_pickups) if (k.host) {   // pickups de mission restants
+            *(uint16_t *)g_code = 0x0215;
+            g_code[2] = 1; memcpy(g_code + 3, &k.guest, 4);
+            ExecCommand(0x0215);
+            k.host = k.guest = 0;
+        }
+        for (auto &f : g_fires) if (f.host) {
+            *(uint16_t *)g_code = 0x02D1;
+            g_code[2] = 1; memcpy(g_code + 3, &f.guest, 4);
+            ExecCommand(0x02D1);
+            f.host = f.guest = 0;
+        }
         RestoreScreen();
         Log("miroir : fin de mission de l'hote, ecran retabli");
         return true;
@@ -437,7 +484,7 @@ static bool Replay(const uint8_t *d, int len)
         return false;
     }
     if (op == 0x02EA) ((int16_t *)(0xB73458 + 0xA8))[0x20 / 2] = 0;
-    if ((op == 0x0107 || op == 0x029B) && len >= 9 && d[4] == 'i') {   // modele de l'objet charge avant
+    if ((op == 0x0107 || op == 0x029B || op == 0x0213 || op == 0x032B) && len >= 9 && d[4] == 'i') {   // modele de l'objet charge avant
         int model;
         memcpy(&model, d + 5, 4);
         if (model < 0) model = *(int *)(0xA44B88 + -model * 28);
@@ -486,7 +533,9 @@ static bool Replay(const uint8_t *d, int len)
         case 'b': v = MapGet(g_blips, v); if (!v) return true; break;      // marqueur inconnu : rien a faire
         case 'q': v = MapGet(g_spheres, v); if (!v) return true; break;
         case 'o': v = MapGet(g_objects, v); if (!v) return true; break;
-        case 'B': case 'Q': case 'O':
+        case 'k': v = MapGet(g_pickups, v); if (!v) return true; break;
+        case 'r': v = MapGet(g_fires, v); if (!v) return true; break;
+        case 'B': case 'Q': case 'O': case 'K': case 'R':
             outKind[out] = kind; outHost[out] = v; outIdx[out] = out;
             g_code[c++] = 3; *(uint16_t *)(g_code + c) = (uint16_t)out; c += 2;
             out++;
@@ -521,11 +570,14 @@ static bool Replay(const uint8_t *d, int len)
     if (logged < 300) { logged++; Log("miroir : %04X rejouee", op); }
     for (int k = 0; k < out; k++) {
         int guest = *(int *)(g_script + 0x3C + outIdx[k] * 4);
-        MapSet(outKind[k] == 'B' ? g_blips : outKind[k] == 'O' ? g_objects : g_spheres, outHost[k], guest, op == 0x04CE || op == 0x02A7);
+        HandleMap *m = outKind[k] == 'B' ? g_blips : outKind[k] == 'O' ? g_objects : outKind[k] == 'K' ? g_pickups : outKind[k] == 'R' ? g_fires : g_spheres;
+        MapSet(m, outHost[k], guest, op == 0x04CE || op == 0x02A7);
     }
     if (op == 0x0164) MapDel(g_blips, *(const int *)(d + 5));
     if (op == 0x03BD) MapDel(g_spheres, *(const int *)(d + 5));
     if (op == 0x0108) MapDel(g_objects, *(const int *)(d + 5));
+    if (op == 0x0215) MapDel(g_pickups, *(const int *)(d + 5));
+    if (op == 0x02D1) MapDel(g_fires, *(const int *)(d + 5));
     return true;
 }
 
@@ -572,10 +624,15 @@ void RunScriptCommandTyped(int op, int nargs, const char *types, const int *args
             c += len;
             continue;
         }
+        if (types[k] == 'o') {   // sortie : variable locale args[k] du script fantome (ScriptGhostVar)
+            g_code[c++] = 3; *(uint16_t *)(g_code + c) = (uint16_t)args[k]; c += 2;
+            continue;
+        }
         g_code[c++] = types[k] == 'f' ? 6 : 1; memcpy(g_code + c, &args[k], 4); c += 4;
     }
     ExecCommand(op);
 }
+int ScriptGhostVar(int i) { return *(int *)(g_script + 0x3C + i * 4); }
 
 // Execute une commande a parametres entiers dans le script fantome (autotests, retablissement de l'ecran).
 void RunScriptCommand(int op, int nargs, const int *args)

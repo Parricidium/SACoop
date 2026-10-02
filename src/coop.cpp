@@ -14,6 +14,8 @@
 #include "gfx.h"
 #include "prefs.h"
 #include "anims.h"
+#include "events.h"
+#include "objects.h"
 #include "sacoop.h"
 #include "net.h"
 #include "game.h"
@@ -56,6 +58,7 @@ struct Puppet {
     float dbAim[3];      // tir par la fenetre : point vise donne au pantin
     uint32_t dbAt;
     bool air;            // suit la hauteur de son joueur (en l'air, accroche) : sans gravite
+    int attObj, attModel;// objet attache recopie (poignee de script, modele)
 };
 
 // Coups au corps a corps (poings, fichier d'animations PED) : vus sur le joueur (RpAnimBlendClumpGetAssociation
@@ -142,6 +145,8 @@ static bool InGame()
 }
 
 static void LocalSkin();
+static void RadioFrame();
+static void AttachedToPlayer(void *ped, MsgState &s);
 
 // --- Etat du joueur local, envoye 30 fois par seconde ---
 static void SendLocalState()
@@ -177,6 +182,13 @@ static void SendLocalState()
         s.meleeSeq = g_meleeSeq;
         s.meleeAnim = g_meleeAnim;
         s.animCount = (uint8_t)AnimsCollect(ped, s.anims, ANIMS_MAX);
+        void *myVeh = PedVehicle(ped);
+        s.radio = myVeh && Field<void *>(myVeh, VEH_DRIVER) == ped ? *(uint8_t *)(0x8CB6F8 + 0xAD) : 0xFF;
+        if (!myVeh) {
+            if (HasTaskType(ped, 1303)) s.gear |= 1;   // CTaskSimpleJetPack
+            if (HasTaskType(ped, 1600)) s.gear |= 4;   // CTaskComplexUseMobilePhone
+        }
+        AttachedToPlayer(ped, s);
         if (!PedVehicle(ped)) {
             if (AnimsClimbing(ped)) s.air = 2;
             else if (!(Field<uint8_t>(ped, 0x46C) & 1)) s.air = 1;   // CPed::bIsStanding (+0x46C bit 0) a zero
@@ -358,6 +370,7 @@ static void DestroyPuppet(int id)
     Puppet &p = g_puppets[id];
     if (!p.ped) return;
     HudUpdateBlip(id, nullptr);
+    if (p.attObj) { RunScriptCommand(0x0108, 1, &p.attObj); p.attObj = p.attModel = 0; }
     if (PedFromRef(p.ref) != p.ped) { p.ped = nullptr; return; }   // deja supprime par le jeu
     WorldRemove(p.ped);
     RemoveReferencesToDeletedObject(p.ped);
@@ -408,32 +421,78 @@ static void CreatePuppet(int id, const MsgState &s)
 // Saut, chute, escalade : le pantin suit la position de son joueur EN HAUTEUR aussi. Avant, il restait au sol (gravite)
 // et jouait l'escalade a hauteur d'homme au pied du mur (test du 01/10). Sans gravite (CPhysical +0x40 bit 2) et, accroche
 // a un mur, sans collision (CEntity +0x1C bit 0 : le mur le repoussait), place a chaque image ; rendu au jeu ensuite.
-static void PuppetAir(void *ped, const MsgState &s, uint32_t ageMs, Puppet &p)
+void FollowAir(void *ped, const float *rpos, const float *rspeed, float heading, int air, uint32_t ageMs, bool &airState)
 {
     uint8_t *e = (uint8_t *)ped;
-    if (!p.air) {
-        p.air = true;
+    if (!airState) {
+        airState = true;
         SetPrimaryTask(ped, nullptr, 3);
-        p.moveState = 0;
     }
     *(uint32_t *)(e + 0x40) &= ~2u;
-    if (s.air == 2) e[0x1C] &= ~1; else e[0x1C] |= 1;
+    if (air == 2) e[0x1C] &= ~1; else e[0x1C] |= 1;
     float lead = ageMs / 1000.0f;
     if (lead > 0.15f) lead = 0.15f;
     float *pos = EntityPos(ped);
-    for (int k = 0; k < 3; k++) pos[k] = s.pos[k] + s.speed[k] * 50.0f * lead;
-    memcpy(MoveSpeed(ped), s.speed, 12);
-    SetHeading(ped, s.heading);
+    for (int k = 0; k < 3; k++) pos[k] = rpos[k] + rspeed[k] * 50.0f * lead;
+    memcpy(MoveSpeed(ped), rspeed, 12);
+    SetHeading(ped, heading);
     static int said;
     static uint32_t lastSaid;
-    if (said < 20 && GetTickCount() - lastSaid > 200) { said++; lastSaid = GetTickCount(); Log("pantin : %s, hauteur %.2f (recue %.2f)", s.air == 2 ? "accroche" : "en l'air", pos[2], s.pos[2]); }
+    if (said < 20 && GetTickCount() - lastSaid > 200) { said++; lastSaid = GetTickCount(); Log("suivi : %p %s, hauteur %.2f (recue %.2f)", ped, air == 2 ? "accroche" : "en l'air", pos[2], rpos[2]); }
 }
-static void PuppetAirEnd(void *ped, Puppet &p)
+void FollowAirEnd(void *ped, bool &airState)
 {
     uint8_t *e = (uint8_t *)ped;
     *(uint32_t *)(e + 0x40) |= 2u;
     e[0x1C] |= 1;
-    p.air = false;
+    airState = false;
+}
+
+// Objet attache au joueur local par un script (CPhysical +0xFC : parachute ouvert du script PARACH, colis porte...).
+static void AttachedToPlayer(void *ped, MsgState &s)
+{
+    uint8_t *pool = *(uint8_t **)0xB7449C;   // CPools::ms_pObjectPool : objets +0, octets d'etat +4, taille +8
+    if (!pool) return;
+    uint8_t *objs = *(uint8_t **)pool, *flags = *(uint8_t **)(pool + 4);
+    int n = *(int *)(pool + 8);
+    for (int i = 0; i < n; i++) {
+        if (flags[i] & 0x80) continue;
+        uint8_t *o = objs + i * 0x19C;   // CObject
+        if (*(void **)(o + 0xFC) != ped) continue;
+        s.attModel = *(int16_t *)(o + 0x22);
+        memcpy(s.attOff, o + 0x100, 12);
+        memcpy(s.attRot, o + 0x10C, 12);
+        return;
+    }
+}
+
+// Accessoires du joueur sur son pantin : jetpack et telephone (taches du jeu, donnees dans UpdatePuppet), objet attache
+// recopie (CREATE_OBJECT 0107 puis ATTACH_OBJECT_TO_CHAR 069B, rotation en degres ; sans collision 0382).
+static void PuppetGear(void *ped, const MsgState &s, Puppet &p)
+{
+    if (!(s.gear & 1) && HasTaskType(ped, 1303)) SetPrimaryTask(ped, nullptr, 3);
+    if (!(s.gear & 4) && HasTaskType(ped, 1600)) { int a[2] = { PedRef(ped), 0 }; RunScriptCommand(0x0729, 2, a); }
+    int want = s.vehicleId ? 0 : s.attModel;
+    if (want == p.attModel) return;
+    if (p.attObj) { RunScriptCommand(0x0108, 1, &p.attObj); p.attObj = 0; }
+    p.attModel = 0;
+    if (want <= 0 || want >= 20000) return;
+    if (!ModelLoaded(want)) { RequestModel(want, 2); return; }   // charge en fond, reessaie a l'image suivante
+    const float *pp = EntityPos(ped);
+    int a[5] = { want, 0, 0, 0, 0 };
+    memcpy(&a[1], pp, 12);
+    RunScriptCommandTyped(0x0107, 5, "ifffo", a);
+    p.attObj = ScriptGhostVar(0);
+    if (!p.attObj) return;
+    p.attModel = want;
+    int b[8] = { p.attObj, PedRef(ped) };
+    float f[6] = { s.attOff[0], s.attOff[1], s.attOff[2], s.attRot[0] * 57.29578f, s.attRot[1] * 57.29578f, s.attRot[2] * 57.29578f };
+    memcpy(&b[2], f, 24);
+    RunScriptCommandTyped(0x069B, 8, "iiffffff", b);
+    int c[2] = { p.attObj, 0 };
+    RunScriptCommand(0x0382, 2, c);
+    static int said;
+    if (said < 10) { said++; Log("pantin : objet attache recopie (modele %d)", want); }
 }
 
 static int PuppetMove(int remoteMove)
@@ -468,12 +527,15 @@ static void UpdatePuppet(int id)
     // Mort : le pantin meurt aussi (animation du jeu) ; a la reapparition du joueur (hopital), il est recree.
     int pstate = Field<int>(ped, PED_STATE);
     bool puppetDead = pstate == 54 || pstate == 55 || Field<float>(ped, PED_HEALTH) <= 0.0f;
+    if (p.air && s.health <= 0.0f) FollowAirEnd(ped, p.air);
     if (s.health <= 0.0f) {
         if (!puppetDead) { CombatKillPuppet(ped, s.weapon); Log("pantin du joueur %d : mort", id); }
         return;
     }
     if (puppetDead) { DestroyPuppet(id); return; }
-    if (p.air && (!s.air || s.vehicleId)) PuppetAirEnd(ped, p);
+    int air = s.air ? s.air : (s.gear & 5) ? 1 : 0;   // jetpack, telephone : place sans tache de marche (voir plus bas)
+    if (p.air && (!air || s.vehicleId)) FollowAirEnd(ped, p.air);
+    PuppetGear(ped, s, p);
     CombatUpdatePuppet(id, ped, s);
     // Le pantin n'a pas d'IA a lui : frappe ou menace, le jeu lui donnait une reaction de PNJ (riposte, fuite) qui
     // passait avant sa tache de suivi, il partait de son cote puis etait replace d'un coup (teleportations vues par JD
@@ -586,7 +648,15 @@ static void UpdatePuppet(int id)
     AimMirror(ped, s.aiming == 1 && s.weapon >= 22 && s.weapon <= 38, s.aim);
     AnimsApply(ped, s.anims, s.animCount, p.anims);
 
-    if (s.air) { PuppetAir(ped, s, GetTickCount() - np.lastStateAt, p); return; }
+    if (air) {
+        FollowAir(ped, s.pos, s.speed, s.heading, air, GetTickCount() - np.lastStateAt, p.air);
+        p.moveState = 0;
+        // Jetpack, telephone : la tache du jeu, donnee apres (FollowAir vide la tache principale a son debut).
+        static int saidGear;
+        if ((s.gear & 1) && !HasTaskType(ped, 1303)) { int a = PedRef(ped); RunScriptCommand(0x07A7, 1, &a); if (saidGear++ < 6) Log("pantin du joueur %d : jetpack", id); }
+        if ((s.gear & 4) && !HasTaskType(ped, 1600)) { int a[2] = { PedRef(ped), 1 }; RunScriptCommand(0x0729, 2, a); if (saidGear++ < 6) Log("pantin du joueur %d : telephone", id); }
+        return;
+    }
     if (FollowOnFoot(ped, s.pos, s.speed, s.heading, s.moveState, GetTickCount() - np.lastStateAt, p.moveState)) p.lastTask = GetTickCount();
 }
 
@@ -734,6 +804,87 @@ static void Autotest()
             int r = ((char(__cdecl *)(char))0x619060)(5);
             Log("autotest : sauvegarde emplacement 6 -> %d", r);
         }
+        return;
+    }
+    // "pickups" (sonde, invite) : liste des pickups actifs a moins de 300 m (une fois a 28 s), puis va sur le plus proche
+    // (a 32 s) : il doit disparaitre chez l'hote aussi (events.cpp).
+    if (_stricmp(g_cfg.autotest, "pickups") == 0) {
+        static int step;
+        void *ped = FindPlayerPed();
+        if (step == 0 && t > 28000) {
+            step = 1;
+            const float *mp = EntityPos(ped);
+            float bestD = 1e9f, best[3] = {};
+            for (int i = 0; i < 620; i++) {
+                uint8_t *p = (uint8_t *)0x9788C0 + i * 0x20;
+                if (!p[0x1C]) continue;
+                float q[3] = { *(int16_t *)(p + 0x10) / 8.0f, *(int16_t *)(p + 0x12) / 8.0f, *(int16_t *)(p + 0x14) / 8.0f };
+                float dx = q[0] - mp[0], dy = q[1] - mp[1], d = dx * dx + dy * dy;
+                if (d < 300.0f * 300.0f) Log("autotest : pickup %d type %d modele %d en %.1f %.1f %.1f (%.0f m)", i, p[0x1C], *(int16_t *)(p + 0x18), q[0], q[1], q[2], sqrtf(d));
+                if (d < bestD && q[2] < 500.0f && *(int16_t *)(p + 0x18) != 1277 && (p[0x1C] == 2 || p[0x1C] == 3 || p[0x1C] == 15)) { bestD = d; memcpy(best, q, 12); }
+            }
+            static float target[3];
+            memcpy(target, best, 12);
+            if (bestD < 1e9f) { float pos[3] = { best[0] + 0.3f, best[1], best[2] + 0.2f }; PlacePuppet(ped, pos, 1.5708f); Log("autotest : pres du pickup en %.1f %.1f", best[0], best[1]); }
+        }
+        if (step == 1 && t > 32000) { step = 2; joy[1] = -60; }
+        if (step == 2) joy[1] = t < 34000 ? -60 : 0;
+        if (step == 2 && t > 36000) {   // un tag peint d'un coup (comme fini a la bombe) : l'hote doit le voir peint
+            step = 3;
+            int n = *(int *)0xA9AD70;
+            if (n > 0) { void *tag = *(void **)0xA9A8C0; ((void(__cdecl *)(void *, uint8_t))0x49CEC0)(tag, 255); Log("autotest : tag 0 peint (%d tags)", n); }
+        }
+        return;
+    }
+    // "flic" (hote) : a 34 s, une voiture de police (596, policier 280 au volant, comme une voiture aleatoire :
+    // CreatedBy 1) a 30 m du pantin de l'invite : police.cpp doit l'envoyer l'eperonner.
+    if (_stricmp(g_cfg.autotest, "flic") == 0) {
+        static bool done;
+        void *pup = PuppetOf(1);
+        static bool placed;
+        if (!placed && t > 25000) { placed = true; float hp[3] = { 2500.0f, -1690.0f, 13.5f }; PlacePuppet(FindPlayerPed(), hp, 0.0f); }
+        if (!done && t > 34000 && pup && fabsf(EntityPos(pup)[0] - 2470.0f) < 25.0f && fabsf(EntityPos(pup)[1] + 1663.0f) < 25.0f) {
+            done = true;
+            const int models[2] = { 596, 280 };
+            for (int m : models) if (!ModelLoaded(m)) RequestModel(m, 2);
+            LoadAllRequestedModels(false);
+            const float *p = EntityPos(pup);
+            int a[5] = { 596 }; float pos[3] = { p[0] - 30.0f, p[1], p[2] + 1.0f }; memcpy(&a[1], pos, 12);
+            RunScriptCommandTyped(0x00A5, 5, "ifffo", a);
+            int car = ScriptGhostVar(0);
+            int b[4] = { car, 6, 280 };
+            RunScriptCommandTyped(0x0129, 4, "iiio", b);
+            Pool *vp = *(Pool **)0xB74494;
+            int vi = car >> 8;
+            void *v = vi >= 0 && vi < vp->size && vp->flags[vi] == (car & 0xFF) ? vp->objects + vi * 0xA18 : nullptr;
+            void *drv = PedFromRef(ScriptGhostVar(0));
+            extern void *g_testCopCar;
+            g_testCopCar = v;
+            Log("autotest : voiture de police %08X creee a 30 m de l'invite (conducteur %p)", car, drv);
+        }
+        return;
+    }
+    // "policevoiture" (invite) : au volant d'une voiture a 40 m de l'hote, recherche 3 a 30 s, roule doucement en rond :
+    // les voitures de police de l'hote doivent l'eperonner (police.cpp).
+    if (_stricmp(g_cfg.autotest, "policevoiture") == 0 && g_players[0].connected && g_players[0].state.inGame) {
+        static void *veh;
+        static bool wanted;
+        void *ped = FindPlayerPed();
+        if (!veh && t > 26000) {
+            if (!ModelLoaded(492)) { RequestModel(492, 2); LoadAllRequestedModels(false); }
+            float gp[3] = { 2470.0f, -1662.0f, 13.3f };   // Grove Street, degage (l'hote "flic" se pose a cote)
+            PlacePuppet(ped, gp, -1.5708f);
+            veh = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(492, 2470.0f, -1665.0f, 13.6f, false);
+            if (veh) { WarpPuppetIn(ped, veh, 0); Log("autotest : au volant a 40 m de l'hote"); }
+            return;
+        }
+        if (!veh) return;
+        if (PedVehicle(ped) != veh && t < 40000) WarpPuppetIn(ped, veh, 0);
+        if (!wanted && t > 30000) { wanted = true; int a[2] = { 0, 3 }; RunScriptCommand(0x010D, 2, a); Log("autotest : recherche %d", WantedLevel()); }
+        joy[0x20 / 2] = t > 31000 && (t / 400) % 3 == 0 ? 255 : 0;   // un peu de gaz
+        joy[0] = t > 31000 ? 60 : 0;                                  // tourne en rond
+        static uint32_t lastHeal;
+        if (wanted && t - lastHeal > 5000) { lastHeal = t; Field<float>(ped, PED_HEALTH) = 100.0f; *(float *)((uint8_t *)veh + 0x4C0) = 1000.0f; }
         return;
     }
     // "police" (invite) : pose a 6 m de l'hote, puis recherche 2 a 30 s : la police de l'hote doit venir le chercher
@@ -1036,7 +1187,30 @@ static void Autotest()
         return;
     }
     // "poing" (hote) : coups de poing dans le vide (Rond, 0x22) 3 fois entre 30 et 36 s ; l'invite doit les voir.
-    if (_stricmp(g_cfg.autotest, "poing") == 0) {
+    // "batte" : pareil avec une batte de baseball (arme 5), puis un couteau (4) a 38-42 s.
+    if (_stricmp(g_cfg.autotest, "poing") == 0 || _stricmp(g_cfg.autotest, "batte") == 0) {
+        if (_stricmp(g_cfg.autotest, "batte") == 0) {
+            static int w = -1;
+            void *ped = FindPlayerPed();
+            if (t > 28000 && t < 37000 && w != 5) EnsurePedWeapon(ped, 5, w);
+            if (t > 37000 && w != 4) EnsurePedWeapon(ped, 4, w);
+            joy[0x22 / 2] = ((t > 30000 && t < 30200) || (t > 32000 && t < 32200) || (t > 34000 && t < 34200) || (t > 38000 && t < 38200) || (t > 40000 && t < 40200)) ? 255 : 0;
+            static uint32_t lastLog;
+            if (t > 29800 && t < 42000 && t - lastLog > 150) {
+                lastLog = t;
+                char buf[400]; wsprintfA(buf, "arme %d :", w);
+                if (void *clump = Field<void *>(ped, 0x18))
+                    for (uint8_t *lk = *(uint8_t **)*(void **)((uint8_t *)clump + *(int *)0xB5F878); lk; lk = *(uint8_t **)lk) {
+                        uint8_t *as = lk - 4; char one[48];
+                        sprintf(one, " %d:%d b%.2f f%X", *(int16_t *)(as + 0xE), *(int16_t *)(as + 0x2C), *(float *)(as + 0x18), *(uint16_t *)(as + 0x2E));
+                        if (lstrlenA(buf) < 340) lstrcatA(buf, one);
+                    }
+                NetAnim na[3]; int nn = AnimsCollect(ped, na, 3);
+                char e[64]; sprintf(e, " | envoye %d", nn); lstrcatA(buf, e);
+                Log("autotest : %s", buf);
+            }
+            return;
+        }
         joy[0x22 / 2] = ((t > 30000 && t < 30200) || (t > 32000 && t < 32200) || (t > 34000 && t < 34200)) ? 255 : 0;
         static int said;
         if (t > 30000 && !said) { said = 1; Log("autotest : coups de poing"); }
@@ -1133,6 +1307,100 @@ static void Autotest()
                 if (lstrlenA(buf) < 340) lstrcatA(buf, one);
             }
         Log("anims : %s", buf);
+        return;
+    }
+    // "accessoires" (sonde) : jetpack (07A7) de 30 a 36 s, puis telephone (0729) de 38 a 46 s ; taches du joueur au journal,
+    // entites attachees (CPhysical +0xFC) ou tenues.
+    if (_stricmp(g_cfg.autotest, "accessoires") == 0) {
+        void *ped = FindPlayerPed();
+        static int step;
+        if (step == 0 && t > 30000) { step = 1; int a = PedRef(ped); RunScriptCommand(0x07A7, 1, &a); Log("autotest : jetpack"); }
+        if (step == 1 && t > 31000 && t < 34000) joy[0x20 / 2] = 255;   // monte
+        if (step == 1 && t > 36000) { step = 2; SetPrimaryTask(ped, nullptr, 3); int a[2] = { PedRef(ped), 1 }; RunScriptCommand(0x0729, 2, a); Log("autotest : telephone"); }
+        if (step == 2 && t > 46000) { step = 3; int a[2] = { PedRef(ped), 0 }; RunScriptCommand(0x0729, 2, a); }
+        static int obj;
+        if (step == 3 && t > 47000) {   // mallette attachee (objet de script), de 47 a 55 s
+            step = 4;
+            if (!ModelLoaded(1210)) { RequestModel(1210, 2); LoadAllRequestedModels(false); }
+            int a[5] = { 1210 }; memcpy(&a[1], EntityPos(ped), 12);
+            RunScriptCommandTyped(0x0107, 5, "ifffo", a);
+            obj = ScriptGhostVar(0);
+            float f[6] = { 0.3f, 0.2f, 0.0f, 0, 0, 90.0f };
+            int b[8] = { obj, PedRef(ped) }; memcpy(&b[2], f, 24);
+            RunScriptCommandTyped(0x069B, 8, "iiffffff", b);
+            Log("autotest : mallette attachee (%d)", obj);
+        }
+        if (step == 4 && t > 55000) { step = 5; RunScriptCommand(0x0108, 1, &obj); }
+        static uint32_t lastLog;
+        if (t > 29000 && t < 56000 && t - lastLog > 1000) {
+            lastLog = t;
+            char buf[400] = "";
+            void **tk = PrimaryTasks(ped);
+            for (int k = 0; k < 11; k++)
+                for (void *task = tk[k]; task; task = ((void *(__thiscall *)(void *))(*(void ***)task)[2])(task)) {
+                    char one[16]; wsprintfA(one, " %d:%d", k, ((int(__thiscall *)(void *))(*(void ***)task)[4])(task));
+                    if (lstrlenA(buf) < 360) lstrcatA(buf, one);
+                }
+            Log("autotest : taches%s ; debout %d", buf, Field<uint8_t>(ped, 0x46C) & 1);
+            // objets attaches au joueur
+            uint8_t *pool = *(uint8_t **)0xB7449C;   // CPools::ms_pObjectPool
+            if (pool) {
+                uint8_t *objs = *(uint8_t **)pool, *flags = *(uint8_t **)(pool + 4);
+                int n = *(int *)(pool + 8);
+                for (int i = 0; i < n; i++) {
+                    if (flags[i] & 0x80) continue;
+                    uint8_t *o = objs + i * 0x19C;
+                    if (*(void **)(o + 0xFC) == ped) Log("autotest : objet attache modele %d", *(int16_t *)(o + 0x22));
+                }
+            }
+        }
+        return;
+    }
+    // "klaxon" (hote, sonde) : au volant d'une Greenwood, klaxon (L3) de 30 a 34 s, champs du vehicule au journal.
+    // "grenade" (hote) : face a l'invite place par "regarde", lance une grenade (Rond) a 30 s puis un Molotov a 36 s.
+    if (_stricmp(g_cfg.autotest, "klaxon") == 0 || _stricmp(g_cfg.autotest, "grenade") == 0) {
+        void *ped = FindPlayerPed();
+        static void *veh;
+        static bool ready;
+        if (_stricmp(g_cfg.autotest, "klaxon") == 0) {
+            if (!veh) {
+                if (!ModelLoaded(492)) { RequestModel(492, 2); LoadAllRequestedModels(false); }
+                veh = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(492, 2490.0f, -1665.0f, 13.6f, false);
+                return;
+            }
+            if (t < 29000 && PedVehicle(ped) != veh) { WarpPuppetIn(ped, veh, 0); return; }
+            joy[0x24 / 2] = t > 30000 && t < 34000 ? 255 : 0;
+            // (radio : DPadHaut toutes les 2 s de 36 a 46 s, octets changes du gestionnaire de radio 0x8CB6F8 au journal)
+            joy[0x10 / 2] = t > 36000 && t < 46000 && (t % 2000) < 150 ? 255 : 0;
+            static uint8_t snap[0x400];
+            static bool snapped;
+            if (t > 35000 && !snapped) { snapped = true; memcpy(snap, (void *)0x8CB6F8, sizeof(snap)); }
+            static uint32_t lastRadio;
+            if (snapped && t < 47000 && t - lastRadio > 700) {
+                lastRadio = t;
+                char b[600] = "autotest : radio :";
+                const uint8_t *cur = (const uint8_t *)0x8CB6F8;
+                for (int k = 0; k < (int)sizeof(snap) && lstrlenA(b) < 560; k++) if (cur[k] != snap[k]) { char o[24]; wsprintfA(o, " %X=%d", k, cur[k]); lstrcatA(b, o); }
+                Log("%s", b);
+            }
+            static uint32_t lastLog;
+            if (t > 29000 && t < 35000 && t - lastLog > 250) {
+                lastLog = t;
+                uint8_t *v = (uint8_t *)veh;
+                Log("autotest : klaxon %d, +514 %u, +518 %02X %02X %02X %02X %02X, +42B %02X", t > 30000 && t < 34000, *(uint32_t *)(v + 0x514), v[0x518], v[0x519], v[0x51A], v[0x51B], v[0x51C], v[0x42B]);
+            }
+            return;
+        }
+        if (!ready) {
+            ready = true;
+            float pos[3] = { 2238.0f, -1259.0f, 23.9f };
+            PlacePuppet(ped, pos, 1.5708f);
+            ((void(__thiscall *)(void *))0x50BD40)((void *)0xB6F028);
+        }
+        static int w = -1;
+        if (t > 29000 && t < 35000 && w != 16) EnsurePedWeapon(ped, 16, w);
+        if (t > 35000 && w != 18) EnsurePedWeapon(ped, 18, w);
+        joy[0x22 / 2] = (t > 30000 && t < 30600) || (t > 36000 && t < 36600) ? 255 : 0;
         return;
     }
     // "driveby" / "bmx" (hote) : face a l'invite place par "regarde" ; au volant d'une Greenwood avec un Uzi, tir par la
@@ -1455,6 +1723,9 @@ static void CoopFrameInner(bool inGameLoop)
     for (int i = 0; i < MAX_PLAYERS; i++)
         if (i != g_localId) { UpdatePuppet(i); HudUpdateBlip(i, PuppetOf(i)); }
     SyncWorld();
+    EventsFrame();
+    ObjectsFrame();
+    RadioFrame();
     LocalSkin();
     Autotest();
 
@@ -1535,6 +1806,25 @@ static void LocalSkin()
     applied = want;
     static int said;
     if (said < 10) { said++; Log("tenue : modele %d pose sur le joueur", want); }
+}
+
+// Passager d'un autre joueur : la radio suit celle de son conducteur (CAERadioTrackManager 0x8CB6F8, station +0xAD ;
+// 0x4E8330 la change comme les touches de radio : +0xAD et +0xE9).
+static void RadioFrame()
+{
+    static uint32_t last;
+    if (GetTickCount() - last < 500) return;
+    last = GetTickCount();
+    void *me = FindPlayerPed(), *veh = me ? PedVehicle(me) : nullptr;
+    if (!veh) return;
+    void *drv = Field<void *>(veh, VEH_DRIVER);
+    int id = drv && drv != me ? PuppetIndex(drv) : -1;
+    if (id < 0) return;
+    uint8_t want = g_players[id].state.radio;
+    if (want == 0xFF || want == *(uint8_t *)(0x8CB6F8 + 0xAD)) return;
+    ((void(__thiscall *)(void *, int))0x4E8330)((void *)0x8CB6F8, want);
+    static int said;
+    if (said < 10) { said++; Log("radio : station %d de son conducteur (joueur %d)", want, id); }
 }
 
 void OnFrame()
