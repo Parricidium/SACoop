@@ -8,6 +8,7 @@ void MirrorMenuFrame();                   // chaque tour de boucle, menu compris
 void MirrorTestStuckCamera(const float *pos);   // autotest "camcoince" (invite)
 void MirrorTestObject(int step, const float *pos);   // autotest "objet" (hote)
 void MirrorMissionStart();                 // hote : une mission de l'histoire demarre (regroupement)
+bool ScriptStoreResult(void *script, int value);   // sortie de la commande en cours (apres CollectParameters)
 bool ScriptReadValues(void *script, unsigned char *ip, int n, int *vals);
 void RunScriptCommandTyped(int op, int nargs, const char *types, const int *args);   // types : i, f, s, o (sortie)
 int ScriptGhostVar(int i);   // variable locale du script fantome (sortie d'une commande)

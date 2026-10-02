@@ -92,7 +92,8 @@ struct MsgVehicle {
     float steer, gas, brake;   // commandes du conducteur (CVehicle +0x494, +0x49C, +0x4A0), rejouees par la copie
     uint8_t handbrake;  // frein a main (+0x428, bit 0x20)
 };
-enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */, VF_SCRIPT = 16 /* cree par un script de mission (CreatedBy 2) */, VF_HORN = 32 /* klaxon (CVehicle +0x514) */ };
+enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */, VF_SCRIPT = 16 /* cree par un script de mission (CreatedBy 2) */, VF_HORN = 32 /* klaxon (CVehicle +0x514) */,
+       VF_PLAYBACK = 64 /* sur un trajet enregistre (CVehicleRecording::pVehicleForPlayback 0x97D840) : copie posee telle quelle */ };
 // Coup porte par le joueur "from" au joueur "to" : touche decidee chez le tireur, degats appliques par le jeu du joueur
 // touche (regles du joueur, gilet, reaction, mort).
 // pedId : coup d'un personnage de mission de l'hote (son id MsgPed), 0 : du joueur "from".

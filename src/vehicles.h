@@ -2,6 +2,7 @@
 #pragma once
 #include <stdint.h>
 
+void VehiclesMissionEnded();                     // invite : fin de mission de l'hote (vehicule pose pour lui rendu au jeu)
 void VehiclesFrame();                            // chaque tour de la boucle en partie (coop.cpp)
 uint32_t HostVehicleId(void *veh, bool occupied, bool ambient);   // hote : vehicule de mission / d'un personnage partage
 void HostRegisterMissionVehicles();

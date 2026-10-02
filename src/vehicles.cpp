@@ -33,6 +33,8 @@ struct NetVeh {
     bool mission;        // vehicule de mission de l'hote : envoye tant qu'il existe
     bool ambient;        // vehicule ordinaire de l'hote pres d'un invite partage (population.cpp) : envoye tant qu'il y est
     uint32_t blownAt;    // derniere demande d'explosion de la copie
+    float sentPos[3];    // (vehicules a nous) position au dernier envoi, et quand : vitesse reelle
+    uint32_t sentAt;
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -219,6 +221,17 @@ static void SendOwned()
         memcpy(m.pos, EntityPos(v), 12);
         MatrixOf(v, m.right, m.fwd);
         memcpy(m.speed, v + 0x44, 12);
+        // Vitesse reelle d'apres le deplacement depuis le dernier envoi (en m par 1/50 s, comme le jeu) quand celle du
+        // jeu est bien plus faible : un vehicule sur un trajet enregistre par le script (la Voodoo de la mission des
+        // velos) avance sans vitesse physique ; sa copie restait sur place et sautait a chaque message (02/10).
+        float sdt = (now - n.sentAt) / 1000.0f;
+        if (n.sentAt && sdt > 0.02f && sdt < 0.6f) {
+            float cs[3], c2 = 0, s2 = 0;
+            for (int k = 0; k < 3; k++) { cs[k] = (m.pos[k] - n.sentPos[k]) / sdt / 50.0f; c2 += cs[k] * cs[k]; s2 += m.speed[k] * m.speed[k]; }
+            if (c2 > 0.0004f && s2 < c2 * 0.25f && c2 < 4.0f) memcpy(m.speed, cs, 12);
+        }
+        memcpy(n.sentPos, m.pos, 12);
+        n.sentAt = now;
         memcpy(m.turn, v + 0x50, 12);
         m.driven = driving;
         m.ownerRef = n.ref;
@@ -231,7 +244,8 @@ static void SendOwned()
         m.health = *(float *)(v + 0x4C0);
         if ((v[0x36] >> 3) == 5) m.flags |= VF_WRECKED;
         if (v[0x42D] & 0x80) m.flags |= VF_SIREN;
-        if (*(uint32_t *)(v + 0x514)) m.flags |= VF_HORN;   // compteur du klaxon (1 tant que le joueur klaxonne, 45 pour l'IA)
+        if (*(uint32_t *)(v + 0x514)) m.flags |= VF_HORN;
+        for (int k = 0; k < 16; k++) if (((void **)0x97D840)[k] == v) m.flags |= VF_PLAYBACK;   // compteur du klaxon (1 tant que le joueur klaxonne, 45 pour l'IA)
         if (HasDamageManager(v)) {
             const uint8_t *dm = v + 0x5A0;
             m.flags |= VF_DAMAGE;
@@ -372,7 +386,8 @@ static void UpdateCopy(NetVeh &n)
     float err = sqrtf(dx * dx + dy * dy + dz * dz);
     uint8_t *mat = *(uint8_t **)(v + 0x14);
     if (!mat) return;
-    float k = err > 6.0f ? 1.0f : 0.25f;
+    bool playback = (m.flags & VF_PLAYBACK) != 0;   // trajet enregistre chez son proprietaire : suivi exact, sans glisse
+    float k = err > 6.0f || playback ? 1.0f : 0.25f;
     if (err > 6.0f) WorldRemove(v);
     pos[0] += dx * k; pos[1] += dy * k; pos[2] += dz * k;
     float *right = (float *)mat, *fwd = (float *)(mat + 0x10), *up = (float *)(mat + 0x20);
@@ -386,7 +401,7 @@ static void UpdateCopy(NetVeh &n)
     wf[0] = m.fwd[0] + (w[1] * m.fwd[2] - w[2] * m.fwd[1]) * t;
     wf[1] = m.fwd[1] + (w[2] * m.fwd[0] - w[0] * m.fwd[2]) * t;
     wf[2] = m.fwd[2] + (w[0] * m.fwd[1] - w[1] * m.fwd[0]) * t;
-    float blend = err > 6.0f ? 1.0f : 0.5f;
+    float blend = err > 6.0f || playback ? 1.0f : 0.5f;
     for (int k = 0; k < 3; k++) { right[k] += (wr[k] - right[k]) * blend; fwd[k] += (wf[k] - fwd[k]) * blend; }
     float lf = sqrtf(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
     if (lf > 1e-4f) for (int k = 0; k < 3; k++) fwd[k] /= lf;
@@ -442,6 +457,16 @@ template <int I> static void HookAI()
     if (*slot != (void *)&h_ProcessAI<I>) g_aiHooks[I].orig = (ProcessAI_t)PatchPointer(slot, (void *)&h_ProcessAI<I>);
 }
 
+static void *g_guestMissionCopy;
+static int g_guestMissionRef;   // invite : vehicule pose pour lui (garde jusqu'a la fin de la mission de l'hote)
+
+// Fin de mission de l'hote (mirror.cpp) : le vehicule pose pour l'invite redevient ordinaire (le jeu pourra le retirer).
+void VehiclesMissionEnded()
+{
+    if (g_guestMissionCopy && VehFromRef(g_guestMissionRef) == g_guestMissionCopy) ((uint8_t *)g_guestMissionCopy)[0x4A4] = 1;
+    g_guestMissionCopy = nullptr;
+}
+
 // Invite : l'hote prend le volant d'un vehicule de mission (cree par son script : velo de la mission de Smoke...) ;
 // invite a pied a moins de 60 m, sans place libre pour lui dedans : une copie du meme modele (a lui) apparait a
 // cote de lui, une fois par vehicule de l'hote, pour faire la mission avec lui. Place libre : rappel de G (passager).
@@ -474,7 +499,12 @@ static void GuestMissionVehicle()
         f[0] = -sinf(h0); f[1] = cosf(h0); f[2] = 0;
         r[0] = cosf(h0); r[1] = sinf(h0); r[2] = 0;
     }
-    ((uint8_t *)v)[0x4A4] = 1;   // vehicule ordinaire : le jeu pourra le retirer plus tard
+    // Vehicule de mission (CreatedBy 2) jusqu'a la fin de la mission de l'hote : ordinaire (1), la population partagee
+    // de l'invite (qui retire ses vehicules locaux ordinaires) l'enlevait aussitot (velo jamais vu, test du 02/10).
+    ((uint8_t *)v)[0x4A4] = 2;
+    VehiclesMissionEnded();
+    g_guestMissionCopy = v;
+    g_guestMissionRef = VehRef(v);
     HudToast(g_fr ? "Un vehicule pour toi est a cote" : "A vehicle for you is next to you", 5000);
     Log("vehicule de mission de l'hote (modele %d) : copie posee a cote de l'invite", model);
 }

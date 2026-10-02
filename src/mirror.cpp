@@ -423,6 +423,7 @@ static void CameraVectorReset()
 static bool Replay(const uint8_t *d, int len)
 {
     if (d[0] == RL_MISSION_END) {
+        VehiclesMissionEnded();
         for (auto &b : g_blips) if (b.host && !b.persist) {
             *(uint16_t *)g_code = 0x0164;
             g_code[2] = 1; memcpy(g_code + 3, &b.guest, 4);
@@ -607,6 +608,16 @@ static void RestoreScreen()
         for (int k = 0; k < cmd.n; k++) { g_code[c++] = 1; memcpy(g_code + c, &cmd.args[k], 4); c += 4; }
         ExecCommand(cmd.op);
     }
+}
+
+// Ecrit le resultat d'une commande dans sa variable de sortie (parametre suivant du script, qui avance).
+bool ScriptStoreResult(void *script, int value)
+{
+    uint8_t *&ip = *(uint8_t **)((uint8_t *)script + 0x14);
+    Param p;
+    if (!ReadParam(script, ip, p) || !p.out) return false;
+    *p.out = value;
+    return true;
 }
 
 // Valeurs des n premiers parametres d'une commande (ip juste apres l'opcode), sans avancer le script.
