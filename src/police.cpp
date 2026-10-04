@@ -35,6 +35,9 @@ int WantedLevel()
 
 static void SetWantedLevel(int level)
 {
+    // A zero : CLEAR_WANTED_LEVEL (0110), qui rappelle aussi la police ; SET_PLAYER_WANTED_LEVEL 0 effacait seulement
+    // les etoiles, un invite restait poursuivi apres la mort de l'hote (test du 04/10).
+    if (level <= 0) { int a = 0; RunScriptCommand(0x0110, 1, &a); return; }
     int a[2] = { 0, level };
     RunScriptCommand(0x010D, 2, a);   // SET_PLAYER_WANTED_LEVEL (joueur 0)
 }
