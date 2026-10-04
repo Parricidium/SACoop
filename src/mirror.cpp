@@ -29,6 +29,7 @@
 #include "savesync.h"
 #include "chat.h"
 #include "events.h"
+#include "population.h"
 #include <string.h>
 #include <math.h>
 
@@ -107,6 +108,11 @@ static const MirrorOp kOps[] = {
     { 0x0382, "oi" },      // SET_OBJECT_COLLISION
     { 0x0750, "oi" },      // SET_OBJECT_VISIBLE
     { 0x0188, "oB" },      // ADD_BLIP_FOR_OBJECT
+    { 0x01B2, "Pii" },     // GIVE_WEAPON_TO_CHAR : au joueur de l'hote -> a l'invite lui-meme (bombe de peinture...)
+    { 0x0555, "Pi" },      // REMOVE_WEAPON_FROM_CHAR (idem)
+    { 0x048F, "P" },       // REMOVE_ALL_CHAR_WEAPONS (idem)
+    { 0x01B9, "Pi" },      // SET_CURRENT_CHAR_WEAPON (idem)
+    { 0x0394, "i" },       // PLAY_MISSION_PASSED_TUNE
     { 0x0213, "iifffK" },  // CREATE_PICKUP (objets de mission : ramasses par un invite, ils comptent chez l'hote, events.cpp)
     { 0x032B, "iiifffK" }, // CREATE_PICKUP_WITH_AMMO
     { 0x0215, "k" },       // REMOVE_PICKUP
@@ -408,6 +414,7 @@ static void ExecCommand(int op)
 
 static void RestoreScreen();
 static uint32_t g_teleportedAt;
+static bool IsWeaponOp(int op) { return op == 0x01B2 || op == 0x0555 || op == 0x048F || op == 0x01B9; }
 static uint32_t g_mirrorCamAt;   // invite : derniere commande de camera rejouee (garde-fou CameraWatch)
 
 // Mouvements de camera en cours (CAMERA_SET_VECTOR_MOVE/TRACK 0936/0920, gardes par CAMERA_PERSIST_* 092F/0930) :
@@ -424,6 +431,8 @@ static bool Replay(const uint8_t *d, int len)
 {
     if (d[0] == RL_MISSION_END) {
         VehiclesMissionEnded();
+        PopulationHostDensity(false, 1.0f);   // densites normales apres la mission de l'hote
+        PopulationHostDensity(true, 1.0f);
         for (auto &b : g_blips) if (b.host && !b.persist) {
             *(uint16_t *)g_code = 0x0164;
             g_code[2] = 1; memcpy(g_code + 3, &b.guest, 4);
@@ -485,6 +494,7 @@ static bool Replay(const uint8_t *d, int len)
     }
     if (d[0] != RL_MIRROR || len < 4) return true;
     int op = *(const uint16_t *)(d + 1), n = d[3];
+    if (IsWeaponOp(op) && len > 4 && d[4] != 'H') return true;   // armes d'un personnage de mission : sa copie suit le reseau
     if (op == 0x02E7 && !CutsceneLoaded()) return false;                           // chargement en cours
     if (op == 0x02EA && CutsceneRunning() && !CutsceneFinished()) {
         // L'hote a fini (ou passe) sa cinematique : on passe celle de l'invite, comme un appui sur Croix
@@ -530,7 +540,7 @@ static bool Replay(const uint8_t *d, int len)
         case 'H': {
             // Joueur de l'hote : pour une teleportation ou un interieur, c'est l'invite lui-meme qui suit ;
             // sinon (marqueur, camera...), son pantin chez l'invite.
-            void *ped = op == 0x00A1 || op == 0x0860 ? FindPlayerPed() : PuppetOf(0);
+            void *ped = op == 0x00A1 || op == 0x0860 || IsWeaponOp(op) ? FindPlayerPed() : PuppetOf(0);
             if (!ped) return false;
             v = PedRef(ped);
             break;
@@ -566,6 +576,20 @@ static bool Replay(const uint8_t *d, int len)
         g_teleportedAt = GetTickCount();
     }
     if (op == 0x0860 && d[4] != 'H') return true;   // interieur d'un autre personnage : sa copie suit le reseau
+    if (op == 0x01B2) {   // modeles de l'arme charges avant (sinon arme sans modele)
+        int type; memcpy(&type, g_code + 2 + 5 + 1, 4);
+        if (uint8_t *info = type > 0 && type < 47 ? WeaponInfo(type) : nullptr) {
+            const int models[2] = { *(int *)(info + 0xC), *(int *)(info + 0x10) };
+            for (int m : models) if (m > 0 && !ModelLoaded(m)) { RequestModel(m, 2); LoadAllRequestedModels(false); }
+        }
+    }
+    // Densites des passants / de la circulation reglees par la mission : seulement pres de l'hote (population.cpp) ;
+    // appliquees partout, un invite loin de l'hote n'avait plus personne autour de lui (test du 04/10).
+    if (op == 0x03DE || op == 0x01EB) {
+        float f; memcpy(&f, g_code + 2 + 1, 4);
+        PopulationHostDensity(op == 0x01EB, f);
+        return true;
+    }
     if (op == 0x04BB) {   // zone visible : seulement avec l'hote, sinon la ville de l'invite se dechargerait
         void *host = PuppetOf(0), *me = FindPlayerPed();
         bool closeBy = false;
@@ -599,8 +623,10 @@ static void RestoreScreen()
 {
     CameraVectorReset();
     static const struct { uint16_t op; int args[2]; int n; } cmds[] = {
+        // (pas de CLEAR_PRINTS 00BE : il effacait "MISSION ACCOMPLIE / RESPECT +" et "MISSION ECHOUEE", affiches
+        // juste avant la fin de mission, test du 04/10)
         { 0x016A, { 500, 1 }, 2 }, { 0x02A3, { 0 }, 1 }, { 0x01B4, { 0, 1 }, 2 }, { 0x02EB, {}, 0 },
-        { 0x00BE, {}, 0 }, { 0x03E6, {}, 0 }, { 0x040D, { 1 }, 1 }, { 0x040D, { 2 }, 1 },
+        { 0x03E6, {}, 0 }, { 0x040D, { 1 }, 1 }, { 0x040D, { 2 }, 1 },
     };
     for (auto &cmd : cmds) {
         int c = 2;

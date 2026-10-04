@@ -478,10 +478,13 @@ static void GuestMissionVehicle()
     void *me = FindPlayerPed();
     if (g_cfg.host || !me || !h.connected || !h.state.inGame || !h.state.vehicleId || h.state.seat != 0 || h.state.vehicleId == handled) return;
     NetVeh *n = FindById(h.state.vehicleId);
-    if (!n || !Alive(*n) || !(n->last.flags & VF_SCRIPT) || PedVehicle(me)) return;
+    if (!n || !Alive(*n) || !(n->last.flags & VF_SCRIPT)) return;
+    // (en voiture aussi : un invite au volant d'une voiture volee n'avait jamais son velo ; pas s'il est deja dans un
+    // vehicule de mission de l'hote, ni s'il a deja le sien ; jusqu'a 150 m)
+    if (void *mine = PedVehicle(me)) { NetVeh *mn = FindByVeh(mine); if ((mn && (mn->last.flags & VF_SCRIPT)) || mine == g_guestMissionCopy) return; }
     const float *hp = h.state.pos, *mp = EntityPos(me);
     float dx = hp[0] - mp[0], dy = hp[1] - mp[1];
-    if (dx * dx + dy * dy > 60.0f * 60.0f) return;
+    if (dx * dx + dy * dy > 150.0f * 150.0f) return;
     handled = h.state.vehicleId;
     uint8_t *hv = (uint8_t *)n->veh;
     int seat = g_localId > 0 ? g_localId : 1;   // place passager de ce joueur
@@ -491,7 +494,8 @@ static void GuestMissionVehicle()
     if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
     if (!ModelLoaded(model)) return;
     float h0 = Field<float>(me, PED_ROTATION);
-    float pos[3] = { mp[0] + cosf(h0) * 3.0f, mp[1] + sinf(h0) * 3.0f, mp[2] + 0.5f };   // 3 m sur sa droite
+    float side = PedVehicle(me) ? 4.5f : 3.0f;   // a cote de lui (de sa voiture)
+    float pos[3] = { mp[0] + cosf(h0) * side, mp[1] + sinf(h0) * side, mp[2] + 0.5f };   // sur sa droite
     void *v = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(model, pos[0], pos[1], pos[2], false);
     if (!v) return;
     if (uint8_t *mat = *(uint8_t **)((uint8_t *)v + 0x14)) {   // tourne comme l'invite

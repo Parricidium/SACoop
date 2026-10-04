@@ -1796,6 +1796,10 @@ static void LocalSkin()
     last = now;
     void *me = FindPlayerPed();
     if (!me || !InGame() || !WorldCalm() || PedVehicle(me) || Field<float>(me, PED_HEALTH) <= 0.0f) return;
+    // Seulement sans tache en cours (montee en voiture, coup, reaction... : leurs animations tenaient l'ancien modele ;
+    // plantage 0x6E3D17 en montant dans la Greenwood de la mission de Sweet, test du 04/10).
+    void **tk = PrimaryTasks(me);
+    for (int k = 0; k < 4; k++) if (tk[k]) return;
     int want = g_cfg.skin, cur = *(int16_t *)((uint8_t *)me + 0x22);
     if (want == 0) {
         if (applied && cur == applied) {

@@ -159,23 +159,45 @@ static void MergePopulation()
     }
 }
 
-// --- Invite colle a l'hote : densites a 0 ---
-static float g_savedPed = 1.0f, g_savedCar = 1.0f;
-static bool g_wasQuiet;
+// --- Densites de l'invite ---
+// Colle a l'hote : 0 (tout ce qu'il ferait naitre serait dans la zone de l'hote). Dans la zone de l'hote : celles de
+// la mission de l'hote (03DE / 01EB, recues par le miroir). Ailleurs : 1, sa propre population. Avant, celles de la
+// mission s'appliquaient partout (souvent 0) : loin de l'hote, ni passants ni circulation (test du 04/10). Etat
+// change avec une marge (35 / 45 m) : il basculait plusieurs fois par seconde autour de 40 m.
+static float g_hostPed = 1.0f, g_hostCar = 1.0f;
+static int g_densityMode = -1, g_densityModeApplied = -1;
+
+void PopulationHostDensity(bool car, float value)
+{
+    if (value < 0.0f || value > 10.0f) return;
+    (car ? g_hostCar : g_hostPed) = value;
+    Log("population : densite %s de la mission de l'hote %.2f", car ? "des vehicules" : "des passants", value);
+}
 
 static void GuestDensity()
 {
     float &ped = *(float *)0x8D2530, &car = *(float *)0x8A5B20;
-    bool quiet = PopulationShared() && g_hostClose && (WantedLevel() == 0 || HostPoliceOnGuests());
-    if (quiet != g_wasQuiet) {
-        g_wasQuiet = quiet;
-        if (quiet) { g_savedPed = ped; g_savedCar = car; }
-        else { ped = g_savedPed; car = g_savedCar; }
-        Log("population : %s", quiet ? "colle a l'hote, rien de local" : PopulationShared() ? "partagee, generation locale hors de la zone de l'hote" : "locale");
+    const NetPlayer &h = g_players[0];
+    void *me = FindPlayerPed();
+    float d2 = me && h.connected ? Dist2(EntityPos(me), h.state.pos) : 1e12f;
+    static bool close;
+    close = PopulationShared() && d2 < (close ? 45.0f * 45.0f : 35.0f * 35.0f);
+    bool quiet = close && (WantedLevel() == 0 || HostPoliceOnGuests());
+    bool hostZone = PopulationShared() && d2 < HOST_ZONE * HOST_ZONE;
+    int mode = quiet ? 0 : hostZone ? 1 : 2;
+    if (mode != g_densityMode) {
+        g_densityMode = mode;
+        Log("population : %s", mode == 0 ? "colle a l'hote, rien de local" : mode == 1 ? "dans la zone de l'hote (densites de sa mission)" : PopulationShared() ? "partagee, generation locale hors de la zone de l'hote" : "locale");
     }
-    if (quiet) {
-        if (ped != 0.0f) { g_savedPed = ped; ped = 0.0f; }   // un script a pu la changer : retenue pour la sortie
-        if (car != 0.0f) { g_savedCar = car; car = 0.0f; }
+    // (colle : tenu a chaque image ; zone de l'hote : a chaque changement de la mission ; ailleurs : seulement en y
+    // entrant, une mission annexe de l'invite garde ses propres reglages)
+    static float lastHostPed = -1, lastHostCar = -1;
+    bool changed = mode != g_densityModeApplied || (mode == 1 && (lastHostPed != g_hostPed || lastHostCar != g_hostCar));
+    g_densityModeApplied = mode;
+    lastHostPed = g_hostPed; lastHostCar = g_hostCar;
+    if (mode == 0 || changed) {
+        ped = mode == 0 ? 0.0f : mode == 1 ? g_hostPed : 1.0f;
+        car = mode == 0 ? 0.0f : mode == 1 ? g_hostCar : 1.0f;
     }
 }
 
