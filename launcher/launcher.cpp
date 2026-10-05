@@ -46,6 +46,7 @@ using std::max;
 using namespace Gdiplus;
 
 static const wchar_t *kReleasesApi = L"https://api.github.com/repos/Parricidium/SACoop/releases?per_page=40";
+static const wchar_t *kGithubUrl = L"https://github.com/Parricidium/SACoop";   // bouton GitHub sous le logo
 static const wchar_t *kStoreUrl = L"https://store.rockstargames.com/fr/game/buy-grand-theft-auto-the-trilogy";   // Trilogy (meme lien que le README et VCCoop)
 static const float kImgW = 1000, kImgH = 620;   // mise en page (coordonnees de launcher.png)
 
@@ -682,7 +683,7 @@ static DWORD WINAPI NotesOnlyThread(void *)
 }
 
 // ---------------------------------------------------------------- boutons
-enum { B_HOST, B_JOIN, B_EXE, B_BUY, B_THEME, B_CLOSE, B_MIN, B_LOGS, B_COUNT };
+enum { B_HOST, B_JOIN, B_EXE, B_BUY, B_THEME, B_CLOSE, B_MIN, B_LOGS, B_GITHUB, B_COUNT };
 struct Button { RectF r; float hover; bool visible, enabled; };
 static Button g_btn[B_COUNT];
 static int g_hot = -1, g_pressed = -1;
@@ -699,6 +700,7 @@ static void Layout()
     g_btn[B_MIN].r = RectF(904, 76, 28, 28);
     g_btn[B_THEME].r = RectF(62, 100, 26, 26);   // coin du panneau, a gauche du logo
     g_btn[B_LOGS].r = RectF(368, 100, 26, 26);   // coin oppose : page des journaux (comme VCCoop)
+    g_btn[B_GITHUB].r = RectF(178, 183, 100, 22);  // sous le logo, au-dessus de la pastille PRE-ALPHA
 }
 
 static void UpdateButtons()
@@ -716,7 +718,7 @@ static void UpdateButtons()
         g_btn[B_HOST].enabled = menu && (g_lobby == LB_HOST ? LobbyCanStartPublic() : g_lobby == LB_GUEST && GuestModsReady());
     }
     if (g_goWait) g_btn[B_HOST].enabled = g_btn[B_JOIN].enabled = false;
-    g_btn[B_CLOSE].enabled = g_btn[B_MIN].enabled = g_btn[B_BUY].enabled = g_btn[B_THEME].enabled = true;
+    g_btn[B_CLOSE].enabled = g_btn[B_MIN].enabled = g_btn[B_BUY].enabled = g_btn[B_THEME].enabled = g_btn[B_GITHUB].enabled = true;
     g_btn[B_LOGS].visible = menu && !g_gameDir.empty();
     g_btn[B_LOGS].enabled = true;
 }
@@ -1291,13 +1293,33 @@ static void DrawUI(Graphics &g)
         else g.DrawLine(&pen, cx - 5, cy, cx + 5, cy);
     }
 
-    // PRE-ALPHA : pastille bien visible sous le logo
+    // GitHub : pastille sombre sous le logo (depot du mod), comme celle du Rockstar Store
     {
-        RectF pr(170, 184, 116, 20);
-        GraphicsPath pp; RoundRect(pp, pr, 10);
+        Button &b = g_btn[B_GITHUB];
+        GraphicsPath p;
+        RoundRect(p, b.r, b.r.Height / 2);
+        SolidBrush fill(Mix(TH(pill), TH(pillHot), b.hover));
+        g.FillPath(&fill, &p);
+        // marque : tete de chat (cercle et deux oreilles), en blanc
+        SolidBrush white(Color(255, 255, 255, 255));
+        float cx = b.r.X + 17, cy = b.r.Y + b.r.Height / 2 + 1;
+        g.FillEllipse(&white, cx - 6.0f, cy - 5.5f, 12.0f, 11.0f);
+        PointF earL[] = { PointF(cx - 6.0f, cy - 2.0f), PointF(cx - 5.2f, cy - 8.0f), PointF(cx - 1.5f, cy - 5.0f) };
+        PointF earR[] = { PointF(cx + 6.0f, cy - 2.0f), PointF(cx + 5.2f, cy - 8.0f), PointF(cx + 1.5f, cy - 5.0f) };
+        g.FillPolygon(&white, earL, 3);
+        g.FillPolygon(&white, earR, 3);
+        SolidBrush dark(Mix(TH(pill), TH(pillHot), b.hover));
+        g.FillEllipse(&dark, cx - 3.6f, cy - 2.0f, 2.4f, 3.0f);
+        g.FillEllipse(&dark, cx + 1.2f, cy - 2.0f, 2.4f, 3.0f);
+        Text(g, L"GitHub", RectF(b.r.X + 28, b.r.Y, b.r.Width - 32, b.r.Height), 12, FontStyleBold, Color(255, 255, 255, 255), StringAlignmentNear);
+    }
+    // PRE-ALPHA : pastille bien visible sous le bouton GitHub
+    {
+        RectF pr(180, 210, 96, 18);
+        GraphicsPath pp; RoundRect(pp, pr, 9);
         SolidBrush pb(Color(230, 206, 52, 52));
         g.FillPath(&pb, &pp);
-        Text(g, L"PRE-ALPHA", pr, 11, FontStyleBold, Color(255, 255, 255, 255));
+        Text(g, L"PRE-ALPHA", pr, 10, FontStyleBold, Color(255, 255, 255, 255));
     }
 
     if (g_state == ST_LAUNCH || g_state == ST_CLOSING) {
@@ -1311,8 +1333,8 @@ static void DrawUI(Graphics &g)
     } else {
         DrawTabs(g);
         DrawOptions(g);
-        Text(g, status, RectF(60, 212, 336, 22), 13, FontStyleBold, sc);
-        if (prog != -1.0f) DrawBar(g, RectF(96, 238, 264, 5), prog);
+        Text(g, status, RectF(60, 230, 336, 20), 13, FontStyleBold, sc);
+        if (prog != -1.0f) DrawBar(g, RectF(96, 252, 264, 4), prog);
         DrawField(g, 0, T(L"PSEUDO", L"NICKNAME"));
         DrawField(g, 1, T(L"ADRESSE DE L'H\u00D4TE", L"HOST ADDRESS"));
         const wchar_t *hostLabel = T(L"H\u00C9BERGER", L"HOST"), *joinLabel = g_joinFallback ? T(L"REJOINDRE EN JEU", L"JOIN IN GAME") : T(L"REJOINDRE", L"JOIN");
@@ -3119,6 +3141,7 @@ static void OnButton(int id)
     case B_LOGS: g_tab = g_tab == TAB_LOGS ? -1 : TAB_LOGS; g_optHot = -1; if (g_tab == TAB_LOGS) LogsScan(); break;
     case B_THEME: g_dark = !g_dark; WritePrivateProfileStringW(L"Lanceur", L"Theme", g_dark ? L"sombre" : L"clair", g_iniLauncher.c_str()); break;
     case B_BUY: ShellExecuteW(g_wnd, L"open", kStoreUrl, NULL, NULL, SW_SHOWNORMAL); break;
+    case B_GITHUB: ShellExecuteW(g_wnd, L"open", kGithubUrl, NULL, NULL, SW_SHOWNORMAL); break;
     }
 }
 
