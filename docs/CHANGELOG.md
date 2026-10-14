@@ -6,6 +6,28 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.5-vcport (untested, network version 23, same protocol as 0.54.0)
+
+Written from the client log of the first 0.54.4 test, a new game (client joins while the host loads a new save: the client
+cannot get out of the opening cutscene, then ends up "in the middle of nowhere"), and the host log of the same session.
+
+- **Guest teleported to x = 0 (the void) by the host's scripted move.** `SetGuestArea` (0.54.3) runs the game's 04BB and
+  0860 commands through the ghost script, which uses the same command buffer (`g_code`) as the replay in progress; it was
+  called after the host's `SET_CHAR_COORDINATES` had been built there and before it ran, so the move ran with the area
+  number as its x (client log: `... 0.0 -1261.9 23.9`, then falling, then only the F10 "go to player" helped). The buffer is
+  now saved and restored around those commands. The same was true of the mission-text reload (`TextCheck`, 054C): fixed too.
+- **"Could not skip the first cutscene".** The guest's own skip (Enter, Space, click, cross, or F10 > skip) only brings the
+  cutscene to its end (`CCutsceneMgr::SkipCutscene`); it stays "running", screen frozen and controls cut, until
+  `CLEAR_CUTSCENE` (02EA), which on the guest only comes with the host's script, in the order of the replay queue. The
+  host had skipped 1.3 s after the guest's cutscene started, but the guest's queue was held up for 21 s by seven
+  `CREATE_PICKUP_WITH_AMMO` (032B) commands whose model never loaded, 3 s each before being given up. Fixed twice over:
+  a cutscene that the guest has skipped himself is cleared 0.3 s later (controls, camera and screen given back,
+  `DO_FADE`), the host's `CLEAR_CUTSCENE` arriving later finds nothing to do; and a creation command whose model does not
+  load waits 0.8 s (was 3 s), after which that model is skipped for 30 s (the log says which one: `modele N jamais charge`).
+- New log lines `cinematique de l'invite :` when a cutscene starts on the guest (loading state, queue length), every 5 s
+  (time, finished, skipped, camera mode, queue length, Enter/Space/mouse state) and at its end, to see what the guest's
+  cutscene is doing if skipping still fails.
+
 ## 0.54.4-vcport (untested, network version 23, same protocol as 0.54.0)
 
 Written from the client log of the first 0.54.3 test (client leaves the Johnson house: no textures at all).

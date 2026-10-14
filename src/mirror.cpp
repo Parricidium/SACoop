@@ -234,6 +234,16 @@ static bool IsPersistBlipOp(int op) { return op == 0x04CE || op == 0x02A7; }   /
 static bool CutsceneLoaded() { return *(uint8_t *)0xB5F84C == 2; }
 static bool CutsceneRunning() { return *(uint8_t *)0xB5F851 != 0; }
 static bool CutsceneFinished() { return ((bool(__cdecl *)())0x5B0570)(); }
+
+// Guest: objects / pickups whose model does not load. Each one used to hold up the whole queue for 3 s; the new game of
+// 14/10 had seven (CREATE_PICKUP_WITH_AMMO 032B), 21 s behind the host, during which the guest's cutscene was only ended by
+// the late CLEAR_CUTSCENE of the host's script. Now: 0.8 s per model, then the model is skipped for 30 s.
+static bool IsCreationOp(int op) { return op == 0x0107 || op == 0x029B || op == 0x0213 || op == 0x032B; }
+static int g_waitModel;
+static struct { int model; uint32_t until; } g_badModel[16];
+static bool ModelBad(int m, uint32_t now) { for (auto &b : g_badModel) if (b.model == m && (int32_t)(b.until - now) > 0) return true; return false; }
+static void MarkModelBad(int m, uint32_t now) { static int next; g_badModel[next++ % 16] = { m, now + 30000 }; }
+
 static const MirrorOp *FindOp(int op)
 {
     for (auto &o : kOps) if (o.op == op) return &o;
@@ -872,9 +882,15 @@ static void SetGuestArea(int area, const char *why)
     void *me = FindPlayerPed();
     if (!me || area < 0 || area > 255) return;
     int cur = *(int *)0xB72914;
+    // RunScriptCommand writes into the same command buffer (g_code) as the replay in progress: the caller may be in the
+    // middle of building the host's move (SET_CHAR_COORDINATES, not yet executed). Overwritten by this, the move ran with
+    // x = 0 and the guest fell into the void (0.54.3/0.54.4, new game, 14/10): the buffer is put back afterwards.
+    uint8_t saved[sizeof(g_code)];
+    memcpy(saved, g_code, sizeof(saved));
     if (cur != area) RunScriptCommand(0x04BB, 1, &area);
     int link[2] = { PedRef(me), area };
     RunScriptCommand(0x0860, 2, link);
+    memcpy(g_code, saved, sizeof(saved));
     EntityArea(me) = (uint8_t)area;
     static int said;
     if (said++ < 40) Log("miroir : zone de l'invite %d -> %d (%s)", cur, area, why);
@@ -900,7 +916,10 @@ static void TextCheck(int op, const uint8_t *d, int len)
     if (missing && g_missionText[0] && GetTickCount() - lastReload > 2000) {
         lastReload = GetTickCount();
         int arg = (int)(uintptr_t)g_missionText;
+        uint8_t saved[sizeof(g_code)];   // (the command being replayed is in g_code, see SetGuestArea)
+        memcpy(saved, g_code, sizeof(saved));
         RunScriptCommandTyped(0x054C, 1, "s", &arg);
+        memcpy(g_code, saved, sizeof(saved));
         t = lookup();
         Log("texte : cle \"%s\" vide chez l'invite, table de mission \"%s\" rechargee -> %s", key, g_missionText, t && t[0] ? "trouvee" : "toujours vide");
     }
@@ -1001,13 +1020,15 @@ static bool Replay(const uint8_t *d, int len)
         return false;
     }
     if (op == 0x02EA) ((int16_t *)(0xB73458 + 0xA8))[0x20 / 2] = 0;
-    if ((op == 0x0107 || op == 0x029B || op == 0x0213 || op == 0x032B) && len >= 9 && d[4] == 'i') {   // modele de l'objet charge avant
+    g_waitModel = 0;
+    if (IsCreationOp(op) && len >= 9 && d[4] == 'i') {   // modele de l'objet charge avant
         int model;
         memcpy(&model, d + 5, 4);
         if (model < 0) model = *(int *)(0xA44B88 + -model * 28);
         if (model <= 0 || model >= 20000) return true;
+        if (ModelBad(model, GetTickCount())) return true;   // (a model that did not come the last time: not waited for again, one by one)
         if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
-        if (!ModelLoaded(model)) return false;
+        if (!ModelLoaded(model)) { g_waitModel = model; return false; }
     }
     if ((op == 0x0395 || op == 0x03BA || op == 0x042B) && n >= 5 && n <= 6 && len >= 4 + n * 5) {
         // The host's script cleared an area: the guest's own passers-by and parked cars there go too (not the game's command,
@@ -1351,6 +1372,44 @@ void SkipCutsceneNow()
     HudToast(PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH ? "Commandes et camera rendues" : running ? "Cutscene ended by force" : "Controls and camera restored", 2500);
 }
 
+// Guest, cutscene: the skip (Enter, Space, click, the pad's cross: the game's own CCutsceneMgr::SkipCutscene) only brings the
+// cutscene to its end; it stays "running", the screen frozen and the controls cut, until CLEAR_CUTSCENE, which on the guest
+// only comes with the host's script, in the order of the replay queue. New game, 14/10: seven pickups that did not load held
+// the queue up for 21 s: the guest "could not skip" (it had: it waited, frozen, for the host's CLEAR_CUTSCENE). A cutscene the
+// guest has skipped by himself is therefore cleared at once, the controls, camera and screen given back; the host's CLEAR_CUTSCENE
+// arriving later finds nothing to do. Also logged: start, state and end of the guest's cutscenes (camera mode, queue, keys).
+static int CameraMode()   // CCam::m_nMode (+0xC) of the active cam (TheCamera +0x59, the three CCam from +0x174, 0x238 each)
+{
+    uint8_t *cam = (uint8_t *)0xB6F028;
+    return *(int *)(cam + 0x174 + (cam[0x59] % 3) * 0x238 + 0xC);
+}
+
+static void CutsceneDiagFrame(uint32_t now)
+{
+    static uint32_t since, lastLog, startedAt;
+    static bool wasRunning;
+    bool running = CutsceneRunning();
+    if (running && !wasRunning) { startedAt = now; lastLog = now; Log("cinematique de l'invite : debut (chargement %d, file %d commandes)", *(uint8_t *)0xB5F84C, (g_qTail - g_qHead + QUEUE) % QUEUE); }
+    if (!running && wasRunning) Log("cinematique de l'invite : fin apres %u ms (passee par l'invite : %d)", now - startedAt, (int)*(uint8_t *)0xB5F854);
+    wasRunning = running;
+    if (!running) { since = 0; return; }
+    if (now - lastLog >= 5000) {
+        lastLog = now;
+        Log("cinematique de l'invite : %u ms, finie %d, passee %d, mode camera %d, file %d commandes, touches entree %d espace %d souris %d",
+            now - startedAt, (int)CutsceneFinished(), (int)*(uint8_t *)0xB5F854, CameraMode(),
+            (g_qTail - g_qHead + QUEUE) % QUEUE, (GetAsyncKeyState(VK_RETURN) & 0x8000) != 0, (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0, (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0);
+    }
+    bool skipped = *(uint8_t *)0xB5F854 != 0 && CutsceneFinished();
+    if (!skipped) { since = 0; return; }
+    if (!since) since = now;
+    if (now - since < 300) return;   // (a moment for the engine's own end of the skip)
+    since = 0;
+    ForceCutsceneEnd("l'invite a passe la cinematique");
+    int fade[2] = { 500, 1 };
+    RunScriptCommand(0x016A, 2, fade);   // DO_FADE entree
+    HudToast(PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH ? "Cinematique passee" : "Cutscene skipped", 2000);
+}
+
 // Garde-fou : la camera de l'invite est tenue (fixe, mouvement de mission) alors que l'hote a retrouve la sienne depuis
 // 2,5 s, hors cinematique, et une camera de mission a ete rejouee dans les 3 dernieres minutes (pas celle d'un magasin
 // de l'invite) : elle lui est rendue (mouvements effaces, RESTORE_CAMERA_JUMPCUT 02EB, camera dans le dos 0373).
@@ -1450,6 +1509,7 @@ void MirrorFrame()
     if (GameState() != 9 || !FindPlayerPed()) { g_havePrev = false; g_omForced = false; return; }
     UnstickFade();
     CameraWatch();
+    CutsceneDiagFrame(GetTickCount());
     memcpy(g_script + 8, "sacoop", 7);
     uint32_t now = GetTickCount();
     for (int budget = 0; budget < 64 && g_qHead != g_qTail; budget++) {
@@ -1457,9 +1517,10 @@ void MirrorFrame()
         if (!p.since) p.since = now;
         if (!Replay(p.data, p.len)) {
             int op = p.len > 2 ? *(const uint16_t *)(p.data + 1) : 0;
-            uint32_t patience = op == 0x02E7 ? 20000 : op == 0x02EA ? 10000 : 3000;
+            uint32_t patience = op == 0x02E7 ? 20000 : op == 0x02EA ? 10000 : g_waitModel && IsCreationOp(op) ? 800 : 3000;
             if (now - p.since < patience) break;   // entite ou cinematique pas encore prete : on attend (dans l'ordre)
             if (op == 0x02EA) ForceCutsceneEnd("la cinematique n'a pas pu etre passee");   // jamais abandonnee
+            else if (g_waitModel && IsCreationOp(op)) { MarkModelBad(g_waitModel, now); Log("miroir : commande %04X abandonnee (modele %d jamais charge)", op, g_waitModel); }
             else Log("miroir : commande %04X abandonnee (entite absente)", op);
         }
         g_qHead = (g_qHead + 1) % QUEUE;

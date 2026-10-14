@@ -94,7 +94,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**: every game starts, and guests follow the host (same save
    when they have it). Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a
    virtual LAN. A player who arrives after the start uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.4-vcport (Zebra's forked repo) loaded`. If it does not,
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.5-vcport (Zebra's forked repo) loaded`. If it does not,
    that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -107,7 +107,7 @@ Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini
 
 ## Everything this fork adds
 
-Versions are `0.49.0-vcport` to `0.54.4-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
+Versions are `0.49.0-vcport` to `0.54.5-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
 per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
@@ -153,7 +153,7 @@ per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the tech
 - Limits: the game only builds trains near the host, so a guest far away from the host sees none; a player inside a
   train is shown standing in it (no seat animation yet); a derailed train is not synced.
 
-### Missions, vehicles and the F10 menu (0.54.0 to 0.54.4)
+### Missions, vehicles and the F10 menu (0.54.0 to 0.54.5)
 
 - **Only the host starts story missions.** A guest who walks into a mission-start marker no longer starts anything,
   but still sees the marker, so a guest can show the host where it is. Setting `GuestMissionLock`.
@@ -207,6 +207,12 @@ per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the tech
 - **0.54.4:** a guest leaving the house at the start of a session was left outside with no scenery at all (0.54.3 forced
   the interior's zone back during the game's own exit transition); that extra zone check is gone, and the "back to the
   host's zone" step waits for the game's entry/exit transition to end.
+- **0.54.5:** at the start of a new game the guest was put at x = 0 (in the void) by the host's first scripted move (0.54.3's
+  zone step overwrote the command being replayed), and could not get out of the opening cutscene for 21 s (seven pickups
+  that did not load held the replay queue up 3 s each, and a cutscene the guest skipped only ended when the host's script
+  cleared it). Fixed: the command buffer is kept, a pickup whose model does not load waits 0.8 s once and is then skipped, and
+  a cutscene the guest skips (Enter, Space, click, cross or F10) is cleared at once with controls, camera and screen given
+  back. The guest's cutscenes are logged (`cinematique de l'invite :` start, every 5 s, end).
 
 ### Players
 
@@ -371,7 +377,7 @@ ready).
 Versions 0.49 to 0.54 have been written and checked for build errors, but are still being tested in real play. If you
 want to help, play a session and look at these:
 
-- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.4-vcport (Zebra's forked repo)`).
+- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.5-vcport (Zebra's forked repo)`).
 - [ ] **Ping** shows in F5 and F10 > Players and looks like the real ping (a few ms on the same PC or network).
 - [ ] The **sky** no longer flickers at dusk and dawn.
 - [ ] After a **teleport** or leaving a safe house, the other player is not stuck in the falling animation.
@@ -434,11 +440,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.4-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.5-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.4-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.4-vcport.zip`.
+`v0.54.5-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.5-vcport.zip`.
 
 ## Known gaps and roadmap
 
