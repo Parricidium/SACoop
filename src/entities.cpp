@@ -17,6 +17,7 @@
 #include "population.h"
 #include "mirror.h"
 #include "anims.h"
+#include "interp.h"
 #include <string.h>
 
 using namespace game;
@@ -73,6 +74,7 @@ static void HostSend()
         if (ambient && (cycle & 2) && !NearSharedGuestAnywhere(EntityPos(ped), 60.0f)) continue;
         MsgPed m = {};
         m.type = MSG_PED;
+        m.time = now;
         m.id = id;
         m.model = (uint16_t)*(int16_t *)((uint8_t *)ped + 0x22);
         memcpy(m.pos, EntityPos(ped), 12);
@@ -128,6 +130,8 @@ struct Copy {
     bool driveby;        // tir par la fenetre en cours (TASK_DRIVE_BY donnee a la copie)
     AnimMirror anims;    // animations d'action donnees a la copie (anims.cpp)
     bool air;            // suit la hauteur de l'original (FollowAir)
+    Track track;         // etats recus horodates (interpolation apres la physique, interp.cpp)
+    bool follow;         // UpdateCopy l'a laissee suivre l'original a pied cette image : GhostsAfterProcess la place
 };
 static Copy g_copies[MAX_COPIES];
 
@@ -186,6 +190,12 @@ static void OnPed(const MsgPed &m)
     }
     c->last = m;
     c->lastRecv = GetTickCount();
+    ClockSample(0, m.time);   // (les personnages de mission ne viennent que de l'hote)
+    Snap sn = {};
+    sn.t = m.time;
+    for (int k = 0; k < 3; k++) { sn.pos[k] = m.pos[k]; sn.vel[k] = m.speed[k]; }
+    sn.heading = m.heading;
+    c->track.Push(sn);
 }
 
 static void DestroyCopy(Copy &c)
@@ -240,6 +250,7 @@ static void UpdateCopy(Copy &c, uint32_t now)
 {
     const MsgPed &m = c.last;
     void *ped = c.ped;
+    c.follow = false;
     if (EntityArea(ped) != m.area) EntityArea(ped) = m.area;
     if (c.air && (m.flags & PF_DEAD)) FollowAirEnd(ped, c.air);
     if (m.flags & PF_DEAD) {
@@ -293,9 +304,24 @@ static void UpdateCopy(Copy &c, uint32_t now)
     AimMirror(ped, (m.flags & PF_AIMING) && m.weapon >= 22 && m.weapon <= 38, m.aim);
     AnimsApply(ped, m.anims, m.animCount, c.anims);
     int air = (m.flags & PF_CLIMB) ? 2 : (m.flags & PF_AIR) ? 1 : 0;
-    if (air) { FollowAir(ped, m.pos, m.speed, m.heading, air, now - c.lastRecv, c.air); c.moveState = 0; return; }
+    if (air) { FollowAir(ped, m.pos, m.speed, m.heading, air, now - c.lastRecv, c.air); c.moveState = 0; c.follow = true; return; }
     if (c.air) FollowAirEnd(ped, c.air);
     FollowOnFoot(ped, m.pos, m.speed, m.heading, m.moveState, now - c.lastRecv, c.moveState);
+    c.follow = true;
+}
+
+// Apres la physique du jeu : les copies de personnages de mission a pied sont placees a leur etat interpole.
+void GhostsAfterProcess()
+{
+    if (g_cfg.host) return;
+    uint32_t now = GetTickCount();
+    for (auto &c : g_copies) {
+        if (!c.id || !c.follow || !CopyAlive(c) || now - c.lastRecv > 1500) continue;
+        if (PedVehicle(c.ped) || (c.last.flags & PF_DEAD) || Field<float>(c.ped, PED_HEALTH) <= 0.0f) continue;
+        Snap n;
+        if (!TrackSample(c.track, 0, n, true)) continue;
+        PlaceFollower(c.ped, n);
+    }
 }
 
 static void GuestUpdate()

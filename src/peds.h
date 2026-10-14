@@ -10,5 +10,7 @@ bool FollowOnFoot(void *ped, const float *pos, const float *speed, float heading
 // Saut, chute, escalade (air : 1 en l'air, 2 accroche) : suit aussi la hauteur ; FollowAirEnd rend la physique au jeu.
 void FollowAir(void *ped, const float *pos, const float *speed, float heading, int air, uint32_t ageMs, bool &airState);
 void FollowAirEnd(void *ped, bool &airState);
+struct Snap;
+void PlaceFollower(void *ped, const Snap &n);                   // pose interpolee apres la physique (coop.cpp, interp.cpp)
 void *PuppetOf(int id);                                         // pantin du joueur id (nullptr : aucun / soi)
 int PuppetIndex(void *ped);                                     // joueur dont c'est le pantin, sinon -1

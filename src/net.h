@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 18, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 19, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -91,6 +91,7 @@ struct MsgVehicle {
     int ownerRef;       // reference de pool du vehicule chez son proprietaire (handle de ses scripts)
     float steer, gas, brake;   // commandes du conducteur (CVehicle +0x494, +0x49C, +0x4A0), rejouees par la copie
     uint8_t handbrake;  // frein a main (+0x428, bit 0x20)
+    uint32_t time;      // GetTickCount de l'envoi (interpolation, interp.cpp)
 };
 enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */, VF_SCRIPT = 16 /* cree par un script de mission (CreatedBy 2) */, VF_HORN = 32 /* klaxon (CVehicle +0x514) */,
        VF_PLAYBACK = 64 /* sur un trajet enregistre (CVehicleRecording::pVehicleForPlayback 0x97D840) : copie posee telle quelle */ };
@@ -111,6 +112,7 @@ struct MsgPed {
     float aim[3];               // point vise au dernier tir (PF_AIMING : point vise maintenant)
     uint8_t animCount;          // animations d'action en cours (anims.cpp)
     NetAnim anims[2];
+    uint32_t time;              // GetTickCount de l'envoi (interpolation, interp.cpp)
 };
 enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */, PF_DRIVEBY = 4 /* tire par la fenetre d'un vehicule */, PF_AIMING = 8 /* vise (CTaskSimpleUseGun) */,
        PF_AIR = 16 /* en l'air (saut, chute) */, PF_CLIMB = 32 /* accroche a un mur */ };

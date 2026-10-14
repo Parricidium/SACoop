@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.48.4-prealpha"
+#define SACOOP_VERSION "0.49.0-vcport"
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)
@@ -42,6 +42,14 @@ struct Config {
     int skin;               // Tenue : sur soi et chez les autres (0 = CJ avec ses vetements, par defaut ; 1-299 = un pieton du jeu)
     char autotest[32];      // Autotest : scenario de test (autotest.cpp)
     bool logScripts;        // JournalScripts : releves periodiques du fil du jeu
+    // --- Modules portes de VCCoop (chacun a son interrupteur dans sacoop.ini, pour trouver une regression par bissection) ---
+    bool interp;            // Interpolation : les autres joueurs / vehicules / PNJ sont places apres la physique, dans le passe (interp.cpp)
+    int interpDelay;        // DelaiInterpolation : retard d'affichage en ms (110)
+    bool placeFoot;         // PlacementPietons : pantins et copies de PNJ places par interpolation
+    bool placeVeh;          // PlacementVehicules : copies de vehicules placees par interpolation
+    bool freezeCopies;      // GelerCopies : la physique du jeu ne deplace plus les copies de vehicules (CPhysical bDontApplySpeed)
+    bool guard;             // GardeFou : vehicules / personnages aberrants (NaN...) remis a leur derniere position saine
+    bool mirrorExtra;       // MiroirEtendu : commandes de mission supplementaires rejouees chez les invites (mirror.cpp)
 };
 extern Config g_cfg;
 

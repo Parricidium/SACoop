@@ -123,6 +123,104 @@ static const MirrorOp kOps[] = {
     { 0x02D1, "r" },       // REMOVE_SCRIPT_FIRE
 };
 
+// Commandes supplementaires (MiroirEtendu=1), portees de la liste de VCCoop. Signatures verifiees dans la base de
+// commandes de Sanny Builder pour San Andreas (nombre et type des parametres) ; les memes lettres que ci-dessus.
+static const MirrorOp kOpsExtra[] = {
+    // Textes
+    { 0x03D5, "s" },         // CLEAR_THIS_PRINT
+    { 0x03D6, "s" },         // CLEAR_THIS_BIG_PRINT
+    { 0x03EB, "" },          // CLEAR_SMALL_PRINTS
+    { 0x0217, "sii" },       // PRINT_BIG_Q
+    { 0x036D, "siiii" },     // PRINT_WITH_2_NUMBERS_BIG
+    { 0x02FD, "siiii" },     // PRINT_WITH_2_NUMBERS_NOW
+    { 0x02FF, "siiiii" },    // PRINT_WITH_3_NUMBERS
+    { 0x0302, "siiiiii" },   // PRINT_WITH_4_NUMBERS
+    { 0x0303, "siiiiii" },   // PRINT_WITH_4_NUMBERS_NOW
+    { 0x0308, "siiiiiiii" }, // PRINT_WITH_6_NUMBERS
+    { 0x0384, "ssii" },      // PRINT_STRING_IN_STRING_NOW
+    { 0x0512, "s" },         // PRINT_HELP_FOREVER
+    { 0x0513, "si" },        // PRINT_HELP_FOREVER_WITH_NUMBER
+    { 0x0912, "iii" },       // SET_MESSAGE_FORMATTING
+    { 0x09C1, "i" },         // ADD_NEXT_MESSAGE_TO_PREVIOUS_BRIEFS
+    { 0x09EE, "i" },         // FORCE_BIG_MESSAGE_AND_COUNTER
+    { 0x0989, "i" },         // SET_HELP_MESSAGE_BOX_SIZE
+    // Ecran et cameras
+    { 0x0169, "iii" },       // SET_FADING_COLOUR
+    { 0x0003, "i" },         // SHAKE_CAM
+    { 0x03C8, "" },          // SET_CAMERA_IN_FRONT_OF_PLAYER
+    { 0x0460, "fi" },        // SET_INTERPOLATION_PARAMETERS
+    // Marqueurs
+    { 0x02A8, "fffiB" },     // ADD_SPRITE_BLIP_FOR_COORD
+    { 0x0570, "fffiB" },     // ADD_SHORT_RANGE_SPRITE_BLIP_FOR_CONTACT_POINT
+    { 0x03DC, "kB" },        // ADD_BLIP_FOR_PICKUP
+    { 0x0161, "ViiB" },      // ADD_BLIP_FOR_CAR_OLD
+    { 0x0167, "fffiiB" },    // ADD_BLIP_FOR_COORD_OLD
+    { 0x07BF, "bi" },        // SET_BLIP_ALWAYS_DISPLAY_ON_ZOOMED_RADAR
+    { 0x08DC, "bfff" },      // SET_BLIP_ENTRY_EXIT
+    { 0x08FB, "bi" },        // SET_COORD_BLIP_APPEARANCE
+    { 0x09A6, "i" },         // SHOW_BLIPS_ON_ALL_LEVELS
+    { 0x09AC, "i" },         // HIDE_ALL_FRONTEND_BLIPS
+    // Sons de mission
+    { 0x018C, "fffi" },      // ADD_ONE_OFF_SOUND
+    { 0x03D7, "ifff" },      // SET_MISSION_AUDIO_POSITION
+    { 0x0949, "iP" },        // ATTACH_MISSION_AUDIO_TO_CHAR
+    { 0x097C, "io" },        // ATTACH_MISSION_AUDIO_TO_OBJECT
+    { 0x097A, "fffi" },      // REPORT_MISSION_AUDIO_EVENT_AT_POSITION
+    { 0x097B, "oi" },        // REPORT_MISSION_AUDIO_EVENT_AT_OBJECT
+    { 0x09F1, "Pi" },        // REPORT_MISSION_AUDIO_EVENT_AT_CHAR
+    { 0x09F7, "Vi" },        // REPORT_MISSION_AUDIO_EVENT_AT_CAR
+    { 0x0917, "si" },        // SWITCH_AUDIO_ZONE
+    // Cinematiques
+    { 0x0244, "fff" },       // SET_CUTSCENE_OFFSET
+    { 0x08F0, "ss" },        // APPEND_TO_NEXT_CUTSCENE
+    { 0x070C, "V" },         // EXPLODE_CAR_IN_CUTSCENE
+    { 0x08CB, "Viii" },      // EXPLODE_CAR_IN_CUTSCENE_SHAKE_AND_BITS
+    // Monde : routes, trafic, entrees, garages
+    { 0x01E7, "ffffff" },    // SWITCH_ROADS_ON
+    { 0x01E8, "ffffff" },    // SWITCH_ROADS_OFF
+    { 0x022A, "ffffff" },    // SWITCH_PED_ROADS_ON
+    { 0x022B, "ffffff" },    // SWITCH_PED_ROADS_OFF
+    { 0x091D, "ffffff" },    // SWITCH_ROADS_BACK_TO_ORIGINAL
+    { 0x091E, "ffffff" },    // SWITCH_PED_ROADS_BACK_TO_ORIGINAL
+    { 0x06D0, "i" },         // SWITCH_EMERGENCY_SERVICES
+    { 0x06D7, "i" },         // SWITCH_RANDOM_TRAINS
+    { 0x0923, "i" },         // SWITCH_AMBIENT_PLANES
+    { 0x096A, "i" },         // SWITCH_POLICE_HELIS
+    { 0x072C, "i" },         // SWITCH_COPS_ON_BIKES
+    { 0x09B7, "si" },        // SET_ZONE_NO_COPS
+    { 0x07FB, "si" },        // SWITCH_ENTRY_EXIT
+    { 0x0363, "ffffii" },    // SET_VISIBILITY_OF_CLOSEST_OBJECT_OF_TYPE
+    { 0x0360, "s" },         // OPEN_GARAGE
+    { 0x0361, "s" },         // CLOSE_GARAGE
+    { 0x0299, "s" },         // ACTIVATE_GARAGE
+    { 0x02B9, "s" },         // DEACTIVATE_GARAGE
+    { 0x02FA, "si" },        // CHANGE_GARAGE_TYPE
+    { 0x021B, "sV" },        // SET_TARGET_CAR_FOR_MISSION_GARAGE
+    { 0x093A, "si" },        // SET_GARAGE_RESPRAY_FREE
+    // Joueur, police
+    { 0x01F0, "i" },         // SET_MAX_WANTED_LEVEL
+    { 0x01F7, "ii" },        // SET_POLICE_IGNORE_PLAYER
+    { 0x03BF, "ii" },        // SET_EVERYONE_IGNORE_PLAYER
+    { 0x03C7, "f" },         // SET_WANTED_MULTIPLIER
+    { 0x06AF, "ii" },        // DISABLE_PLAYER_SPRINT
+    { 0x08DD, "i" },         // SWITCH_DEATH_PENALTIES
+    { 0x08DE, "i" },         // SWITCH_ARREST_PENALTIES
+    // Vehicules et personnages de mission (leurs copies)
+    { 0x020A, "Vi" },        // LOCK_CAR_DOORS
+    { 0x0568, "Pi" },        // SET_CHAR_NEVER_TARGETTED
+    // Objets et ramassages de mission
+    { 0x0453, "offf" },      // SET_OBJECT_ROTATION
+    { 0x0392, "oi" },        // SET_OBJECT_DYNAMIC
+    { 0x035C, "oVfff" },     // PLACE_OBJECT_RELATIVE_TO_CAR
+    { 0x034E, "offffffi" },  // SLIDE_OBJECT
+    { 0x01C7, "o" },         // DONT_REMOVE_OBJECT
+    { 0x0566, "oi" },        // SET_OBJECT_AREA_VISIBLE
+    { 0x02E1, "fffiiK" },    // CREATE_MONEY_PICKUP
+};
+
+static bool IsPersistBlipOp(int op) { return op == 0x04CE || op == 0x02A7; }   // icones de contact : gardees apres la mission
+
+
 // Cinematiques : CCutsceneMgr::ms_cutsceneLoadStatus 0xB5F84C (2 = chargee), ms_running 0xB5F851,
 // HasCutsceneFinished 0x5B0570.
 static bool CutsceneLoaded() { return *(uint8_t *)0xB5F84C == 2; }
@@ -131,6 +229,7 @@ static bool CutsceneFinished() { return ((bool(__cdecl *)())0x5B0570)(); }
 static const MirrorOp *FindOp(int op)
 {
     for (auto &o : kOps) if (o.op == op) return &o;
+    if (g_cfg.mirrorExtra) for (auto &o : kOpsExtra) if (o.op == op) return &o;
     return nullptr;
 }
 
@@ -193,7 +292,7 @@ static void KeepActive(int op, const uint8_t *buf, int len, int handle)
     if (op == 0x054C) handle = -1;   // un seul texte de mission
     for (auto &a : g_active) if (a.len && a.handle == handle) a.len = 0;
     for (auto &a : g_active)
-        if (!a.len) { a.handle = handle; a.len = len; a.persist = op == 0x04CE || op == 0x02A7; a.after = op == 0x01BC || op == 0x0177 || op == 0x0382 || op == 0x0750; memcpy(a.data, buf, len); return; }
+        if (!a.len) { a.handle = handle; a.len = len; a.persist = IsPersistBlipOp(op); a.after = op == 0x01BC || op == 0x0177 || op == 0x0382 || op == 0x0750; memcpy(a.data, buf, len); return; }
 }
 static void SendActive(int peer)
 {
@@ -335,14 +434,24 @@ void MirrorAfter(void *script, int op)
     // Commandes a garder pour un invite qui arrive : texte de mission, creation/retrait de marqueur ou sphere.
     // (objets : les deplacements apres la creation ne sont pas gardes ; cle distincte de celle des marqueurs)
     int handle = 0;
-    for (int k = 0; k < g_cap.n; k++) {
-        char kd = g_cap.p[k].kind;
-        if (!strchr("BQbqOoKk", kd)) continue;
-        handle = (kd == 'B' || kd == 'Q' || kd == 'O' || kd == 'K') && g_cap.p[k].out ? *g_cap.p[k].out : g_cap.p[k].value;
-        if (kd == 'O' || kd == 'o') handle ^= 0x40000000;
-        if (kd == 'K' || kd == 'k') handle ^= 0x60000000;
-        break;
-    }
+    // (MiroirEtendu : la cle est celle de la sortie s'il y en a une -- ADD_BLIP_FOR_PICKUP "kB" porte sur un ramassage mais
+    // cree un marqueur --, et une commande qui ne fait que modifier une entite sans la creer, la retirer ni fixer son etat
+    // n'est pas gardee : elle ecraserait la creation, et l'invite qui arrive ne verrait jamais l'entite.)
+    bool extra = g_cfg.mirrorExtra, hasOut = false;
+    for (int k = 0; k < g_cap.n; k++) if (strchr("BQOKR", g_cap.p[k].kind)) hasOut = true;
+    for (int pass = 0; pass < (extra ? 2 : 1); pass++)
+        for (int k = 0; k < g_cap.n && !handle; k++) {
+            char kd = g_cap.p[k].kind;
+            if (!strchr("BQbqOoKk", kd)) continue;
+            bool isOut = kd == 'B' || kd == 'Q' || kd == 'O' || kd == 'K';
+            if (extra && pass == 0 && hasOut && !isOut) continue;   // 1re passe : seulement les sorties
+            handle = isOut && g_cap.p[k].out ? *g_cap.p[k].out : g_cap.p[k].value;
+            if (kd == 'O' || kd == 'o') handle ^= 0x40000000;
+            if (kd == 'K' || kd == 'k') handle ^= 0x60000000;
+        }
+    if (extra && handle && !hasOut && op != 0x0164 && op != 0x03BD && op != 0x0108 && op != 0x0215 &&
+        op != 0x01BC && op != 0x0177 && op != 0x0382 && op != 0x0750)
+        handle = 0;   // simple modification d'une entite : pas gardee
     if (op == 0x0188) handle = 0;   // marqueur d'objet : rejoue avec l'objet... non garde (ordre de recreation)
     // Etat d'un objet de mission (position, cap, collision, visibilite) : le dernier de chaque sorte est garde aussi,
     // renvoye apres les creations a un invite qui arrive en cours de mission (cle : objet + sorte, bit 0x10000000).
@@ -608,7 +717,7 @@ static bool Replay(const uint8_t *d, int len)
     for (int k = 0; k < out; k++) {
         int guest = *(int *)(g_script + 0x3C + outIdx[k] * 4);
         HandleMap *m = outKind[k] == 'B' ? g_blips : outKind[k] == 'O' ? g_objects : outKind[k] == 'K' ? g_pickups : outKind[k] == 'R' ? g_fires : g_spheres;
-        MapSet(m, outHost[k], guest, op == 0x04CE || op == 0x02A7);
+        MapSet(m, outHost[k], guest, IsPersistBlipOp(op));
     }
     if (op == 0x0164) MapDel(g_blips, *(const int *)(d + 5));
     if (op == 0x03BD) MapDel(g_spheres, *(const int *)(d + 5));

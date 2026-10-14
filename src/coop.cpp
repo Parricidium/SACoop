@@ -34,6 +34,7 @@
 #include "camera.h"
 #include "mods.h"
 #include "npc.h"
+#include "interp.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -59,6 +60,8 @@ struct Puppet {
     uint32_t dbAt;
     bool air;            // suit la hauteur de son joueur (en l'air, accroche) : sans gravite
     int attObj, attModel;// objet attache recopie (poignee de script, modele)
+    Track track;         // etats recus horodates (interpolation apres la physique, interp.cpp)
+    bool follow;         // UpdatePuppet l'a laisse suivre son joueur a pied cette image : PuppetsAfterProcess le place
 };
 
 // Coups au corps a corps (poings, fichier d'animations PED) : vus sur le joueur (RpAnimBlendClumpGetAssociation
@@ -413,7 +416,9 @@ static void CreatePuppet(int id, const MsgState &s)
     memcpy(EntityPos(ped), s.pos, sizeof(s.pos));
     SetHeading(ped, s.heading);
     WorldAdd(ped);
+    Track keep = g_puppets[id].track;   // les etats deja recus avant la creation
     g_puppets[id] = { ped, PedRef(ped), 0, 0, model, 0, 0 };
+    g_puppets[id].track = keep;
     CombatPuppetCreated(id);
     if (model == 0) DressPuppet(id);
     Log("pantin du joueur %d (%s, modele %d) cree en %.1f %.1f %.1f", id, s.name, model, s.pos[0], s.pos[1], s.pos[2]);
@@ -510,7 +515,8 @@ static void UpdatePuppet(int id)
     Puppet &p = g_puppets[id];
     void *local = FindPlayerPed();
     bool want = np.connected && np.state.inGame && local && GetTickCount() - np.lastStateAt < 3000;
-    if (!want) { DestroyPuppet(id); return; }
+    p.follow = false;
+    if (!want) { DestroyPuppet(id); if (!np.connected) p.track.Clear(); return; }
     const MsgState &s = np.state;
     if (p.ped && PedFromRef(p.ref) != p.ped) {   // supprime par le jeu (nettoyage de fin de cinematique...)
         Log("pantin du joueur %d supprime par le jeu, recreation", id);
@@ -652,6 +658,7 @@ static void UpdatePuppet(int id)
     if (air) {
         FollowAir(ped, s.pos, s.speed, s.heading, air, GetTickCount() - np.lastStateAt, p.air);
         p.moveState = 0;
+        p.follow = true;
         // Jetpack, telephone : la tache du jeu, donnee apres (FollowAir vide la tache principale a son debut).
         static int saidGear;
         if ((s.gear & 1) && !HasTaskType(ped, 1303)) { int a = PedRef(ped); RunScriptCommand(0x07A7, 1, &a); if (saidGear++ < 6) Log("pantin du joueur %d : jetpack", id); }
@@ -659,6 +666,7 @@ static void UpdatePuppet(int id)
         return;
     }
     if (FollowOnFoot(ped, s.pos, s.speed, s.heading, s.moveState, GetTickCount() - np.lastStateAt, p.moveState)) p.lastTask = GetTickCount();
+    p.follow = true;
 }
 
 // Fait suivre a un personnage a pied la position recue (pantin d'un joueur, copie d'un personnage de mission) :
@@ -688,7 +696,7 @@ bool FollowOnFoot(void *ped, const float *rpos, const float *rspeed, float headi
     if (move == MOVE_STILL) move = MOVE_WALK;   // petit rattrapage a pied
     // Rattrapage continu au-dela de 1,2 m : un pantin a la tenue de PNJ court moins vite que CJ, il se laissait distancer
     // puis etait replace d'un coup (sauts de 5 m filmes par JD, 01/10). Il glisse vers sa place a chaque image.
-    if (dist > 1.2f) {
+    if (dist > 1.2f && !g_cfg.placeFoot) {   // (placeFoot : la position vient de PlaceFollower, apres la physique)
         float step = (dist - 1.0f) * 0.12f;
         pos[0] += dx / dist * step;
         pos[1] += dy / dist * step;
@@ -708,6 +716,52 @@ bool FollowOnFoot(void *ped, const float *rpos, const float *rspeed, float headi
         return true;
     }
     return false;
+}
+
+// Place un personnage qui suit le reseau (pantin, copie de PNJ) a son etat interpole, apres la physique du jeu. Son
+// animation (marche, course) reste celle de la tache CTaskSimpleGoToPoint donnee par FollowOnFoot ; seules sa position
+// et son cap sont imposes, a chaque image, dans le passe (interp.cpp).
+void PlaceFollower(void *ped, const Snap &n)
+{
+    float *pos = EntityPos(ped);
+    float dx = n.pos[0] - pos[0], dy = n.pos[1] - pos[1], dz = n.pos[2] - pos[2];
+    if (dx * dx + dy * dy + dz * dz > 36.0f) {   // grand ecart (arrivee, teleportation) : retire puis remis dans le monde
+        PlacePuppet(ped, n.pos, n.heading);
+        EntityRefresh(ped);
+        return;
+    }
+    pos[0] = n.pos[0]; pos[1] = n.pos[1]; pos[2] = n.pos[2];
+    SetHeading(ped, n.heading);
+    EntityRefresh(ped);
+}
+
+// Apres la physique : les pantins a pied sont places a leur position interpolee.
+void PuppetsAfterProcess()
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        Puppet &p = g_puppets[i];
+        if (i == g_localId || !p.ped || !p.follow || PedFromRef(p.ref) != p.ped) continue;
+        void *ped = p.ped;
+        if (PedVehicle(ped) || p.carTask || Field<float>(ped, PED_HEALTH) <= 0.0f) continue;
+        Snap n;
+        if (!TrackSample(p.track, i, n, true)) continue;
+        PlaceFollower(ped, n);
+    }
+}
+
+// Chaque etat recu entre dans la piste de son joueur.
+static void OnState(const MsgState &s)
+{
+    if (s.id >= MAX_PLAYERS || s.id == g_localId) return;
+    ClockSample(s.id, s.time);
+    Puppet &p = g_puppets[s.id];
+    // Au menu / en chargement, sa position est (0, 0, 0) : on l'oublie, sinon son pantin traversait la carte vers ce point.
+    if (!s.inGame) { p.track.Clear(); return; }
+    Snap n = {};
+    n.t = s.time;
+    for (int k = 0; k < 3; k++) { n.pos[k] = s.pos[k]; n.vel[k] = s.speed[k]; }
+    n.heading = s.heading;
+    p.track.Push(n);
 }
 
 // --- Autotest (instances de test) : le joueur local court tout droit par intervalles ---
@@ -1711,6 +1765,7 @@ static void CoopFrameInner(bool inGameLoop)
     }
     g_onClothes = OnClothes;
     g_onWorld = OnWorld;
+    g_onState = OnState;
     NetPoll();
     SendLocalState();
     SendLocalClothes();

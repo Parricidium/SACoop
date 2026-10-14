@@ -14,6 +14,7 @@
 #include "population.h"
 #include "peds.h"
 #include "mirror.h"
+#include "interp.h"
 #include <math.h>
 #include <string.h>
 
@@ -35,6 +36,7 @@ struct NetVeh {
     uint32_t blownAt;    // derniere demande d'explosion de la copie
     float sentPos[3];    // (vehicules a nous) position au dernier envoi, et quand : vitesse reelle
     uint32_t sentAt;
+    Track track;         // (copies) etats recus horodates : interpolation apres la physique (interp.cpp)
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -69,6 +71,15 @@ static NetVeh *NewSlot()
 {
     for (auto &n : g_veh) if (!n.id || !Alive(n)) { memset(&n, 0, sizeof(n)); return &n; }
     return nullptr;
+}
+
+// Copie gelee : CPhysical::bDontApplySpeed (+0x40, bit 13). La physique du jeu ne deplace plus la copie (elle remettait
+// sa vitesse a zero et la laissait derive entre deux messages, a-coups et etincelles pour un passager) ; sa pose vient
+// du proprietaire (VehiclesAfterProcess). Retire quand le joueur local en prend le volant.
+static void FreezeCopy(void *v, bool on)
+{
+    uint32_t &f = *(uint32_t *)((uint8_t *)v + 0x40);
+    if (on) f |= 0x2000; else f &= ~0x2000u;
 }
 
 // Vehicule (copie) dont le handle de script chez le joueur owner vaut ref (miroir des missions).
@@ -108,6 +119,8 @@ uint32_t LocalVehicleId(void *veh, bool driver)
         Log("vehicule %08X (modele %d, %p, cree par %d) enregistre", n->id, *(int16_t *)((uint8_t *)veh + 0x22), veh, ((uint8_t *)veh)[0x4A4]);
     } else if (driver && n->owner != g_localId) {
         n->owner = (uint8_t)g_localId;   // au volant d'une copie : elle devient la notre
+        n->track.Clear();
+        FreezeCopy(veh, false);
         Log("vehicule %08X : on en prend la propriete", n->id);
     }
     n->lastDriven = GetTickCount();
@@ -215,6 +228,7 @@ static void SendOwned()
         m.type = MSG_VEHICLE;
         m.owner = (uint8_t)g_localId;
         m.id = n.id;
+        m.time = now;
         m.model = (uint16_t)*(int16_t *)(v + 0x22);
         m.color1 = v[0x434];
         m.color2 = v[0x435];
@@ -272,7 +286,15 @@ static void OnVehicle(const MsgVehicle &m)
         if (!n) return;
         n->id = m.id;
     }
+    if (n->owner != m.owner) n->track.Clear();   // autre proprietaire = autre horloge
     n->owner = m.owner;
+    ClockSample(m.owner, m.time);
+    {
+        Snap sn = {};
+        sn.t = m.time;
+        for (int k = 0; k < 3; k++) { sn.pos[k] = m.pos[k]; sn.vel[k] = m.speed[k]; sn.right[k] = m.right[k]; sn.fwd[k] = m.fwd[k]; }
+        n->track.Push(sn);
+    }
     // Remis a neuf chez son proprietaire (Pay'n'Spray, garage) : la copie aussi (CVehicle::Fix, vtable[50]).
     bool damaged = AnyDamage(m);
     if (n->damaged && !damaged && !(m.flags & VF_WRECKED) && Alive(*n) && (((uint8_t *)n->veh)[0x36] >> 3) != 5) {
@@ -555,6 +577,54 @@ static void HostTrafficGuard()
     primed = true;
 }
 
+// Apres la physique du jeu (interp.cpp : avant et apres CGame::Process) : chaque copie est placee a son etat
+// interpole, dans le passe de INTERP_DELAY ms. Position, orientation, vitesse et rotation ; le volant, les roues, les
+// portieres... viennent de la physique du jeu (commandes rejouees par RemoteControls) et d'ApplyBody.
+void VehiclesAfterProcess()
+{
+    uint32_t now = GetTickCount();
+    void *me = FindPlayerPed();
+    for (auto &n : g_veh) {
+        if (!n.id || n.owner == g_localId || !n.veh || !Alive(n) || !n.track.count) continue;
+        uint8_t *v = (uint8_t *)n.veh;
+        // Le joueur local est au volant : la copie va devenir la notre (LocalVehicleId), la physique est celle du jeu.
+        if (me && PedVehicle(me) == n.veh && Field<void *>(v, VEH_DRIVER) == me) { FreezeCopy(v, false); continue; }
+        if (now - n.lastRecv >= 1500) { FreezeCopy(v, false); continue; }   // plus de nouvelles : le jeu reprend
+        Snap s;
+        if (!TrackSample(n.track, n.owner, s)) continue;
+        uint8_t *mat = *(uint8_t **)(v + 0x14);
+        if (!mat) continue;
+        float *pos = EntityPos(v);
+        float jx = s.pos[0] - pos[0], jy = s.pos[1] - pos[1], jz = s.pos[2] - pos[2];
+        bool jumped = jx * jx + jy * jy + jz * jz > 400.0f;   // grand ecart : retiree puis remise dans le monde (secteurs a jour)
+        if (jumped) WorldRemove(v);
+        pos[0] = s.pos[0]; pos[1] = s.pos[1]; pos[2] = s.pos[2];
+        float *right = (float *)mat, *fwd = (float *)(mat + 0x10), *up = (float *)(mat + 0x20);
+        for (int k = 0; k < 3; k++) { fwd[k] = s.fwd[k]; right[k] = s.right[k]; }
+        // Matrice bien orthogonale apres le melange des deux etats : haut = droite x avant, droite = avant x haut.
+        up[0] = right[1] * fwd[2] - right[2] * fwd[1];
+        up[1] = right[2] * fwd[0] - right[0] * fwd[2];
+        up[2] = right[0] * fwd[1] - right[1] * fwd[0];
+        right[0] = fwd[1] * up[2] - fwd[2] * up[1];
+        right[1] = fwd[2] * up[0] - fwd[0] * up[2];
+        right[2] = fwd[0] * up[1] - fwd[1] * up[0];
+        if (jumped) WorldAdd(v);
+        if (g_cfg.freezeCopies) FreezeCopy(v, true); else FreezeCopy(v, false);
+        {   // vitesse bornee, jamais NaN (un saut de position donnerait une vitesse enorme : hors du monde, plantage)
+            float vel[3] = { s.vel[0], s.vel[1], s.vel[2] };
+            float vl = sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]);
+            if (!(vl <= 4.0f)) { float k = vl > 0 && vl < 1e30f ? 4.0f / vl : 0.0f; for (float &c : vel) c *= k; }
+            memcpy(v + 0x44, vel, 12);
+        }
+        {
+            float turn[3] = { n.last.turn[0], n.last.turn[1], n.last.turn[2] };
+            for (float &c : turn) if (!(fabsf(c) <= 4.0f)) c = 0.0f;
+            memcpy(v + 0x50, turn, 12);
+        }
+        EntityRefresh(v);
+    }
+}
+
 void VehiclesFrame()
 {
     static bool aiHooked;
@@ -569,7 +639,7 @@ void VehiclesFrame()
         uint32_t timeout = (n.last.flags & VF_MISSION) ? 3000 : 30000;   // mission : l'hote l'envoie tant qu'il existe
         if (now - n.lastRecv > timeout && !PuppetInVehicle(n.veh)) { DestroyCopy(n, true); continue; }
         if (!n.veh) CreateCopy(n);
-        if (n.veh && now - n.lastRecv < 1500) { UpdateCopy(n); ApplyBody(n); }
+        if (n.veh && now - n.lastRecv < 1500) { if (!g_cfg.placeVeh) UpdateCopy(n); ApplyBody(n); }   // (placeVeh : la pose vient de VehiclesAfterProcess)
     }
     GuestMissionVehicle();
     SendOwned();

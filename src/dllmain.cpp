@@ -15,6 +15,7 @@
 #include "fps.h"
 #include "prefs.h"
 #include "events.h"
+#include "interp.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -136,10 +137,20 @@ static void LoadConfig()
     g_cfg.background = GetPrivateProfileIntA("SACoop", "ArrierePlan", 0, ini) != 0;
     g_cfg.skipIntro = GetPrivateProfileIntA("SACoop", "SansIntro", 1, ini) != 0;
     g_cfg.localUserFiles = GetPrivateProfileIntA("SACoop", "SauvegardesLocales", 1, ini) != 0;
-    g_cfg.maxFps = GetPrivateProfileIntA("SACoop", "ImagesParSeconde", 60, ini);
+    g_cfg.maxFps = GetPrivateProfileIntA("SACoop", "ImagesParSeconde", 30, ini);   // 30 : le jeu d'origine est juste, sans correctifs de cadence (VCCoop : 60 casse l'entree en vehicule)
     g_cfg.autoStart = GetPrivateProfileIntA("SACoop", "AutoDemarrer", 0, ini) != 0;
     g_cfg.netAuto = GetPrivateProfileIntA("SACoop", "Reseau", 0, ini) != 0;
     g_cfg.logScripts = GetPrivateProfileIntA("SACoop", "JournalScripts", 0, ini) != 0;
+    // Modules portes de VCCoop : un interrupteur chacun (1 = actif, 0 = comportement d'avant).
+    g_cfg.interp = GetPrivateProfileIntA("SACoop", "Interpolation", 1, ini) != 0;
+    g_cfg.interpDelay = GetPrivateProfileIntA("SACoop", "DelaiInterpolation", 110, ini);
+    if (g_cfg.interpDelay < 0) g_cfg.interpDelay = 0;
+    if (g_cfg.interpDelay > 400) g_cfg.interpDelay = 400;
+    g_cfg.placeFoot = GetPrivateProfileIntA("SACoop", "PlacementPietons", 1, ini) != 0;
+    g_cfg.placeVeh = GetPrivateProfileIntA("SACoop", "PlacementVehicules", 1, ini) != 0;
+    g_cfg.freezeCopies = GetPrivateProfileIntA("SACoop", "GelerCopies", 1, ini) != 0;
+    g_cfg.guard = GetPrivateProfileIntA("SACoop", "GardeFou", 1, ini) != 0;
+    g_cfg.mirrorExtra = GetPrivateProfileIntA("SACoop", "MiroirEtendu", 1, ini) != 0;
     GetPrivateProfileStringA("SACoop", "Autotest", "", g_cfg.autotest, sizeof(g_cfg.autotest), ini);
     char role[16];
     GetPrivateProfileStringA("SACoop", "Role", "hote", role, sizeof(role), ini);
@@ -267,5 +278,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallFps();
     InstallPrefs();
     InstallEvents();
+    InstallInterp();
     return TRUE;
 }
