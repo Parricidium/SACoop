@@ -68,6 +68,7 @@ void InstallWindowHooks();
 void InstallGamePatches();
 void InstallPuppetRender();   // coop.cpp : rendu des pantins (faces arriere)
 void StartWatchdog();
+void StartCharge();   // charge.cpp : processeur, disque, processus gourmands, echantillonnage (Profil=1)
 void WatchdogFrame();
 void OnFrame();             // une fois par image, sur le fil du jeu (window.cpp, juste avant Present)
 void CoopFrame(bool inGameLoop);

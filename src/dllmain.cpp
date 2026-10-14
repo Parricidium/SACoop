@@ -263,6 +263,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
         return TRUE;
     }
     StartWatchdog();
+    StartCharge();
     InstallFileHooks();
     InstallWindowHooks();
     InstallGamePatches();
