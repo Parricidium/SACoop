@@ -6,6 +6,7 @@
 #include "sacoop.h"
 #include "net.h"
 #include "game.h"
+#include <intrin.h>
 
 typedef int(__cdecl *RsEventHandler_t)(int ev, void *arg);
 static const RsEventHandler_t RsEventHandler = (RsEventHandler_t)0x619B60;
@@ -115,6 +116,25 @@ static int __cdecl h_GameIdle(int ev, void *arg)
     return r;
 }
 
+// AsciiToGxtChar (0x718600, cdecl) : copie un texte ASCII en texte du jeu. Le menu Affichage > Avance la rappelait
+// avec un texte nul (acces 0x00000000 en 0x718604, appelant 0x57A076, journal du 14/10) : la ligne de resolution du
+// menu n'a probablement pas de nom pour le mode choisi par SACoop (hypothese, non verifiee). Un texte nul devient un texte vide : la ligne reste blanche
+// au lieu de planter le jeu. Le premier appel de ce genre est journalise.
+static uint8_t *__cdecl h_AsciiToGxtChar(const char *src, uint8_t *dst)
+{
+    if (!dst) return dst;
+    if (!src) {
+        static int said;
+        if (said++ < 5) Log("correctif : texte nul passe a AsciiToGxtChar (appelant %08X), remplace par un texte vide", (unsigned)(uintptr_t)_ReturnAddress());
+        dst[0] = 0;
+        return dst;
+    }
+    size_t i = 0;
+    for (; src[i]; i++) dst[i] = (uint8_t)src[i];
+    dst[i] = 0;
+    return dst;
+}
+
 void InstallGamePatches()
 {
     // Au second plan, WinMain ne fait plus que Sleep(100) (cmp ForegroundApp, 0 / jz en 0x748A8D) : une partie coop
@@ -149,4 +169,7 @@ void InstallGamePatches()
     else Log("correctif : appel du menu introuvable");
     if (memcmp((void *)0x748D9B, callGame, 5) == 0) PatchCall(0x748D9B, (void *)h_GameIdle);
     else Log("correctif : appel de la partie introuvable");
+
+    // Menu Affichage > Avance : texte nul dans AsciiToGxtChar (voir h_AsciiToGxtChar)
+    PatchJump(0x718600, (void *)h_AsciiToGxtChar);
 }
