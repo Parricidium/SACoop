@@ -254,6 +254,18 @@ static void SendLocalState()
             if (HasTaskType(ped, 1600)) s.gear |= 4;   // CTaskComplexUseMobilePhone
         }
         AttachedToPlayer(ped, s);
+        {   // (to learn why a carried crate drops when the player crouches: what we hold / crouch tasks and the attached object)
+            static int prevAtt, said;
+            static bool prevHold, prevDuck;
+            bool hold = HasTaskType(ped, 307), duck = HasTaskType(ped, 415) || HasTaskType(ped, 1306);   // HOLD_ENTITY, DUCK / DUCK_TOGGLE
+            int att = s.attModel;
+            if ((att != prevAtt || hold != prevHold || duck != prevDuck) && (att || prevAtt || hold || prevHold) && said < 60) {
+                said++;
+                Log("objet porte : modele attache %d (avant %d), tache \"tenir\" %d (avant %d), accroupi %d (avant %d), tache active %d", att, prevAtt, (int)hold, (int)prevHold, (int)duck, (int)prevDuck,
+                    ActiveTask(ped) ? ((int(__thiscall *)(void *))(*(void ***)ActiveTask(ped))[4])(ActiveTask(ped)) : -1);
+            }
+            prevAtt = att; prevHold = hold; prevDuck = duck;
+        }
         if (CutsceneNow()) s.gear |= 0x10;   // une cinematique tourne chez nous : notre pantin est cache chez les autres
         if (*(uint8_t *)(0xBA6748 + 0x5C)) s.gear |= 0x20;   // menu pause ouvert : notre pantin se tient tranquille, "(pause)" a cote de notre nom
         if (!PedVehicle(ped)) {

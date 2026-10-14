@@ -6,6 +6,63 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.4-vcport (untested, network version 23, same protocol as 0.54.0)
+
+Written from the client log of the first 0.54.3 test (client leaves the Johnson house: no textures at all).
+
+- **Removed the 0.54.3 "zone coherence" check.** It forced the guest's zone back to the ped's area (3, the house) when the
+  game's visible area (0) and the ped's area disagreed for 2 s. That mismatch is the game's own interior exit: it sets the
+  visible area first and the ped's area when the fade ends, and on the guest's machine (3.5 s frame stalls while the street
+  streamed in) it lasted long enough to trigger the check, which put the interior zone back at the moment the exit
+  finished: the log shows `relocated: ... 1014.7 area 3 -> ... 14.8 area 3` (0.54.2: `area 0`), then nothing loads. Both
+  players start inside the house on the exit marker of this save, so this hit the first seconds of every session.
+- The "put back in the host's zone" step (only during the 15 s after a scripted move of the host) now also waits while the
+  game's own entry/exit transition runs (`CEntryExitManager::ms_exitEnterState`, `0x96A7CC`).
+
+## 0.54.3-vcport (untested, network version 23, same protocol as 0.54.0)
+
+Written from the host and client logs of the 14/10 test of 0.54.2 (Home Invasion, third time).
+
+- **Guest in a vehicle when the host's script moves the player**: the replay of `SET_PLAYER_COORDINATES` (0055) /
+  `SET_CHAR_COORDINATES` (00A1) skipped the move for a guest in a vehicle (moving a ped in a vehicle moves the vehicle),
+  but the `SET_AREA_VISIBLE` (04BB) that came with it was applied: the guest stayed in the van outside while the view
+  switched to the interior (void, the interior never streamed in). Now the move becomes `WARP_CHAR_FROM_CAR_TO_COORD`
+  (0362, same four parameters, as `TeleportPed` does): the guest leaves the vehicle at once, no exit animation, no
+  damage, the vehicle stays; the log says `l'invite quitte son vehicule sans animation`.
+- **Zones follow the script, not the doors**: `SET_AREA_VISIBLE` (04BB) and `LINK_CHAR_WITH_INTERIOR` (0860) of the host's
+  script are noted and applied to the guest together with the scripted move (before it, when they came first - taken
+  before the move, as `TeleportPed` does -, or within 3 s after it), always as one step (`SetGuestArea`: 04BB, link, ped
+  area field) so the guest's visible area and his ped's area cannot disagree any more (the replayed exit left the guest
+  "inside" in the street: `zone 8` at z 25, then the fall rescue). They are not applied on their own any more (the old rule
+  "host puppet within 40 m" made the view switch for a guest standing near the door).
+- **Separate interiors after the scripted move**: `AreaRegroupFrame` put the guest in the host's zone whenever it differed
+  for 4 s during a host mission (client log: dragged out at +3637 s, in again at +3649 s, both seconds after the host used
+  a door himself). It now only does so in the 15 s after a scripted move of the host (10 s after a mission start): a guest
+  who fell or was held up still comes back, a guest who just took a different door is left alone. (A second check making
+  the guest's two zone fields agree was in 0.54.3 and removed in 0.54.4, see above.)
+- **Extra pedestrians**: the host's `CLEAR_AREA` (0395), `CLEAR_AREA_OF_CARS` (03BA) and `CLEAR_AREA_OF_CHARS` (042B) are now
+  mirrored; on the guest they remove only the guest's own ordinary passers-by and parked cars in that area (not the
+  copies of the host's characters and vehicles, not networked vehicles, not his own vehicle, not his police while he is
+  wanted). The client log of the Home Invasion start shows 3-4 guest-local pedestrians in the host's zone kept all along
+  by the "on screen or within 40 m" rule (`population fusionnee: ... 4 passants (4 dans la zone d'un autre)`).
+- **Phone calls**: when the host's player has the phone out (task `CTaskComplexUseMobilePhone`, already in his state as
+  gear bit 4) the guest's CJ takes his phone out too (`TASK_USE_MOBILE_PHONE` 0729 on himself) and puts it away when the
+  host does (`telephone :` log lines). The commands that carry a call's dialogue (mission audio 03CF/03D1/040D, text
+  054C, prints) are mirrored from **any** script while the host's phone is out - until now only mission threads were -
+  so a call in free roam is heard and read by both at the same time. `0729` / `052B` seen in any script are logged with
+  the script name to learn which scripts start calls. The ring tone itself is not mirrored (unknown command).
+- **Launcher lobby ping**: (1) length and data of every lobby message left in two small sends - the second waited for
+  the other side's delayed acknowledgement (up to ~200 ms) - now one send, and `TCP_NODELAY` on both ends; (2) the
+  clock was `GetTickCount` (15 ms steps; a LAN read 0 or 16 ms), now `QueryPerformanceCounter`, in tenths of a ms on the
+  wire (`0xFFFF` = not measured); (3) the answer's time was taken after waiting for the lobby lock, now before; (4) a
+  number per measurement, so a late answer to an old ping is ignored; (5) a new guest was listed at "0 ms" for two
+  seconds, now measured on arrival and shown as "..." until then; (6) measured every second instead of two, smoothed
+  over the last few answers; (7) not measured while the guest downloads the host's mods (its answer waits behind the file
+  data on the same connection).
+- **Diagnostic**: `objet porte :` lines (object attached to the player, "hold entity" task 307, crouch tasks 415/1306,
+  active task) each time one of them changes while carrying: for the carried crate that is dropped when CJ crouches (no
+  trace of it in the 14/10 logs).
+
 ## 0.54.2-vcport (untested, network version 23, same protocol as 0.54.0)
 
 Written from the host and client logs of the 14/10 test of 0.54.1 (Home Invasion again).

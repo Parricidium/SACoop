@@ -124,6 +124,9 @@ static const MirrorOp kOps[] = {
     { 0x0948, "fffif" },   // ADD_EXPLOSION_VARIABLE_SHAKE
     { 0x02CF, "fffiiR" },  // START_SCRIPT_FIRE
     { 0x02D1, "r" },       // REMOVE_SCRIPT_FIRE
+    { 0x0395, "ffffi" },   // CLEAR_AREA : the guest's own passers-by and cars there go too (PopulationClearArea, not the game's command)
+    { 0x03BA, "ffffff" },  // CLEAR_AREA_OF_CARS
+    { 0x042B, "ffffff" },  // CLEAR_AREA_OF_CHARS
 };
 
 // Commandes supplementaires (MiroirEtendu=1), portees de la liste de VCCoop. Signatures verifiees dans la base de
@@ -488,11 +491,33 @@ void MirrorMissionStart()
     NetSendReliable(buf, sizeof(buf));
 }
 
+// Host: the player is on the phone (CTaskComplexUseMobilePhone, task 1600). A call that is not part of a mission thread (a
+// contact's call in free roam) says its lines with the same commands (mission audio, text): they are mirrored while the phone
+// is out, so the guest hears and reads the dialogue at the same time. (The guest's CJ takes his phone out when the host's does:
+// PhoneFollowFrame.)
+static bool PhoneCallOp(int op)
+{
+    return op == 0x03CF || op == 0x03D1 || op == 0x040D || op == 0x054C || op == 0x00BE || (op >= 0x00BA && op <= 0x00BC) ||
+           (op >= 0x01E3 && op <= 0x01E5) || op == 0x03D5 || op == 0x03D6 || op == 0x03EB;
+}
+static bool HostOnPhone() { void *me = FindPlayerPed(); return me && HasTaskType(me, 1600); }
+
 void MirrorBefore(void *script, int op)
 {
     g_capturing = false;
-    if (!g_cfg.host || !NetRunning() || !ScriptIsMission(script)) return;
+    if (!g_cfg.host || !NetRunning()) return;
+    bool mission = ScriptIsMission(script);
+    if (op == 0x0729 || op == 0x052B) {   // (to learn how the calls start: which script, mission thread or not)
+        static int said;
+        if (said < 20) { said++; Log("telephone : commande %04X du script %.8s (%s)", op, ScriptName(script), mission ? "mission" : "hors mission"); }
+    }
+    if (!mission && !(PhoneCallOp(op) && HostOnPhone())) return;
+    if (!mission) {
+        static int said;
+        if (said < 12) { said++; Log("telephone : l'hote est au telephone, commande %04X du script %.8s (hors mission) envoyee aux invites", op, ScriptName(script)); }
+    }
     if (op == 0x00D8) {   // MISSION_HAS_FINISHED
+        if (!mission) return;
         if (g_snapValid) Log("miroir : %d variables de l'histoire changees envoyees", SendGlobals(-1, false));
         for (auto &a : g_active) if (!a.persist) a.len = 0;
         g_snapValid = false;
@@ -827,7 +852,33 @@ static void CameraVectorReset()
 {
     uint8_t *cam = (uint8_t *)0xB6F028;
     cam[0xC8C] = cam[0xCEC] = cam[0xCEE] = cam[0xCEF] = 0;
-}   // invite : derniere teleportation avec l'hote (SET_AREA_VISIBLE a suivre)
+}
+
+// Guest: where the host's script puts the player (a cutscene, an interior) is applied to the guest at that moment, as the
+// script says; what the host does by himself afterwards (walking through an entry or exit marker) is not followed: each player
+// chooses when to go in and out. g_areaOp: the last SET_AREA_VISIBLE 04BB / LINK_CHAR_WITH_INTERIOR 0860 of the host's script
+// (they come just before or just after his SET_CHAR_COORDINATES); g_syncUntil: the short window after such a move during which
+// a guest that did not make it (fell, was held up) is put back in the host's zone (AreaRegroupFrame).
+struct AreaOp { int area; uint32_t at; };
+static AreaOp g_areaOp;
+static uint32_t g_syncUntil;
+static bool InSync(uint32_t now) { return g_syncUntil && (int32_t)(g_syncUntil - now) > 0; }
+
+// The guest's own zone: the visible area (04BB), the player linked to it (0860) and the ped's area field, all three together
+// (04BB alone left the ped outside looking at the interior from outside, a replayed exit left it "inside" in the street: Home
+// Invasion, 14/10).
+static void SetGuestArea(int area, const char *why)
+{
+    void *me = FindPlayerPed();
+    if (!me || area < 0 || area > 255) return;
+    int cur = *(int *)0xB72914;
+    if (cur != area) RunScriptCommand(0x04BB, 1, &area);
+    int link[2] = { PedRef(me), area };
+    RunScriptCommand(0x0860, 2, link);
+    EntityArea(me) = (uint8_t)area;
+    static int said;
+    if (said++ < 40) Log("miroir : zone de l'invite %d -> %d (%s)", cur, area, why);
+}
 
 // Text commands (PRINT*, PRINT_HELP*): the host's mission text table must be loaded on the guest too, or the key gives
 // nothing and the popup never shows (Home Invasion, 14/10: the guest saw none of the help boxes although PRINT_HELP_FOREVER
@@ -866,6 +917,8 @@ static void TextCheck(int op, const uint8_t *d, int len)
 static bool Replay(const uint8_t *d, int len)
 {
     if (d[0] == RL_MISSION_END) {
+        g_syncUntil = 0;
+        g_areaOp.at = 0;
         BlipsMissionState(false);
         MissionFlagRestore();
         VehiclesMissionEnded();
@@ -932,6 +985,7 @@ static bool Replay(const uint8_t *d, int len)
             TeleportPed(me, pos, h, hostArea, "mission start");
             Log("miroir : mission de l'hote, regroupe derriere lui");
         }
+        g_syncUntil = GetTickCount() + 10000;   // (the start of a mission: the guest follows the host's zone for a while)
         return true;
     }
     if (d[0] != RL_MIRROR || len < 4) return true;
@@ -954,6 +1008,23 @@ static bool Replay(const uint8_t *d, int len)
         if (model <= 0 || model >= 20000) return true;
         if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
         if (!ModelLoaded(model)) return false;
+    }
+    if ((op == 0x0395 || op == 0x03BA || op == 0x042B) && n >= 5 && n <= 6 && len >= 4 + n * 5) {
+        // The host's script cleared an area: the guest's own passers-by and parked cars there go too (not the game's command,
+        // which would also take the copies of the host's characters and vehicles).
+        float f[6] = {}, c3[3], h3[3];
+        for (int k = 0; k < n; k++) memcpy(&f[k], d + 5 + k * 5, 4);
+        int removed;
+        if (op == 0x0395) {
+            for (int k = 0; k < 3; k++) { c3[k] = f[k]; h3[k] = f[3]; }
+            removed = PopulationClearArea(c3, h3, true, true, true);
+        } else {
+            for (int k = 0; k < 3; k++) { c3[k] = (f[k] + f[k + 3]) * 0.5f; h3[k] = fabsf(f[k] - f[k + 3]) * 0.5f; }
+            removed = PopulationClearArea(c3, h3, false, op == 0x042B, op == 0x03BA);
+        }
+        static int said;
+        if (said < 30 || removed) { said++; Log("miroir : zone nettoyee par l'hote (%04X, %.0f %.0f %.0f) : %d passants/vehicules locaux de l'invite retires", op, c3[0], c3[1], c3[2], removed); }
+        return true;
     }
     int pos = 4, out = 0;
     int c = 0;
@@ -1014,10 +1085,38 @@ static bool Replay(const uint8_t *d, int len)
         memcpy(&x, g_code + 2 + 5 + 1, 4);
         x += 1.5f * g_localId;
         memcpy(g_code + 2 + 5 + 1, &x, 4);
-        if (PedVehicle(FindPlayerPed())) return true;   // en voiture : on ne l'arrache pas
-        g_teleportedAt = GetTickCount();
+        uint32_t now = GetTickCount();
+        void *me = FindPlayerPed();
+        if (me && PedVehicle(me)) {
+            // The host's script moves the player (into a cutscene, into an interior) while the guest is in a vehicle (passenger of
+            // the van, or at the wheel): out of it on the spot, without the exit animation and without damage (WARP_CHAR_FROM_CAR_TO_COORD
+            // 0362 takes the same four parameters, as TeleportPed does), the vehicle left where it is. (A guest left in the van while
+            // the host went into the house only saw the interior from outside, Home Invasion, 14/10.)
+            int ref = PedRef(me);
+            *(uint16_t *)g_code = 0x0362;
+            memcpy(g_code + 3, &ref, 4);
+            op = 0x0362;
+            Log("miroir : l'invite quitte son vehicule sans animation (le script de l'hote le deplace)");
+        }
+        g_teleportedAt = now;
+        g_syncUntil = now + 15000;
+        // The zone the script chose just before (SET_AREA_VISIBLE / LINK_CHAR_WITH_INTERIOR): taken before the move, as TeleportPed does.
+        if (g_areaOp.at && now - g_areaOp.at < 4000) SetGuestArea(g_areaOp.area, "avant le deplacement de l'hote");
     }
     if (op == 0x0860 && d[4] != 'H') return true;   // interieur d'un autre personnage : sa copie suit le reseau
+    if (op == 0x0860) {
+        // The host's player linked to an interior: noted; applied to the guest only along with the move of that script (before or
+        // just after it), not when the host goes through a door by himself.
+        int area;
+        memcpy(&area, g_code + 8, 4);
+        g_areaOp.area = area;
+        g_areaOp.at = GetTickCount();
+        if (GetTickCount() - g_teleportedAt <= 3000) {
+            SetGuestArea(area, "lien de l'hote apres son deplacement");
+            if (void *me = FindPlayerPed()) { int sc[3]; memcpy(sc, EntityPos(me), 12); RunScriptCommandTyped(0x03CB, 3, "fff", sc); }
+        }
+        return true;
+    }
     if (op == 0x01B2) {   // modeles de l'arme charges avant (sinon arme sans modele)
         int type; memcpy(&type, g_code + 2 + 5 + 1, 4);
         if (uint8_t *info = type > 0 && type < 47 ? WeaponInfo(type) : nullptr) {
@@ -1032,15 +1131,16 @@ static bool Replay(const uint8_t *d, int len)
         PopulationHostDensity(op == 0x01EB, f);
         return true;
     }
-    if (op == 0x04BB) {   // zone visible : seulement avec l'hote, sinon la ville de l'invite se dechargerait
-        void *host = PuppetOf(0), *me = FindPlayerPed();
-        bool closeBy = false;
-        if (host && me) {
-            const float *a = EntityPos(host), *b = EntityPos(me);
-            float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
-            closeBy = dx * dx + dy * dy + dz * dz < 40.0f * 40.0f;
+    if (op == 0x04BB) {   // zone visible : suit le deplacement de l'hote par son script (voir SetGuestArea), pas ses portes
+        int area;
+        memcpy(&area, g_code + 3, 4);
+        g_areaOp.area = area;
+        g_areaOp.at = GetTickCount();
+        if (GetTickCount() - g_teleportedAt <= 3000) {   // (the move came first: the zone follows it, with the scenery of the new place)
+            SetGuestArea(area, "zone de l'hote apres son deplacement");
+            if (void *me = FindPlayerPed()) { int sc[3]; memcpy(sc, EntityPos(me), 12); RunScriptCommandTyped(0x03CB, 3, "fff", sc); NoteLocalRelocated(); }
         }
-        if (!closeBy && GetTickCount() - g_teleportedAt > 3000) return true;
+        return true;
     }
     if (op == 0x054C && len > 6 && d[4] == 's' && d[5] > 0 && d[5] < 16) { memset(g_missionText, 0, sizeof(g_missionText)); memcpy(g_missionText, d + 6, d[5]); }
     if (IsTextOp(op)) TextCheck(op, d, len);
@@ -1282,11 +1382,14 @@ void MirrorTestStuckCamera(const float *pos)
     Log("autotest : camera fixe en l'air (comme une mission)");
 }
 
-// Guest: the host's mission goes on in another zone than the guest's (an interior, or outside after the host came out) for
-// more than 4 s: the guest is put back next to the host, in his zone, with the scenery loaded (TeleportPed). The mirrored
-// SET_AREA_VISIBLE / SET_CHAR_COORDINATES of the host's script do it at first; this catches what they miss (a guest that
-// fell and was put back outside, died and came back from the hospital, was held up...). Without it the guest saw only the sky
-// in the host's interior cutscene and the mission characters fell below him (Home Invasion, 14/10).
+// Guest, zones: only the first seconds after the host's SCRIPT moved the player (a mission cutscene, the move into or out of
+// an interior, the start of a mission: g_syncUntil). A guest that did not make it (fell, was held up, died) and whose zone is
+// not the host's for more than 4 s is put back next to the host with the scenery loaded (TeleportPed). Past that window each
+// player goes in and out of interiors when he chooses (Home Invasion, 14/10: the guest was dragged out, then in again, 4 s
+// after the host walked through the door). Nothing is touched while the game's own entry/exit transition runs
+// (CEntryExitManager::ms_exitEnterState 0x96A7CC): the game changes its visible area first and the ped's area when the fade
+// ends, a few seconds apart on a slow machine (0.54.3 "fixed" that mismatch and left a guest leaving the Johnson house outside
+// with the interior's zone: no scenery at all).
 static void AreaRegroupFrame(uint32_t now)
 {
     static uint32_t since, lastFix;
@@ -1294,7 +1397,7 @@ static void AreaRegroupFrame(uint32_t now)
     void *me = FindPlayerPed(), *host = PuppetOf(0);
     const NetPlayer &h = g_players[0];
     if (!g_hostMission || !h.connected || !h.state.inGame || !me || !host || PedVehicle(me) || CutsceneActive() ||
-        Field<float>(me, PED_HEALTH) <= 0.0f) { since = 0; return; }
+        Field<float>(me, PED_HEALTH) <= 0.0f || !InSync(now) || *(int32_t *)0x96A7CC != 0) { since = 0; return; }
     int hostArea = h.state.area, mine = EntityArea(me), cur = *(int *)0xB72914;
     if (mine == hostArea && cur == hostArea) { since = 0; streak = 0; return; }
     if (!since) since = now;
@@ -1306,8 +1409,38 @@ static void AreaRegroupFrame(uint32_t now)
     float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2], hd = Field<float>(host, PED_ROTATION);
     bool together = dx * dx + dy * dy + dz * dz < 15.0f * 15.0f;
     float pos[3] = { b[0] + sinf(hd) * 1.0f, b[1] - cosf(hd) * 1.0f, b[2] + 0.3f };
-    Log("miroir : l'invite n'est pas dans la zone de l'hote (%d/%d contre %d), %s", mine, cur, hostArea, together ? "zone corrigee sur place" : "remis a cote de lui");
+    Log("miroir : l'invite n'est pas dans la zone de l'hote (%d/%d contre %d) juste apres le deplacement de son script, %s", mine, cur, hostArea, together ? "zone corrigee sur place" : "remis a cote de lui");
     TeleportPed(me, together ? a : pos, Field<float>(me, PED_ROTATION), hostArea, "zone de l'hote");
+}
+
+// Guest: the host's CJ is on the phone (a call): ours takes out his phone at the same moment and puts it away when the host
+// does (TASK_USE_MOBILE_PHONE 0729 on the guest himself; the host's gear bit 4, sent with his state). The dialogue of the call,
+// text and sound, comes with the mirrored commands (PhoneCallOp). Only when the guest is free: on foot, alive, no cutscene,
+// and once per call.
+static void PhoneFollowFrame(uint32_t now)
+{
+    static uint32_t hostSince, hostOffSince;
+    static bool following, tried;
+    void *me = FindPlayerPed();
+    const NetPlayer &h = g_players[0];
+    bool hostPhone = h.connected && h.state.inGame && now - h.lastStateAt < 1500 && (h.state.gear & 4);
+    if (hostPhone) { hostOffSince = 0; if (!hostSince) hostSince = now; }
+    else { hostSince = 0; tried = false; if (!hostOffSince) hostOffSince = now; }
+    if (!me) return;
+    bool onPhone = HasTaskType(me, 1600);
+    if (hostPhone && !tried && now - hostSince > 250) {
+        tried = true;
+        if (!onPhone && !PedVehicle(me) && !CutsceneActive() && Field<float>(me, PED_HEALTH) > 0.0f) {
+            int a[2] = { PedRef(me), 1 };
+            RunScriptCommand(0x0729, 2, a);
+            following = true;
+            Log("telephone : l'hote est au telephone, l'invite sort le sien");
+        }
+    } else if (following && !hostPhone && now - hostOffSince > 250) {
+        following = false;
+        if (onPhone) { int a[2] = { PedRef(me), 0 }; RunScriptCommand(0x0729, 2, a); }
+        Log("telephone : l'hote a raccroche, l'invite range le sien");
+    }
 }
 
 void MirrorFrame()
@@ -1334,4 +1467,5 @@ void MirrorFrame()
     BlipsMissionSweep();
     MissionFlagFrame();
     AreaRegroupFrame(now);
+    PhoneFollowFrame(now);
 }

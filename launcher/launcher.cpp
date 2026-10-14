@@ -87,7 +87,7 @@ static std::wstring g_launchInfo;
 
 // Salon : etat partage entre la fenetre et les fils reseau (sous g_lcs)
 enum { LB_NONE, LB_HOST, LB_CONNECTING, LB_GUEST };
-struct LobbyPeer { int id; std::string name, skin; bool ready; int ping; int mods = -1; };   // mods : 0-100 %, 255 echec, -1 inconnu
+struct LobbyPeer { int id; std::string name, skin; bool ready; int ping; int mods = -1; double pingSentMs = 0; uint32_t pingSeq = 0; };   // ping : dixiemes de ms, -1 pas encore mesure ; mods : 0-100 %, 255 echec, -1 inconnu
 static std::atomic<int> g_lobby(LB_NONE);
 static CRITICAL_SECTION g_lcs;
 static std::vector<LobbyPeer> g_peers;
@@ -1558,10 +1558,24 @@ static bool RecvAllS(SOCKET s, void *d, int n)
     while (n > 0) { int r = recv(s, p, n, 0); if (r <= 0) return false; p += r; n -= r; }
     return true;
 }
+// One packet per message (length and data together) and no Nagle delay on the lobby's connections: with the length and the
+// data in two small sends, the second one waited for the other side's delayed acknowledgement (up to ~200 ms), which
+// inflated every ping measured here.
 static bool SendMsg(SOCKET s, const Wr &w)
 {
     uint16_t n = (uint16_t)w.d.size();
-    return SendAllS(s, &n, 2) && SendAllS(s, w.d.data(), n);
+    std::string buf((const char *)&n, 2);
+    buf.append(w.d.data(), n);
+    return SendAllS(s, buf.data(), (int)buf.size());
+}
+static void NoDelay(SOCKET s) { int one = 1; setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one)); }
+static double NowMs()   // high-resolution clock (GetTickCount only moves every ~15 ms: a LAN ping read 0 or 16)
+{
+    static LARGE_INTEGER freq;
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    return (double)c.QuadPart * 1000.0 / (double)freq.QuadPart;
 }
 static bool RecvMsg(SOCKET s, std::string &out)
 {
@@ -1628,7 +1642,7 @@ static void BroadcastState()
     w.u8(M_STATE);
     EnterCriticalSection(&g_lcs);
     w.u8((int)g_peers.size());
-    for (auto &p : g_peers) { w.u8(p.id); w.str(p.name); w.str(p.skin); w.u8(p.ready); w.u16(min(p.ping, 9999)); w.u8(p.mods < 0 ? 254 : p.mods); }
+    for (auto &p : g_peers) { w.u8(p.id); w.str(p.name); w.str(p.skin); w.u8(p.ready); w.u16(p.ping < 0 ? 0xFFFF : min(p.ping, 0xFFFE)); w.u8(p.mods < 0 ? 254 : p.mods); }
     w.str(ChosenSave());
     for (auto &c : g_conns) SendMsg(c.s, w);
     LeaveCriticalSection(&g_lcs);
@@ -1662,26 +1676,48 @@ static void LobbySession(SOCKET s)
     int id = -1;
     EnterCriticalSection(&g_lcs);
     for (int k = 1; k < 4 && id < 0; k++) if (!PeerById(k)) id = k;
-    if (id > 0) { g_peers.push_back({ id, name, skin, false, 0 }); g_conns.push_back({ s, id }); }
+    if (id > 0) { g_peers.push_back({ id, name, skin, false, -1 }); g_conns.push_back({ s, id }); }
     LeaveCriticalSection(&g_lcs);
     if (id < 0) { reject("full"); return; }
     { Wr w; w.u8(M_WELCOME); w.u8(id); SendMsg(s, w); }
     TestLog("salon : %s arrive (joueur %d)", name.c_str(), id);
+    {   // first measure right away (the list showed "0 ms" for the first two seconds)
+        Wr w;
+        w.u8(M_PING);
+        EnterCriticalSection(&g_lcs);
+        if (LobbyPeer *p = PeerById(id)) { p->pingSeq++; p->pingSentMs = NowMs(); w.u32(p->pingSeq); }
+        LeaveCriticalSection(&g_lcs);
+        if (w.d.size() == 5) SendMsg(s, w);
+    }
     BroadcastState();
     SendManifest(s);
     DWORD to = 60000;
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&to, sizeof(to));
     while (RecvMsg(s, m)) {
+        double arrived = NowMs();   // (taken before the lock: a busy window thread does not add to the measure)
         Rd q(m);
         int t = q.u8();
+        bool firstPing = false;
         EnterCriticalSection(&g_lcs);
         LobbyPeer *p = PeerById(id);
         if (p && t == M_READY) { p->ready = q.u8() != 0; TestLog("salon : joueur %d pret=%d", id, (int)p->ready); }
-        else if (p && t == M_PONG) { uint32_t sent = q.u32(); p->ping = (int)(GetTickCount() - sent); }
+        else if (p && t == M_PONG) {
+            uint32_t seq = q.u32();
+            // Not while the guest downloads the host's mods: its answer then waits behind the file data on the same connection
+            // (the measure would be the download, not the line).
+            bool downloading = p->mods >= 0 && p->mods < 100;
+            if (q.ok && seq == p->pingSeq && p->pingSentMs > 0 && !downloading) {
+                int rtt = (int)((arrived - p->pingSentMs) * 10.0 + 0.5);
+                if (rtt < 1) rtt = 1;
+                firstPing = p->ping < 0;
+                p->ping = p->ping < 0 ? rtt : (p->ping * 2 + rtt + 1) / 3;   // smoothed over the last few answers
+                p->pingSentMs = 0;
+            }
+        }
         else if (p && t == M_MODSTATE) p->mods = q.u8();
         else if (p && t == M_SKIN) p->skin = q.str();
         LeaveCriticalSection(&g_lcs);
-        if (t == M_READY || t == M_MODSTATE || t == M_SKIN) BroadcastState();
+        if (t == M_READY || t == M_MODSTATE || t == M_SKIN || firstPing) BroadcastState();
         if (t == M_GETFILE) SendModFile(s, q.u16());
     }
     DropConn(s);
@@ -1690,6 +1726,7 @@ static void LobbySession(SOCKET s)
 static DWORD WINAPI ConnThread(void *param)
 {
     SOCKET s = (SOCKET)param;
+    NoDelay(s);
     DWORD to = 30000;
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&to, sizeof(to));
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&to, sizeof(to));
@@ -2104,6 +2141,7 @@ static SOCKET ConnectTo(const std::wstring &addr, int port, int timeoutMs)
     ioctlsocket(s, FIONBIO, &nb);
     DWORD to = 30000;
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&to, sizeof(to));
+    NoDelay(s);
     return s;
 }
 static DWORD WINAPI GuestThread(void *)
@@ -2144,7 +2182,7 @@ static DWORD WINAPI GuestThread(void *)
             std::vector<LobbyPeer> peers;
             for (int i = 0; i < n; i++) {
                 LobbyPeer p;
-                p.id = q.u8(); p.name = q.str(); p.skin = q.str(); p.ready = q.u8() != 0; p.ping = q.u16();
+                p.id = q.u8(); p.name = q.str(); p.skin = q.str(); p.ready = q.u8() != 0; { int pv = q.u16(); p.ping = pv == 0xFFFF ? -1 : pv; }
                 p.mods = q.u8(); if (p.mods == 254) p.mods = -1;
                 peers.push_back(p);
             }
@@ -2197,16 +2235,24 @@ static void GuestToggleReady()
     GuestSend(w);
 }
 
-// Toutes les 2 s, l'hote mesure le ping de chacun.
+// Chaque seconde, l'hote mesure le ping de chacun (horloge haute resolution, un numero par mesure ; voir M_PONG plus haut).
 static void LobbyTick()
 {
     static DWORD last;
     DWORD now = GetTickCount();
-    if (g_lobby != LB_HOST || now - last < 2000) return;
+    if (g_lobby != LB_HOST || now - last < 1000) return;
     last = now;
-    Wr w; w.u8(M_PING); w.u32(now);
     EnterCriticalSection(&g_lcs);
-    for (auto &c : g_conns) SendMsg(c.s, w);
+    for (auto &c : g_conns) {
+        LobbyPeer *p = PeerById(c.id);
+        if (!p) continue;
+        Wr w;
+        w.u8(M_PING);
+        p->pingSeq++;
+        w.u32(p->pingSeq);
+        p->pingSentMs = NowMs();   // (just before the send)
+        SendMsg(c.s, w);
+    }
     LeaveCriticalSection(&g_lcs);
     BroadcastState();
 }
@@ -2303,7 +2349,9 @@ static void DrawLobby(Graphics &g)
         }
         if (p.id != 0) {
             wchar_t pb[32];
-            swprintf_s(pb, L"%d ms", p.ping);
+            if (p.ping < 0) wcscpy_s(pb, L"\u2026");   // not measured yet
+            else if (p.ping < 100) swprintf_s(pb, L"%.1f ms", p.ping / 10.0);
+            else swprintf_s(pb, L"%d ms", (p.ping + 5) / 10);
             Text(g, pb, RectF(r.X + r.Width - 90, r.Y + 8, 78, 40), 12, FontStyleRegular, kGrey, StringAlignmentFar);
         }
     }
@@ -3474,7 +3522,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
             bool host = st == L"salon";
             ReadSaves();
             g_lobby = host ? LB_HOST : LB_GUEST;
-            g_peers = { { 0, "Joueur1", "CJ", true, 0 }, { 1, "Joueur2", "Grove 1", true, 38, 100 }, { 2, "Joueur3", "Ballas 2", false, 71, 40 } };
+            g_peers = { { 0, "Joueur1", "CJ", true, 0 }, { 1, "Joueur2", "Grove 1", true, 380, 100 }, { 2, "Joueur3", "Ballas 2", false, 710, 40 } };
             g_myId = host ? 0 : 2;
             g_lobbyChoice = (int)g_saves.size();
             g_lobbyChoiceLabel = g_saves.empty() ? "" : g_saves.back().label;

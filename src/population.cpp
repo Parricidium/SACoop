@@ -159,6 +159,58 @@ static void MergePopulation()
     }
 }
 
+// Guest: the host's script cleared an area (CLEAR_AREA 0395, CLEAR_AREA_OF_CARS 03BA, CLEAR_AREA_OF_CHARS 042B), typically
+// before a cutscene or at the start of a scene. The guest has his own passers-by and parked cars there (the area is the host's
+// to populate): they go too, on screen or not, or the guest watches people next to the van that the host does not have (Home
+// Invasion, 14/10). Only ordinary local ones: never the player, a puppet, a mission character's copy, a networked vehicle, the
+// vehicle the guest is in, and the guest's own police while he is wanted. centre/half: box (round: sphere of radius half[0]).
+int PopulationClearArea(const float *centre, const float *half, bool round, bool peds, bool cars)
+{
+    void *me = FindPlayerPed();
+    if (!me) return 0;
+    auto inside = [&](const float *p) {
+        float dx = p[0] - centre[0], dy = p[1] - centre[1], dz = p[2] - centre[2];
+        if (round) return dx * dx + dy * dy + dz * dz <= half[0] * half[0];
+        return fabsf(dx) <= half[0] && fabsf(dy) <= half[1] && fabsf(dz) <= half[2];
+    };
+    int n = 0;
+    if (peds) {
+        Pool *pool = *(Pool **)0xB74490;
+        for (int i = 0; i < pool->size && i < 512; i++) {
+            if (pool->flags[i] & 0x80) continue;
+            void *ped = pool->objects + i * 0x7C4;
+            if (ped == me || Field<uint8_t>(ped, 0x484) != 1 || PuppetIndex(ped) >= 0 || IsMissionCopy(ped) || PedVehicle(ped)) continue;
+            if (Field<int>(ped, 0x598) == 6 && OwnPolice()) continue;
+            if (!inside(EntityPos(ped))) continue;
+            ((void(__cdecl *)(void *))0x610F20)(ped);   // CPopulation::RemovePed
+            g_removedPeds++;
+            n++;
+        }
+    }
+    if (cars) {
+        Pool *veh = *(Pool **)0xB74494;
+        void *mine = PedVehicle(me);
+        for (int i = 0; i < veh->size && i < 256; i++) {
+            if (veh->flags[i] & 0x80) continue;
+            uint8_t *v = veh->objects + i * 0xA18;
+            if (v == mine || (v[0x4A4] != 1 && v[0x4A4] != 3) || IsTrain(v) || IsNetVehicle(v)) continue;
+            if ((v[0x428] & 1) && OwnPolice()) continue;
+            bool playerInside = PlayerOrNet(Field<void *>(v, VEH_DRIVER), me);
+            for (int k = 0; k < 8 && !playerInside; k++) playerInside = PlayerOrNet(Field<void *>(v, VEH_PASSENGERS + k * 4), me);
+            if (playerInside || !inside(EntityPos(v))) continue;
+            void *occ[9] = { Field<void *>(v, VEH_DRIVER) };
+            for (int k = 0; k < 8; k++) occ[k + 1] = Field<void *>(v, VEH_PASSENGERS + k * 4);
+            WorldRemove(v);
+            RemoveReferencesToDeletedObject(v);
+            DeleteEntity(v);
+            for (void *p : occ) if (p) ((void(__cdecl *)(void *))0x610F20)(p);
+            g_removedCars++;
+            n++;
+        }
+    }
+    return n;
+}
+
 // --- Densites de l'invite ---
 // Colle a l'hote : 0 (tout ce qu'il ferait naitre serait dans la zone de l'hote). Dans la zone de l'hote : celles de
 // la mission de l'hote (03DE / 01EB, recues par le miroir). Ailleurs : 1, sa propre population. Avant, celles de la

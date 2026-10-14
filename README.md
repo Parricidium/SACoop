@@ -94,7 +94,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**: every game starts, and guests follow the host (same save
    when they have it). Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a
    virtual LAN. A player who arrives after the start uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.2-vcport (Zebra's forked repo) loaded`. If it does not,
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.4-vcport (Zebra's forked repo) loaded`. If it does not,
    that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -107,7 +107,7 @@ Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini
 
 ## Everything this fork adds
 
-Versions are `0.49.0-vcport` to `0.54.2-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
+Versions are `0.49.0-vcport` to `0.54.4-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
 per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
@@ -153,7 +153,7 @@ per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the tech
 - Limits: the game only builds trains near the host, so a guest far away from the host sees none; a player inside a
   train is shown standing in it (no seat animation yet); a derailed train is not synced.
 
-### Missions, vehicles and the F10 menu (0.54.0 to 0.54.2)
+### Missions, vehicles and the F10 menu (0.54.0 to 0.54.4)
 
 - **Only the host starts story missions.** A guest who walks into a mission-start marker no longer starts anything,
   but still sees the marker, so a guest can show the host where it is. Setting `GuestMissionLock`.
@@ -190,6 +190,23 @@ per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the tech
   outside is put next to the host outside. The mission people the host placed with a script no longer show the falling
   pose on the guest. A **"commandes :"** line in the log says what the game sees when the player pushes a direction and
   does not move (for the "cannot move left or right after the cutscene" bug).
+
+- **Fourth round (0.54.3, from the 0.54.2 logs of 14/10):** a guest who is **in a vehicle** when the host's script moves
+  the player (a mission cutscene, the move into an interior) is now taken out of it on the spot - no exit animation, no
+  damage, the vehicle stays where it is - and arrives with the host, instead of watching the interior from outside. What
+  the host does **by himself** afterwards (walking through a door) is no longer followed: after the scripted move the
+  guest is only brought back to the host's zone for a few seconds if he did not make it, and each player then goes in
+  and out of interiors when he chooses (the guest used to be dragged out and back in 4 s after the host). The guest's
+  zone fields (visible area, ped area) are always set together. The host's **clear-area** commands (cutscene set-up)
+  now also clear the guest's own passers-by and parked cars there (extra pedestrians next to the van). When the host's
+  CJ takes out his **phone**, the guest's does too, and the call's dialogue is mirrored even from non-mission scripts
+  while the phone is out (`telephone :` log lines tell which script starts a call). The launcher **lobby ping** is
+  measured with a high-resolution clock, one send per message and no Nagle delay, first measured right on arrival
+  (shown as "..." until then), once a second, smoothed, and not while a guest downloads the host's mods. New log line
+  `objet porte :` for the crate-drops-when-crouching bug.
+- **0.54.4:** a guest leaving the house at the start of a session was left outside with no scenery at all (0.54.3 forced
+  the interior's zone back during the game's own exit transition); that extra zone check is gone, and the "back to the
+  host's zone" step waits for the game's entry/exit transition to end.
 
 ### Players
 
@@ -354,7 +371,7 @@ ready).
 Versions 0.49 to 0.54 have been written and checked for build errors, but are still being tested in real play. If you
 want to help, play a session and look at these:
 
-- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.2-vcport (Zebra's forked repo)`).
+- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.4-vcport (Zebra's forked repo)`).
 - [ ] **Ping** shows in F5 and F10 > Players and looks like the real ping (a few ms on the same PC or network).
 - [ ] The **sky** no longer flickers at dusk and dawn.
 - [ ] After a **teleport** or leaving a safe house, the other player is not stuck in the falling animation.
@@ -417,11 +434,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.2-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.4-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.2-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.2-vcport.zip`.
+`v0.54.4-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.4-vcport.zip`.
 
 ## Known gaps and roadmap
 
