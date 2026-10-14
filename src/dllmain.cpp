@@ -39,9 +39,64 @@ static CreateDevice_t o_CreateDevice;
 static const HRESULT DI_OK_TEST = 0;
 static bool AnyDown(const uint8_t *b, DWORD n) { for (DWORD i = 0; i < n; i++) if (b[i] & 0x80) return true; return false; }
 
+// IDirectInputDevice8::Acquire = vtable[7]. DirectInput drops the mouse and keyboard when the window loses the foreground
+// (Alt+Tab); the game never hears about it (window.cpp swallows the deactivation, the game must not pause in co-op), so it
+// never acquires them again and the mouse stayed dead after coming back. Done here, as soon as the window has the
+// foreground again and a read says the device was lost (at most every 100 ms), and from the window procedure.
+// Going the other way, the same blindness kept the mouse captured when the player left the game with Alt+Tab (cursor
+// hidden or stuck over the other windows): window.cpp now calls ReleaseInput() as soon as the foreground changes
+// (Unacquire = vtable[8]), and Acquire (vtable[7]) is refused for the mouse and keyboard while the game is in the
+// background, whoever asks (the game itself retries blindly). The cooperative level (vtable[13]) is only logged.
+typedef HRESULT(WINAPI *Acquire_t)(void *);
+typedef HRESULT(WINAPI *SetCoopLevel_t)(void *, HWND, DWORD);
+static Acquire_t o_Acquire;
+static SetCoopLevel_t o_SetCoopLevel;
+static HRESULT AcquireDevice(void *dev) { return (o_Acquire ? o_Acquire : (Acquire_t)(*(void ***)dev)[7])(dev); }
+static HRESULT WINAPI h_Acquire(void *dev)
+{
+    // (only once the game has had the foreground: at start-up its first Acquire must go through whatever window is in front)
+    static bool hadFocus;
+    if (GameHasFocus()) hadFocus = true;
+    if (hadFocus && (dev == g_diMouse || dev == g_diKeyboard) && GameWindow() && !GameHasFocus()) return (HRESULT)0x80070005;   // DIERR_OTHERAPPHASPRIO
+    return o_Acquire(dev);
+}
+static HRESULT WINAPI h_SetCoopLevel(void *dev, HWND wnd, DWORD flags)
+{
+    HRESULT hr = o_SetCoopLevel(dev, wnd, flags);
+    Log("entrees : niveau de cooperation DirectInput %s = 0x%X (%s, %s) -> 0x%08X", dev == g_diMouse ? "souris" : dev == g_diKeyboard ? "clavier" : "?", flags,
+        (flags & 1) ? "exclusive" : (flags & 2) ? "non exclusive" : "?", (flags & 4) ? "foreground" : (flags & 8) ? "background" : "?", (unsigned)hr);
+    return hr;
+}
+void ReacquireInput()
+{
+    if (g_diMouse) AcquireDevice(g_diMouse);
+    if (g_diKeyboard) AcquireDevice(g_diKeyboard);
+}
+void ReleaseInput()
+{
+    if (g_diMouse) ((HRESULT(WINAPI *)(void *))(*(void ***)g_diMouse)[8])(g_diMouse);
+    if (g_diKeyboard) ((HRESULT(WINAPI *)(void *))(*(void ***)g_diKeyboard)[8])(g_diKeyboard);
+}
+
 static HRESULT WINAPI h_GetDeviceState(void *dev, DWORD size, void *data)
 {
     HRESULT hr = o_GetDeviceState(dev, size, data);
+    if (FAILED(hr) && (hr == (HRESULT)0x8007000C || hr == (HRESULT)0x8007001E) && (dev == g_diMouse || dev == g_diKeyboard) && GameHasFocus()) {   // DIERR_NOTACQUIRED, DIERR_INPUTLOST
+        static DWORD lastTry[2];
+        int k = dev == g_diMouse ? 0 : 1;
+        DWORD now = GetTickCount();
+        if (now - lastTry[k] > 100) {
+            lastTry[k] = now;
+            if (SUCCEEDED(AcquireDevice(dev))) {
+                hr = o_GetDeviceState(dev, size, data);
+                static int said;
+                if (said++ < 10) Log("entrees : %s DirectInput reprise apres un changement de fenetre", k == 0 ? "souris" : "clavier");
+            }
+        }
+    }
+    // Away from the game (Alt+Tab): no input, not an error (the old key and button states would stay "held" while the game
+    // runs on in the background). Coming back, the read above fails once more and the device is acquired again.
+    if (FAILED(hr) && data && (dev == g_diMouse || dev == g_diKeyboard) && GameWindow() && !GameHasFocus() && !g_cfg.background) { memset(data, 0, size); hr = DI_OK_TEST; }
     static int testMouseAny = -1;   // (TestSouris : instance de test sans le premier plan, souris non acquise)
     if (testMouseAny < 0) testMouseAny = GetPrivateProfileIntA("SACoop", "TestSouris", 0, IniPath());
     if (FAILED(hr) && testMouseAny > 0 && dev == g_diMouse && data) { memset(data, 0, size); hr = DI_OK_TEST; }
@@ -71,6 +126,10 @@ static HRESULT WINAPI h_GetDeviceState(void *dev, DWORD size, void *data)
             memset(data, 0, size);
         }
     } else if (dev == g_diKeyboard && size >= 256) {
+        {   // Alt+Enter switches full screen / window (window.cpp): the game must not see the Enter key then
+            uint8_t *kb = (uint8_t *)data;
+            if ((kb[0x38] & 0x80) || (kb[0xB8] & 0x80)) { kb[0x1C] = 0; kb[0x9C] = 0; }
+        }
         if (capture) holdKeys = true;
         if (holdKeys) {
             if (!capture && !AnyDown((uint8_t *)data, 256)) holdKeys = false;
@@ -94,6 +153,14 @@ static HRESULT WINAPI h_CreateDevice(void *di, const GUID &guid, void **out, voi
             VirtualProtect(&vt[9], 4, PAGE_EXECUTE_READWRITE, &old);
             vt[9] = (void *)h_GetDeviceState;
             VirtualProtect(&vt[9], 4, old, &old);
+            o_Acquire = (Acquire_t)vt[7];
+            o_SetCoopLevel = (SetCoopLevel_t)vt[13];
+            VirtualProtect(&vt[7], 4, PAGE_EXECUTE_READWRITE, &old);
+            vt[7] = (void *)h_Acquire;
+            VirtualProtect(&vt[7], 4, old, &old);
+            VirtualProtect(&vt[13], 4, PAGE_EXECUTE_READWRITE, &old);
+            vt[13] = (void *)h_SetCoopLevel;
+            VirtualProtect(&vt[13], 4, old, &old);
             Log("entrees : souris et clavier DirectInput suivis (interface en jeu)");
         }
     }
@@ -158,6 +225,7 @@ static void LoadConfig()
     g_cfg.syncWeather = GetPrivateProfileIntA("SACoop", "GuestWeatherGuard", 1, ini) != 0;
     g_cfg.radioSync = GetPrivateProfileIntA("SACoop", "RadioSync", 1, ini) != 0;
     g_cfg.deathDrop = GetPrivateProfileIntA("SACoop", "ArmesMort", 1, ini) != 0;
+    g_cfg.lockGuestMissions = GetPrivateProfileIntA("SACoop", "GuestMissionLock", 1, ini) != 0;
     g_cfg.syncTrains = GetPrivateProfileIntA("SACoop", "TrainSync", 1, ini) != 0;
     GetPrivateProfileStringA("SACoop", "Autotest", "", g_cfg.autotest, sizeof(g_cfg.autotest), ini);
     char role[16];

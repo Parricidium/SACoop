@@ -82,7 +82,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 
 1. You need GTA San Andreas **1.0 US**. The current Steam version (3.0) must be downgraded first (a downgrader tool
    does it). The mod refuses to run on any other version.
-2. **Both players must run the same build** of `dinput8.dll` (the network messages changed in 0.49, 0.52 and 0.53; a
+2. **Both players must run the same build** of `dinput8.dll` (the network messages changed in 0.49, 0.52, 0.53 and 0.54; a
    mismatched pair is refused). Either:
    - download the zip from this repository's **Releases** page and copy its contents next to `gta_sa.exe`, or
    - build it yourself (see [Building from source](#building-from-source)) and copy `build\dinput8.dll` over the
@@ -94,7 +94,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**: every game starts, and guests follow the host (same save
    when they have it). Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a
    virtual LAN. A player who arrives after the start uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.53.0-vcport (Zebra's forked repo) loaded`. If it does not,
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.2-vcport (Zebra's forked repo) loaded`. If it does not,
    that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -107,7 +107,7 @@ Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini
 
 ## Everything this fork adds
 
-Versions are `0.49.0-vcport` to `0.53.0-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
+Versions are `0.49.0-vcport` to `0.54.2-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
 per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
@@ -152,6 +152,44 @@ per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the tech
 - The guest's own random trains are switched off while the host shares its trains. Setting `TrainSync`.
 - Limits: the game only builds trains near the host, so a guest far away from the host sees none; a player inside a
   train is shown standing in it (no seat animation yet); a derailed train is not synced.
+
+### Missions, vehicles and the F10 menu (0.54.0 to 0.54.2)
+
+- **Only the host starts story missions.** A guest who walks into a mission-start marker no longer starts anything,
+  but still sees the marker, so a guest can show the host where it is. Setting `GuestMissionLock`.
+- **Blips during a mission:** the guest's map now looks like the host's. Mission-start letters and contact icons (OG, BS...)
+  that the guest's own game keeps re-creating are removed within a tenth of a second; only the host's objective blips
+  and what the mission puts on the map stay.
+- **F10 > Tools > SKIP CUTSCENE:** uses the game's own skip; a second click (or a click when the controls or camera are
+  stuck after a cutscene) ends it by force and gives the controls and camera back.
+- **F10 > Tools > REMOVE MY LAST VEHICLE / REMOVE ALL MY VEHICLES:** removes the vehicles you spawned (menu or cheat code),
+  also on the other players' screens at once.
+- **Alt+Tab:** leaving the game gives the mouse back to Windows at once (cursor shown and free, no longer held by
+  the game); coming back takes the mouse and keyboard again.
+- **Alt+Enter** switches between borderless full screen and a window. The game keeps its resolution; the picture is scaled
+  into the window. The choice is saved in `sacoop.ini` (`Fenetre`).
+- **Helicopter rotors and plane propellers** turn on the other players' screens (they were frozen).
+- **Radio in a shared vehicle:** any player in the vehicle can change the station and everybody ends up on the last choice
+  (the driver's game decides when several people change it at once). Track and position still follow the host's radio.
+- **Home Invasion fixes (to be confirmed in play):** a guest moved into the host's interior now has the scenery and
+  collisions loaded around them (no more sky-only view and fall), the host's scene loading (`LOAD_SCENE`) is repeated
+  on the guest, and a player stuck still in the jump-landing animation for 2.5 s is freed automatically.
+- **Home Invasion, second round (0.54.1, from the two logs of 14/10):** the guest was put into the interior before the game
+  had loaded its collisions, fell 40 m, was "rescued" back outside, and the host's interior scene then played around
+  nobody (sky only, the old man falling). Now a player put into an interior is held in place until there is ground under
+  him; a fall rescue inside a mission goes to the host's interior, not back outside; and during a host mission a guest who
+  is not in the host's zone for 4 s is put next to him. The stuck-landing check also reacts after 1.2 s following a
+  teleport. The help text keys are looked up on the guest and logged (the table is reloaded if a key is unknown).
+
+- **Third round (0.54.2, from the 0.54.1 logs of 14/10):** the **radio** of a shared vehicle now really retunes the driver's
+  radio when a passenger changes the station (before, only the station number changed and the music did not). The guest's
+  **radar** loses the contact icons during a host mission (the guest's game is told it is "on a mission", as the host's
+  is; it is put back when the mission ends). **Alt+Tab** shows the cursor again whatever the game did to its hide
+  counter, and the cursor over the game window is an arrow while it is in the background. A player held in place while
+  the scenery loads is no longer "freed" by the stuck-landing check, and a guest who falls after the host went back
+  outside is put next to the host outside. The mission people the host placed with a script no longer show the falling
+  pose on the guest. A **"commandes :"** line in the log says what the game sees when the player pushes a direction and
+  does not move (for the "cannot move left or right after the cutscene" bug).
 
 ### Players
 
@@ -250,8 +288,9 @@ Everything below comes from the original SACoop and still works.
 | **T** | Chat (Enter to send; `/join` brings you back next to the host) |
 | **F5** (hold) | Players board: name, health, distance and ping |
 | **F6** | First-person view on foot |
-| **F10** | In-game menu, used with the mouse: **Players** (go to a player, where I died, friendly fire, ping), **Vehicles** (3D thumbnails, a click spawns it in front of you), **Tools** (health and armour, weapons, money, repair, clear wanted level, jetpack), **Outfit**, and for the host **World** (time, weather) and **Host** settings |
+| **F10** | In-game menu, used with the mouse: **Players** (go to a player, where I died, friendly fire, ping), **Vehicles** (3D thumbnails, a click spawns it in front of you), **Tools** (health and armour, weapons, money, repair, clear wanted level, jetpack, skip cutscene, remove my vehicles), **Outfit**, and for the host **World** (time, weather) and **Host** settings |
 | **F1** | Help (keys, tips) |
+| **Alt+Enter** | Borderless full screen <-> window |
 
 ## Settings (`sacoop.ini`)
 
@@ -284,6 +323,7 @@ sync options. **The key names are still the original French ones**; they are exp
 | `ArmesMort=1` | Weapons are kept on death (given back after the respawn). 0 = lost, like the original game |
 | `GuestWeatherGuard=1` | The guest never changes the weather by itself (no more sky colour flicker) |
 | `RadioSync=1` | Guests follow the host's radio (station, track, position, adverts) |
+| `GuestMissionLock=1` | A guest cannot start a story mission by walking into its marker (the marker is still drawn); only the host starts missions. 0 = like before |
 | `TrainSync=1` | The host's trains run the same on every guest's rails; the guest's own random trains are off. 0 = every PC runs its own trains |
 | `Profil=0` | 1 = sampling profiler for stutter hunting (the log always carries the 10 s load report) |
 | `AffiniteCoeur=0` | CPU core the game is limited to at launch (0 = first core; fixes the drifting mouse cursor), -1 = no restriction |
@@ -311,10 +351,10 @@ ready).
 
 ## Testing checklist and sending logs
 
-Versions 0.49 to 0.53 have been written and checked for build errors, but are still being tested in real play. If you
+Versions 0.49 to 0.54 have been written and checked for build errors, but are still being tested in real play. If you
 want to help, play a session and look at these:
 
-- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.53.0-vcport (Zebra's forked repo)`).
+- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.2-vcport (Zebra's forked repo)`).
 - [ ] **Ping** shows in F5 and F10 > Players and looks like the real ping (a few ms on the same PC or network).
 - [ ] The **sky** no longer flickers at dusk and dawn.
 - [ ] After a **teleport** or leaving a safe house, the other player is not stuck in the falling animation.
@@ -323,6 +363,13 @@ want to help, play a session and look at these:
 - [ ] **Die** with weapons: you get them back about 1.5 s after the respawn.
 - [ ] **Radio:** the same station, then wait for a song change and an advert; try the custom radio with the same
       "User Tracks" on both PCs.
+- [ ] **Missions:** a guest standing in a mission-start marker starts nothing; the marker is still drawn. During the host's
+      mission the guest's map shows no other mission letters (OG, BS...).
+- [ ] **F10 > Tools:** skip a cutscene; spawn a car, remove it (also gone for the other player); spawn two and remove all.
+- [ ] **Alt+Tab** away and back: the mouse works at once. **Alt+Enter** toggles full screen / window.
+- [ ] **Helicopter:** the other player's helicopter has turning blades (also on the ground with the engine on).
+- [ ] **Radio in a car:** the passenger changes the station, the driver changes it again: both end on the same one.
+- [ ] **Home Invasion:** the guest sees the interior and the sleeping man; the host is not stuck after the jump.
 - [ ] **Trains:** stand next to a railway (Market station in Los Santos is handy) on both PCs: the same train, in the same
       place, on both screens; try driving one from the guest and from the host. The logs say `trains:` for each train.
 
@@ -370,18 +417,19 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.53.0-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.2-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.53.0-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.53.0-vcport.zip`.
+`v0.54.2-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.2-vcport.zip`.
 
 ## Known gaps and roadmap
 
 1. Story missions: testing every mission with real players.
 2. Police cars ramming guests' cars (cops on foot already chase them).
 3. More modern rendering (sun shadows, reflections, as in VCCoop), all optional.
-4. Radio sync is a first version: expect a small hiccup now and then when a song changes.
+4. Radio: the track and its position follow the host's radio, so two guests in the same car while the host is on foot
+   are on the same station but not necessarily on the same song. Radio sync is a first version: expect a small hiccup now and then when a song changes.
 5. Train sync is a first version: a player inside a train is not seated, and the game only builds trains near the host.
 6. The `sacoop.ini` key names, the in-game log lines and some code comments are still in French; the in-game menus
    and the launcher show French or English by your system language.

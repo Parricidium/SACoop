@@ -7,6 +7,8 @@ void MirrorFrame();
 void MirrorMenuFrame();                   // chaque tour de boucle, menu compris
 void MirrorTestStuckCamera(const float *pos);   // autotest "camcoince" (invite)
 void MirrorTestObject(int step, const float *pos);   // autotest "objet" (hote)
+bool CutsceneActive();                     // a cutscene is running on this PC now
+void SkipCutsceneNow();                    // F10 button: skip it (first press); a second press within 8 s, or none running: end it by force, controls and camera given back
 void MirrorMissionStart();                 // hote : une mission de l'histoire demarre (regroupement)
 bool ScriptStoreResult(void *script, int value);   // sortie de la commande en cours (apres CollectParameters)
 bool ScriptReadValues(void *script, unsigned char *ip, int n, int *vals);

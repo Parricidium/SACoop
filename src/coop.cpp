@@ -151,6 +151,8 @@ static bool InGame()
 
 static void LocalSkin();
 static void RadioFrame();
+static uint8_t g_radioSeq;      // radio: counts this player's own station changes in a vehicle (MsgState.radioSeq)
+static uint32_t g_radioMineAt;  // ... and when the last one was (the player's choice is not overruled for a while)
 static void AttachedToPlayer(void *ped, MsgState &s);
 
 // --- "In the air" state of the local player, as sent to the others ---
@@ -164,7 +166,8 @@ static void AttachedToPlayer(void *ped, MsgState &s);
 //    game's "in the air" reaction (CTaskComplexInAirAndLand, type 240) is dropped, unless he really is dropping fast;
 //  - swimming (CTaskSimpleSwim, 1304) keeps the old rule (not standing = following in height).
 static uint32_t g_settleUntil;
-void NoteLocalRelocated() { g_settleUntil = GetTickCount() + 2000; }
+static uint32_t g_holdUntil, g_holdSince;   // ground wait after a relocation (GroundHold)
+void NoteLocalRelocated() { uint32_t now = GetTickCount(); g_settleUntil = now + 2000; g_holdUntil = now + 8000; g_holdSince = now; }
 
 static int LocalAirState(void *ped, const float *pos, const float *speed, uint8_t area)
 {
@@ -177,6 +180,7 @@ static int LocalAirState(void *ped, const float *pos, const float *speed, uint8_
     float dx = pos[0] - lastPos[0], dy = pos[1] - lastPos[1], dz = pos[2] - lastPos[2];
     if (haveLast && (area != lastArea || dx * dx + dy * dy + dz * dz > 16.0f)) {
         g_settleUntil = now + 2000;
+        g_holdUntil = now + 8000; g_holdSince = now;
         if (said < 30) { said++; Log("relocated: %.1f %.1f %.1f area %d -> %.1f %.1f %.1f area %d (standing flag %d)", lastPos[0], lastPos[1], lastPos[2], lastArea, pos[0], pos[1], pos[2], area, Field<uint8_t>(ped, 0x46C) & 1); }
     }
     memcpy(lastPos, pos, sizeof(lastPos));
@@ -186,7 +190,10 @@ static int LocalAirState(void *ped, const float *pos, const float *speed, uint8_
     if (flags & 1) { reported = false; return 0; }
     if (HasTaskType(ped, 1304)) return 1;   // swimming
     float vz = speed[2];
-    if ((int)(g_settleUntil - now) > 0 && vz > -0.15f) {
+    // (not during a jump the player made himself: at the top of the jump vz is zero too, and telling the game he is standing
+    // then made it play the landing while he was still in the air: the host stuck in the landing animation, Home Invasion 14/10)
+    bool jumping = HasTaskType(ped, 211) || HasTaskType(ped, 210);   // CTaskComplexJump, CTaskSimpleJump
+    if (!jumping && (int)(g_settleUntil - now) > 0 && vz > -0.15f) {
         if (fabsf(vz) < 0.03f) {
             flags |= 1;   // resting: the game just did not refresh the flag
             void **t = PrimaryTasks(ped);
@@ -239,7 +246,8 @@ static void SendLocalState()
         s.meleeAnim = g_meleeAnim;
         s.animCount = (uint8_t)AnimsCollect(ped, s.anims, ANIMS_MAX);
         void *myVeh = PedVehicle(ped);
-        s.radio = myVeh && Field<void *>(myVeh, VEH_DRIVER) == ped ? *(uint8_t *)(0x8CB6F8 + 0xAD) : 0xFF;
+        s.radio = myVeh ? *(uint8_t *)(0x8CB6F8 + 0xAD) : 0xFF;   // any seat: every occupant can change the station
+        s.radioSeq = g_radioSeq;
         s.camScripted = *(uint8_t *)(0xB6F028 + 0x2B) == 0;
         if (!myVeh) {
             if (HasTaskType(ped, 1303)) s.gear |= 1;   // CTaskSimpleJetPack
@@ -1838,6 +1846,139 @@ static void Autotest()
 }
 
 static void CoopFrameInner(bool inGameLoop);
+static bool g_groundHolding;   // GroundHold has the player held while the scenery loads (the landing watchdog must leave him alone)
+
+// Stuck landing: the local player stands still on the ground while the game still runs its "in the air / land" tasks
+// (CTaskComplexInAirAndLand 240, CTaskSimpleInAir 241, CTaskSimpleLand 242) for over 2.5 s: he cannot move until he
+// punches (Home Invasion 14/10, the host after jumping the fence). Those tasks are cleared (CLEAR_CHAR_TASKS_IMMEDIATELY 0687),
+// which hands the player back his on-foot controls.
+static void LandingWatchdog()
+{
+    static uint32_t since, lastFix;
+    void *me = FindPlayerPed();
+    if (!me || !InGame() || PedVehicle(me) || CutsceneNow() || Field<float>(me, PED_HEALTH) <= 0.0f) { since = 0; return; }
+    const float *sp = MoveSpeed(me);
+    bool still = sp[0] * sp[0] + sp[1] * sp[1] + sp[2] * sp[2] < 0.0009f;
+    // (not only when the standing flag is set: the stuck host of 14/10 had been put in the interior by the script mid-fall)
+    bool landing = still && (HasTaskType(me, 242) || HasTaskType(me, 240) || HasTaskType(me, 241) || HasTaskType(me, 207) || HasTaskType(me, 210) || HasTaskType(me, 211));
+    uint32_t now = GetTickCount();
+    if (!landing || g_groundHolding) { since = 0; return; }   // (held by GroundHold: speed is zero on purpose, not stuck)
+    if (!since) since = now;
+    // (quicker, 1.2 s, in the 6 s after a relocation: that is when it happened, the script had just put the host in the interior)
+    uint32_t need = now - g_holdSince < 6000 ? 1200 : 2500;
+    if (now - since < need || now - lastFix < 5000) return;
+    since = 0;
+    lastFix = now;
+    int ref = PedRef(me);
+    RunScriptCommand(0x0687, 1, &ref);
+    Log("landing watchdog: stuck in the in-air / landing / jump tasks for %u ms (standing flag %d), tasks cleared", (unsigned)need, Field<uint8_t>(me, 0x46C) & 1);
+}
+// Diagnostic for "the controls break after the cutscene" (Home Invasion 14/10: left / right did nothing for the host as well as
+// the guest, with no clue in the logs): when the player pushes a direction (the game's pad state, and the keyboard's own part
+// of it) for 0.8 s and does not move at all, the state that could explain it goes to the log (at most one line per 4 s, 25 in
+// all): pad (CPad 0xB73458: stick +0/+2, keyboard stick +0x78/+0x7A, DisablePlayerControls +0x10E), the ped's tasks, state, standing flag.
+static void ControlsWatch()
+{
+    static uint32_t since, lastLog;
+    static int said;
+    void *me = FindPlayerPed();
+    uint32_t now = GetTickCount();
+    bool menu = *(uint8_t *)(0xBA6748 + 0x5C) != 0;
+    if (!me || !InGame() || PedVehicle(me) || CutsceneNow() || menu || Field<float>(me, PED_HEALTH) <= 0.0f || !GameHasFocus()) { since = 0; return; }
+    const uint8_t *pad = (const uint8_t *)0xB73458;
+    int sx = *(const int16_t *)(pad + 0), sy = *(const int16_t *)(pad + 2);
+    int kx = *(const int16_t *)(pad + 0x78), ky = *(const int16_t *)(pad + 0x7A);
+    const float *sp = MoveSpeed(me);
+    bool push = abs(sx) > 40 || abs(sy) > 40;
+    bool still = sp[0] * sp[0] + sp[1] * sp[1] < 0.0004f;
+    if (!push || !still) { since = 0; return; }
+    if (!since) since = now;
+    if (now - since < 800 || now - lastLog < 4000 || said >= 25) return;
+    lastLog = now;
+    said++;
+    char tasks[80] = "";
+    void **t = PrimaryTasks(me);
+    for (int k = 0; k < 5; k++) {
+        char one[16];
+        if (t[k]) wsprintfA(one, "%d:%d ", k, ((int(__thiscall *)(void *))(*(void ***)t[k])[4])(t[k]));
+        else lstrcpyA(one, "");
+        lstrcatA(tasks, one);
+    }
+    const float *p = EntityPos(me);
+    Log("commandes : le joueur pousse (%d,%d ; clavier %d,%d) mais ne bouge pas depuis %u ms : %.1f %.1f %.1f zone %d/%d, controles 0x%X, taches [%s], etat %d, deplacement %d, debout %d",
+        sx, sy, kx, ky, (unsigned)(now - since), p[0], p[1], p[2], EntityArea(me), *(int *)0xB72914, *(const uint16_t *)(pad + 0x10E), tasks,
+        Field<int>(me, PED_STATE), Field<int>(me, PED_MOVESTATE), Field<uint8_t>(me, 0x46C) & 1);
+}
+
+// --- Waiting for the ground after a relocation ---
+// A player put inside an interior (or far away) by a script, a teleport or the host's mirrored commands finds nothing
+// under his feet until the game has streamed the collisions in: he fell without end (Home Invasion, 14/10: the guest fell 40 m in
+// 2 s, was put back outside by the fall rescue, and then saw only the sky in the host's interior scene). For 8 s after a
+// relocation, as long as there is no ground under him (GET_GROUND_Z_FOR_3D_COORD 02CE) in an interior or high-altitude
+// zone, he is held where he is (put back every frame, no speed) while the collisions are requested (REQUEST_COLLISION 04E4
+// every 400 ms, LOAD_SCENE 03CB once after 1.5 s). Logged.
+static void GroundHold()
+{
+    static bool holding;
+    static float at[3], heading;
+    static uint32_t lastReq, sceneAt, startedAt;
+    uint32_t now = GetTickCount();
+    void *me = FindPlayerPed();
+    bool active = me && InGame() && (int)(g_holdUntil - now) > 0 && !PedVehicle(me) && !CutsceneNow() && Field<float>(me, PED_HEALTH) > 0.0f;
+    float *p = active ? EntityPos(me) : nullptr;
+    // (interiors only: a parachute jump or a flight high up after a script teleport must not be held)
+    bool zone = active && (*(int *)0xB72914 != 0 || EntityArea(me) != 0);
+    if (zone) {
+        for (int slot = 0; slot < 13; slot++) if (Field<int>(me, PED_WEAPONS + slot * 0x1C) == 46) zone = false;   // parachute
+        if (HasTaskType(me, 1303)) zone = false;   // jetpack
+    }
+    if (!zone) {
+        if (holding) { holding = false; Log("terrain : attente du sol terminee (%d ms)", (int)(now - startedAt)); }
+        g_groundHolding = false;
+        return;
+    }
+    int q[3];
+    float probe[3] = { p[0], p[1], p[2] + 0.5f };
+    memcpy(q, probe, 12);
+    int var = 0;
+    int args[4] = { q[0], q[1], q[2], var };
+    RunScriptCommandTyped(0x02CE, 4, "fffo", args);
+    int bits = ScriptGhostVar(0);
+    float groundZ;
+    memcpy(&groundZ, &bits, 4);
+    bool ground = groundZ > p[2] - 30.0f && groundZ < p[2] + 5.0f;
+    if (ground) {
+        if (holding) { holding = false; Log("terrain : sol trouve en %.1f apres %d ms, le joueur est libere", groundZ, (int)(now - startedAt)); }
+        g_groundHolding = false;
+        return;
+    }
+    g_groundHolding = true;
+    if (!holding) {
+        holding = true;
+        startedAt = now;
+        sceneAt = now + 1500;
+        lastReq = 0;
+        memcpy(at, p, sizeof(at));
+        heading = Field<float>(me, PED_ROTATION);
+        Log("terrain : pas de sol sous le joueur (%.1f %.1f %.1f, zone %d/%d, sol %.1f), il est retenu le temps que le decor se charge", p[0], p[1], p[2], EntityArea(me), *(int *)0xB72914, groundZ);
+    }
+    memcpy(p, at, 12);   // (the position only: no removal from the world every frame)
+    memset(MoveSpeed(me), 0, 12);
+    (void)heading;
+    if (now - lastReq > 400) {
+        lastReq = now;
+        int xy[2];
+        memcpy(xy, at, 8);
+        RunScriptCommandTyped(0x04E4, 2, "ff", xy);
+    }
+    if (sceneAt && (int)(now - sceneAt) >= 0) {
+        sceneAt = 0;
+        int sc[3];
+        memcpy(sc, at, 12);
+        RunScriptCommandTyped(0x03CB, 3, "fff", sc);
+    }
+}
+
 // --- Chute sous le monde ---
 // Un joueur mis dans une zone dont les collisions ne sont pas (encore) chargees tombe sans fin (cinematique de mission,
 // retour d'un interieur, arrivee aupres de l'hote ; mission "Home Invasion" : l'invite tombait apres l'echec). On retient la
@@ -1886,14 +2027,22 @@ static void FallRescue()
     float to[3];
     uint8_t area = 0;
     const char *why;
-    if (haveSafe) { memcpy(to, safe, sizeof(to)); area = safeArea; why = "derniere position sure"; }
+    bool meInside = EntityArea(me) != 0 || *(int *)0xB72914 != 0;
+    bool hostOk = !g_cfg.host && g_players[0].connected && g_players[0].state.inGame;
+    bool hostInside = hostOk && g_players[0].state.area != 0 && meInside;
+    // (the host has left the interior and the guest, still in it, falls: the last safe position is in that interior too,
+    // where nothing is loaded any more - Home Invasion 14/10, the guest fell in zone 8 after the host went out: back to the host)
+    bool hostOutside = hostOk && g_players[0].state.area == 0 && meInside;
+    if (hostOutside) { memcpy(to, g_players[0].state.pos, sizeof(to)); to[0] += 1.0f; area = 0; why = "aupres de l'hote, dehors"; }
+    else if (hostInside) { memcpy(to, g_players[0].state.pos, sizeof(to)); to[0] += 1.0f; area = g_players[0].state.area; why = "aupres de l'hote, dans son interieur"; }   // (not back outside: the host's scene goes on indoors)
+    else if (haveSafe) { memcpy(to, safe, sizeof(to)); area = safeArea; why = "derniere position sure"; }
     else if (!g_cfg.host && g_players[0].connected && g_players[0].state.inGame) { memcpy(to, g_players[0].state.pos, sizeof(to)); area = g_players[0].state.area; why = "aupres de l'hote"; }
     else { Log("chute : joueur sous le monde (%.1f %.1f %.1f, zone %d), aucune position sure connue", p[0], p[1], p[2], EntityArea(me)); return; }
     to[2] += 1.0f;
     Log("chute : %s (%.1f %.1f %.1f, zone %d, vehicule %p, en l'air depuis %.1f m), remis %s (%.1f %.1f %.1f, zone %d)",
         endless ? "chute sans fin" : "joueur sous le monde", p[0], p[1], p[2], EntityArea(me), PedVehicle(me), endless ? airStartZ - p[2] : 0.0f, why, to[0], to[1], to[2], area);
     if (PedVehicle(me)) return;
-    TeleportPed(me, to, haveSafe ? safeHeading : Field<float>(me, PED_ROTATION), area, "secours chute");
+    TeleportPed(me, to, haveSafe && !hostOutside && !hostInside ? safeHeading : Field<float>(me, PED_ROTATION), area, "secours chute");
 }
 
 // Menu du jeu (pause, sauvegarde) ouvert ou ferme : position et zone au journal (essai du 14/10 : chute apres le menu de sauvegarde).
@@ -1957,7 +2106,10 @@ static void CoopFrameInner(bool inGameLoop)
     MirrorMenuFrame();
     if (!inGameLoop) return;
     if (!InGame() || *(uint8_t *)0xB5F851) g_calmSince = GetTickCount();
+    GroundHold();
     FallRescue();
+    LandingWatchdog();
+    ControlsWatch();
     // Menu Pause ouvert par un joueur : tant qu'un autre joueur est connecte, le monde continue (CTimer::m_UserPause).
     bool others = false;
     for (int i = 0; i < MAX_PLAYERS; i++) others |= i != g_localId && g_players[i].connected;
@@ -2063,24 +2215,87 @@ static void LocalSkin()
     if (said < 10) { said++; Log("tenue : modele %d pose sur le joueur", want); }
 }
 
-// Passager d'un autre joueur : la radio suit celle de son conducteur (CAERadioTrackManager 0x8CB6F8, station +0xAD ;
-// 0x4E8330 la change comme les touches de radio : +0xAD et +0xE9).
+// Radio station of a shared vehicle: any player in it can change the station, and everybody ends up on the last choice.
+// Every occupant sends the station he listens to (MsgState.radio) and a counter of the changes he made himself
+// (radioSeq). The "leader" of the vehicle (its driver; with no human driver, the occupant with the lowest player number)
+// takes the stations the others choose (a change of their counter) and sets them on his own radio; the others follow the
+// leader's station, except for 2.5 s after a change of their own (time for the leader to take it). CAERadioTrackManager
+// 0x8CB6F8, station +0xAD ; 0x4E8290 (RetuneRadio) changes it the way the radio keys do. The track and its position come from the host's
+// radio (radio.cpp) once they are on the same station.
 static void RadioFrame()
 {
     RadioSyncFrame();   // radio.cpp: host's track and position for the guests
     static uint32_t last;
-    if (GetTickCount() - last < 500) return;
-    last = GetTickCount();
+    uint32_t now = GetTickCount();
+    if (now - last < 100) return;
+    last = now;
     void *me = FindPlayerPed(), *veh = me ? PedVehicle(me) : nullptr;
+    static void *prevVeh;
+    static uint32_t enteredAt;
+    static int seen = -1;
+    static uint8_t lastSeq[MAX_PLAYERS];
+    static bool known[MAX_PLAYERS];
+    uint8_t cur = *(uint8_t *)(0x8CB6F8 + 0xAD);
+    if (veh != prevVeh) {
+        prevVeh = veh;
+        enteredAt = now;
+        seen = cur;
+        for (bool &k : known) k = false;
+    }
     if (!veh) return;
+    static uint32_t appliedAt;   // when we last asked the game to retune (the station value only follows when its service runs)
+    static int appliedWant = -1;
+    if (now - enteredAt < 1500 || now - appliedAt < 3000) { seen = cur; }   // (getting in, or retuning ourselves: not a choice of ours)
+    else if (cur != seen) {
+        seen = cur;
+        g_radioSeq++;
+        g_radioMineAt = now;
+        static int said;
+        if (said < 20) { said++; Log("radio: I changed the station to %d (change %d)", cur, g_radioSeq); }
+    }
+    int myId = g_localId < 0 ? 0 : g_localId;
+    bool in[MAX_PLAYERS] = {};
+    in[myId] = true;
     void *drv = Field<void *>(veh, VEH_DRIVER);
-    int id = drv && drv != me ? PuppetIndex(drv) : -1;
-    if (id < 0) return;
-    uint8_t want = g_players[id].state.radio;
-    if (want == 0xFF || want == *(uint8_t *)(0x8CB6F8 + 0xAD)) return;
-    ((void(__thiscall *)(void *, int))0x4E8330)((void *)0x8CB6F8, want);
+    int maxPass = Field<uint8_t>(veh, VEH_MAXPASS);
+    for (int k = -1; k < maxPass && k < 8; k++) {
+        void *p = k < 0 ? drv : Field<void *>(veh, VEH_PASSENGERS + k * 4);
+        int id = p && p != me ? PuppetIndex(p) : -1;
+        if (id >= 0 && id < MAX_PLAYERS) in[id] = true;
+    }
+    int leader = -1;
+    if (drv) leader = drv == me ? myId : PuppetIndex(drv);
+    if (leader < 0 || leader >= MAX_PLAYERS) for (int i = 0; i < MAX_PLAYERS && leader < 0; i++) if (in[i]) leader = i;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (!in[i]) { known[i] = false; continue; }
+        if (i == myId || known[i]) continue;
+        known[i] = true;
+        lastSeq[i] = g_players[i].state.radioSeq;   // (just got in: what he did before is not a request)
+    }
+    int want = -1;
+    if (leader == myId) {
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+            if (i == myId || !in[i] || !known[i]) continue;
+            uint8_t seq = g_players[i].state.radioSeq;
+            if (seq == lastSeq[i]) continue;
+            lastSeq[i] = seq;
+            if (g_players[i].state.radio != 0xFF) want = g_players[i].state.radio;   // (the last one wins)
+        }
+    } else if (leader >= 0 && now - g_radioMineAt > 2500) {
+        want = g_players[leader].state.radio;
+        if (want == 0xFF) want = -1;
+    }
+    if (want < 0 || want == cur) return;
+    if (want == appliedWant && now - appliedAt < 2000) return;   // already asked: the game's service has not caught up yet
+    // CAERadioTrackManager::RetuneRadio (0x4E8290): what the radio keys and the script's SET_RADIO_CHANNEL do (it queues the
+    // station for the game's radio service, which retunes and starts the track). 0x4E8330 (InitialiseRadioStationID) only
+    // overwrote the station number: in the 14/10 test the station "changed" for the driver but the music never did.
+    ((void(__thiscall *)(void *, int))0x4E8290)((void *)0x8CB6F8, want);
+    appliedWant = want;
+    appliedAt = now;
+    seen = want;
     static int said;
-    if (said < 10) { said++; Log("radio : station %d de son conducteur (joueur %d)", want, id); }
+    if (said < 20) { said++; Log("radio: station %d (%s)", want, leader == myId ? "chosen by another player, I lead" : "my vehicle's leader"); }
 }
 
 void OnFrame()

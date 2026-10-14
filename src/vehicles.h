@@ -8,6 +8,7 @@ uint32_t HostVehicleId(void *veh, bool occupied, bool ambient);   // hote : vehi
 void HostRegisterMissionVehicles();
 void HostRegisterAmbientVehicles();              // hote : vehicules ordinaires pres des invites partages
 void VehicleSpawnedHere(void *veh);              // vehicule pose par le joueur local (menu, triche) : partage tant qu'il existe
+int VehiclesRemoveSpawned(bool all);              // F10: remove the vehicle the player spawned last (all = false) or all of them; the others lose their copies at once
 bool IsNetVehicle(void *veh);
 bool IsRemoteVehicle(void *veh);   // copie du vehicule d'un autre joueur
 uint32_t LocalVehicleId(void *veh, bool driver); // identifiant reseau du vehicule occupe par le joueur local

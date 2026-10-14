@@ -30,6 +30,9 @@
 #include "chat.h"
 #include "events.h"
 #include "population.h"
+#include "hud.h"
+#include "conditions.h"
+#include "menu.h"
 #include <string.h>
 #include <math.h>
 
@@ -171,6 +174,8 @@ static const MirrorOp kOpsExtra[] = {
     { 0x09F7, "Vi" },        // REPORT_MISSION_AUDIO_EVENT_AT_CAR
     { 0x0917, "si" },        // SWITCH_AUDIO_ZONE
     // Cinematiques
+    { 0x03CB, "fff" },       // LOAD_SCENE: the scenery around the host's scene (cutscene place, interior) is loaded on the guest too
+    { 0x04E4, "ff" },        // REQUEST_COLLISION
     { 0x0244, "fff" },       // SET_CUTSCENE_OFFSET
     { 0x08F0, "ss" },        // APPEND_TO_NEXT_CUTSCENE
     { 0x070C, "V" },         // EXPLODE_CAR_IN_CUTSCENE
@@ -735,6 +740,38 @@ static void BlipsReplay(const uint8_t *d, int len)
     if (d[1] & 2) BlipsReconcile();
 }
 
+// The engine hides every contact-point blip (and its 3D marker) while the player is "on a mission", i.e. while the script
+// variable ONMISSION, ScriptSpace[CTheScripts::OnAMissionFlag], is 1 (CTheScripts::IsPlayerOnAMission, 0x464D50). The host's
+// main script sets it, so the host's radar is clean; the guest never ran the mission start, so all the contact icons stayed
+// on his radar although the same blips were in the host's list too (hidden there) - test of 14/10. While the host is in a
+// mission the guest's flag is forced to 1 as well, and put back when it ends.
+static bool g_omForced;
+static int g_omSaved;
+static uint32_t *OnMissionVar()
+{
+    int off = *(int *)0xA476AC;
+    if (off <= 0 || off >= 0x40000 || (off & 3)) return nullptr;
+    return (uint32_t *)((uint8_t *)0xA49960 + off);
+}
+static void MissionFlagRestore()
+{
+    if (!g_omForced) return;
+    g_omForced = false;
+    if (uint32_t *v = OnMissionVar()) {
+        if (*v == 1) *v = (uint32_t)g_omSaved;
+        Log("miroir : drapeau MISSION de l'invite remis a %d", g_omSaved);
+    }
+}
+static void MissionFlagFrame()
+{
+    if (!g_hostMission) { MissionFlagRestore(); return; }
+    uint32_t *v = OnMissionVar();
+    if (!v) { static bool said; if (!said) { said = true; Log("miroir : drapeau MISSION introuvable (decalage %d)", *(int *)0xA476AC); } return; }
+    if (*v == 1) return;
+    if (!g_omForced) { g_omForced = true; g_omSaved = (int)*v; Log("miroir : mission de l'hote, drapeau MISSION de l'invite mis a 1 (etait %d, variable a l'offset %d): icones de contact masquees", g_omSaved, *(int *)0xA476AC); }
+    *v = 1;
+}
+
 // The host's mission starts or ends: from now on (or no more) the guest's own coordinate / contact blips that the host
 // does not have are removed. At the start the last list received is reconciled again right away (the host's main
 // script has just removed its mission letters; waiting for the next list could take up to 5 s).
@@ -745,6 +782,37 @@ static void BlipsMissionState(bool active)
     memcpy(g_got, g_prevBlips, sizeof(Blip) * g_prevN);
     g_gotN = g_prevN;
     BlipsReconcile();
+}
+
+// Guest, every 100 ms during a host mission: the guest looks like the host. Only the host's blips stay (its objective
+// blips and what the mission put on the map); a mission-start letter or contact icon that the guest's own main script
+// makes again (OG, BS...) is removed on the spot, instead of waiting for the next list from the host. Blips that the
+// mission mirror created are left alone: they are in the host's list within half a second.
+static bool MirrorOwnsBlip(int idx)
+{
+    for (auto &b : g_blips) if (b.host && (b.guest & 0xFFFF) == idx) return true;
+    return false;
+}
+static void BlipsMissionSweep()
+{
+    if (!g_hostMission || !g_cfg.radarSync || !g_havePrev || g_partial) return;
+    static uint32_t last;
+    uint32_t now = GetTickCount();
+    if (now - last < 100) return;
+    last = now;
+    int removed = 0;
+    for (int i = 0; i < TRACES; i++) {
+        if (!SharedTrace(Trace(i)) || MirrorOwnsBlip(i)) continue;
+        Blip g;
+        ReadBlip(Trace(i), g);
+        bool hostHas = false;
+        for (int p = 0; p < g_prevN && !hostHas; p++) if (SameSpot(g, g_prevBlips[p])) hostHas = true;
+        if (hostHas) continue;
+        RemoveBlipAt(i);
+        removed++;
+    }
+    static int logged;
+    if (removed && logged++ < 20) Log("radar : mission de l'hote, %d marqueur(s) de l'invite retire(s) (le script de l'invite les refait)", removed);
 }
 
 static void RestoreScreen();
@@ -761,11 +829,45 @@ static void CameraVectorReset()
     cam[0xC8C] = cam[0xCEC] = cam[0xCEE] = cam[0xCEF] = 0;
 }   // invite : derniere teleportation avec l'hote (SET_AREA_VISIBLE a suivre)
 
+// Text commands (PRINT*, PRINT_HELP*): the host's mission text table must be loaded on the guest too, or the key gives
+// nothing and the popup never shows (Home Invasion, 14/10: the guest saw none of the help boxes although PRINT_HELP_FOREVER
+// was replayed). The last LOAD_MISSION_TEXT (054C) is remembered; if a key comes back empty the table is loaded again.
+// The first lookups are logged (key and the start of the text) to see what the guest really has.
+static char g_missionText[16];
+static bool IsTextOp(int op) { return op == 0x03E5 || op == 0x0512 || op == 0x0513 || (op >= 0x00BA && op <= 0x00BC) || (op >= 0x01E3 && op <= 0x01E5); }
+static void TextCheck(int op, const uint8_t *d, int len)
+{
+    if (len < 7 || d[4] != 's') return;
+    int sl = d[5];
+    if (sl <= 0 || sl > 15 || 6 + sl > len) return;
+    char key[16] = {};
+    memcpy(key, d + 6, sl);
+    auto lookup = [&]() { return (const uint8_t *)GxtLookup(key); };   // CText::Get gives 8-bit characters
+    const uint8_t *t = lookup();
+    static uint32_t lastReload;
+    bool missing = !t || !t[0];
+    if (missing && g_missionText[0] && GetTickCount() - lastReload > 2000) {
+        lastReload = GetTickCount();
+        int arg = (int)(uintptr_t)g_missionText;
+        RunScriptCommandTyped(0x054C, 1, "s", &arg);
+        t = lookup();
+        Log("texte : cle \"%s\" vide chez l'invite, table de mission \"%s\" rechargee -> %s", key, g_missionText, t && t[0] ? "trouvee" : "toujours vide");
+    }
+    static int said;
+    if (said < 40) {
+        said++;
+        char s[48] = {};
+        if (t) for (int i = 0; i < 40 && t[i]; i++) s[i] = t[i] >= 32 && t[i] < 127 ? (char)t[i] : '?';
+        Log("texte : %04X cle \"%s\" -> %s", op, key, !t ? "(pas de texte)" : !t[0] ? "(vide)" : s);
+    }
+}
+
 // Rejoue une commande ; faux si une entite manque encore (on reessaiera).
 static bool Replay(const uint8_t *d, int len)
 {
     if (d[0] == RL_MISSION_END) {
         BlipsMissionState(false);
+        MissionFlagRestore();
         VehiclesMissionEnded();
         PopulationHostDensity(false, 1.0f);   // densites normales apres la mission de l'hote
         PopulationHostDensity(true, 1.0f);
@@ -825,7 +927,9 @@ static bool Replay(const uint8_t *d, int len)
             // derriere l'hote (avant = (-sin h, cos h)), en ligne selon le numero du joueur
             float back = 2.0f, side = 1.2f * (g_localId - 2);
             float pos[3] = { host[0] + sinf(h) * back + cosf(h) * side, host[1] - cosf(h) * back + sinf(h) * side, host[2] };
-            PlacePuppet(me, pos, h);
+            // (into the host's interior too, with the scenery loaded: a mission that starts indoors)
+            int hostArea = g_players[0].state.inGame ? g_players[0].state.area : 0;
+            TeleportPed(me, pos, h, hostArea, "mission start");
             Log("miroir : mission de l'hote, regroupe derriere lui");
         }
         return true;
@@ -938,15 +1042,30 @@ static bool Replay(const uint8_t *d, int len)
         }
         if (!closeBy && GetTickCount() - g_teleportedAt > 3000) return true;
     }
+    if (op == 0x054C && len > 6 && d[4] == 's' && d[5] > 0 && d[5] < 16) { memset(g_missionText, 0, sizeof(g_missionText)); memcpy(g_missionText, d + 6, d[5]); }
+    if (IsTextOp(op)) TextCheck(op, d, len);
     if (op == 0x015A || op == 0x02EB || op == 0x0373) CameraVectorReset();
     if (op == 0x015F || op == 0x0160 || (op >= 0x0157 && op <= 0x0159) || (op >= 0x0679 && op <= 0x067E) || op == 0x0936 || op == 0x0920) g_mirrorCamAt = GetTickCount();
     ExecCommand(op);
     static int logged;
-    if (logged < 300) { logged++; Log("miroir : %04X rejouee", op); }
+    static uint8_t perOp[0x1000];   // (the first 20 of each command: CLEAR_HELP every frame used up the whole budget)
+    if (logged < 700 && perOp[op & 0xFFF] < 20) { perOp[op & 0xFFF]++; logged++; Log("miroir : %04X rejouee", op); }
     for (int k = 0; k < out; k++) {
         int guest = *(int *)(g_script + 0x3C + outIdx[k] * 4);
         HandleMap *m = outKind[k] == 'B' ? g_blips : outKind[k] == 'O' ? g_objects : outKind[k] == 'K' ? g_pickups : outKind[k] == 'R' ? g_fires : g_spheres;
         MapSet(m, outHost[k], guest, IsPersistBlipOp(op));
+    }
+    // The guest was just put somewhere else by the host's script (next to the host, or into the interior it entered): the
+    // scenery and collisions around the new spot are loaded on the spot (LOAD_SCENE 03CB), as TeleportPed does. Without it
+    // a guest brought into an interior saw only the sky and fell (Home Invasion, 14/10).
+    if (selfTeleport || (op == 0x0860 && d[4] == 'H')) {
+        if (void *me = FindPlayerPed()) {
+            int sc[3];
+            memcpy(sc, EntityPos(me), 12);
+            RunScriptCommandTyped(0x03CB, 3, "fff", sc);
+            NoteLocalRelocated();
+            Log("miroir : decor charge autour de l'invite apres %04X (%.1f %.1f %.1f, interieur %d)", op, *(float *)&sc[0], *(float *)&sc[1], *(float *)&sc[2], (int)EntityArea(me));
+        }
     }
     if (op == 0x0164) MapDel(g_blips, *(const int *)(d + 5));
     if (op == 0x03BD) MapDel(g_spheres, *(const int *)(d + 5));
@@ -1111,6 +1230,27 @@ static void ForceCutsceneEnd(const char *why)
     Log("miroir : fin de cinematique forcee (%s), commandes rendues", why);
 }
 
+// F10 "skip cutscene": the game's own skip (CCutsceneMgr::SkipCutscene 0x5B1700, what the skip button does) first; if the
+// player presses again within 8 s (it did not end), or no cutscene is running (stuck controls / camera after one), the
+// end is forced (ForceCutsceneEnd) and the controls and camera are given back.
+bool CutsceneActive() { return CutsceneRunning(); }
+void SkipCutsceneNow()
+{
+    static uint32_t softAt;
+    uint32_t now = GetTickCount();
+    bool running = CutsceneRunning();
+    if (running && (!softAt || now - softAt > 8000)) {
+        softAt = now;
+        ((void(__cdecl *)())0x5B1700)();
+        Log("cutscene: skipped from the F10 menu");
+        HudToast(PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH ? "Cinematique passee" : "Cutscene skipped", 2500);
+        return;
+    }
+    softAt = 0;
+    ForceCutsceneEnd(running ? "F10 menu, second press" : "F10 menu, none running");
+    HudToast(PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH ? "Commandes et camera rendues" : running ? "Cutscene ended by force" : "Controls and camera restored", 2500);
+}
+
 // Garde-fou : la camera de l'invite est tenue (fixe, mouvement de mission) alors que l'hote a retrouve la sienne depuis
 // 2,5 s, hors cinematique, et une camera de mission a ete rejouee dans les 3 dernieres minutes (pas celle d'un magasin
 // de l'invite) : elle lui est rendue (mouvements effaces, RESTORE_CAMERA_JUMPCUT 02EB, camera dans le dos 0373).
@@ -1142,11 +1282,39 @@ void MirrorTestStuckCamera(const float *pos)
     Log("autotest : camera fixe en l'air (comme une mission)");
 }
 
+// Guest: the host's mission goes on in another zone than the guest's (an interior, or outside after the host came out) for
+// more than 4 s: the guest is put back next to the host, in his zone, with the scenery loaded (TeleportPed). The mirrored
+// SET_AREA_VISIBLE / SET_CHAR_COORDINATES of the host's script do it at first; this catches what they miss (a guest that
+// fell and was put back outside, died and came back from the hospital, was held up...). Without it the guest saw only the sky
+// in the host's interior cutscene and the mission characters fell below him (Home Invasion, 14/10).
+static void AreaRegroupFrame(uint32_t now)
+{
+    static uint32_t since, lastFix;
+    static int streak;   // regroups in a row without the zones ever matching in between: gives up after 3
+    void *me = FindPlayerPed(), *host = PuppetOf(0);
+    const NetPlayer &h = g_players[0];
+    if (!g_hostMission || !h.connected || !h.state.inGame || !me || !host || PedVehicle(me) || CutsceneActive() ||
+        Field<float>(me, PED_HEALTH) <= 0.0f) { since = 0; return; }
+    int hostArea = h.state.area, mine = EntityArea(me), cur = *(int *)0xB72914;
+    if (mine == hostArea && cur == hostArea) { since = 0; streak = 0; return; }
+    if (!since) since = now;
+    if (now - since < 4000 || now - lastFix < 12000 || streak >= 3) return;
+    streak++;
+    lastFix = now;
+    since = 0;
+    const float *b = EntityPos(host), *a = EntityPos(me);
+    float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2], hd = Field<float>(host, PED_ROTATION);
+    bool together = dx * dx + dy * dy + dz * dz < 15.0f * 15.0f;
+    float pos[3] = { b[0] + sinf(hd) * 1.0f, b[1] - cosf(hd) * 1.0f, b[2] + 0.3f };
+    Log("miroir : l'invite n'est pas dans la zone de l'hote (%d/%d contre %d), %s", mine, cur, hostArea, together ? "zone corrigee sur place" : "remis a cote de lui");
+    TeleportPed(me, together ? a : pos, Field<float>(me, PED_ROTATION), hostArea, "zone de l'hote");
+}
+
 void MirrorFrame()
 {
     g_onReliable = OnReliable;
     if (g_cfg.host) { if (NetRunning()) HostGlobalsFrame(); return; }
-    if (GameState() != 9 || !FindPlayerPed()) { g_havePrev = false; return; }
+    if (GameState() != 9 || !FindPlayerPed()) { g_havePrev = false; g_omForced = false; return; }
     UnstickFade();
     CameraWatch();
     memcpy(g_script + 8, "sacoop", 7);
@@ -1163,4 +1331,7 @@ void MirrorFrame()
         }
         g_qHead = (g_qHead + 1) % QUEUE;
     }
+    BlipsMissionSweep();
+    MissionFlagFrame();
+    AreaRegroupFrame(now);
 }

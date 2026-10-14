@@ -48,9 +48,33 @@ static void MakeWindowed(D3DPRESENT_PARAMETERS *pp)
 
 static BOOL(WINAPI *o_SetWindowPos)(HWND, HWND, int, int, int, int, UINT) = SetWindowPos;
 
+static const DWORD kWindowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
+static bool g_scaled;      // the player left full screen with Alt+Enter: the window is smaller than the game's picture (Direct3D stretches it)
+static int g_bbW, g_bbH;   // the game's picture size (back buffer) at the last Reset
+
+// Outer size of the bordered window for a back buffer of bbW x bbH.
+static void OuterSize(int bbW, int bbH, int *ow, int *oh)
+{
+    int cw = bbW, ch = bbH;
+    if (g_scaled && bbW > 0 && bbH > 0) {
+        RECT wa = { 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+        SystemParametersInfoA(SPI_GETWORKAREA, 0, &wa, 0);
+        int maxW = wa.right - wa.left - 24, maxH = wa.bottom - wa.top - 56;
+        cw = g_cfg.winW > 0 && g_cfg.winW < bbW ? g_cfg.winW : bbW;   // TailleFenetre
+        ch = (int)((double)cw * bbH / bbW + 0.5);
+        if (cw > maxW) { cw = maxW; ch = (int)((double)cw * bbH / bbW + 0.5); }
+        if (ch > maxH) { ch = maxH; cw = (int)((double)ch * bbW / bbH + 0.5); }
+    }
+    RECT r = { 0, 0, cw, ch };
+    AdjustWindowRect(&r, kWindowStyle, FALSE);
+    *ow = r.right - r.left;
+    *oh = r.bottom - r.top;
+}
+
 static void FitWindow(HWND hwnd, int w, int h)
 {
     if (!g_cfg.windowed || !hwnd) return;
+    g_bbW = w; g_bbH = h;
     if (g_cfg.borderless) {
         // Sans bordure : la fenetre couvre l'ecran ; le jeu rend a sa resolution (celle de l'ecran, widescreen.cpp).
         // Instances de test (FenetreX hors ecran) : meme taille, mais posee hors de l'ecran.
@@ -61,13 +85,11 @@ static void FitWindow(HWND hwnd, int w, int h)
                        SWP_FRAMECHANGED | (test ? SWP_NOACTIVATE : 0));
         return;
     }
-    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
-    SetWindowLongA(hwnd, GWL_STYLE, style);
+    SetWindowLongA(hwnd, GWL_STYLE, kWindowStyle);
     SetWindowLongA(hwnd, GWL_EXSTYLE, 0);
-    RECT r = { 0, 0, w, h };
-    AdjustWindowRect(&r, style, FALSE);
-    o_SetWindowPos(hwnd, HWND_NOTOPMOST, g_cfg.winX, g_cfg.winY, r.right - r.left, r.bottom - r.top,
-                   SWP_FRAMECHANGED | SWP_NOACTIVATE);
+    int ow, oh;
+    OuterSize(w, h, &ow, &oh);
+    o_SetWindowPos(hwnd, HWND_NOTOPMOST, g_cfg.winX, g_cfg.winY, ow, oh, SWP_FRAMECHANGED | SWP_NOACTIVATE);
     char title[128];
     wsprintfA(title, "GTA San Andreas - SACoop (%s)", g_cfg.playerName);
     SetWindowTextA(hwnd, title);
@@ -139,8 +161,69 @@ static void GiveBackForeground()
     }
 }
 
+// Alt+Tab away: the game never hears about it (the deactivation is swallowed, see h_WndProc), so it never let go of the
+// mouse, which stayed captured (hidden cursor, clipped to the game window, DirectInput still holding it) and was hard to
+// get back. As soon as the foreground changes we release everything ourselves, and take it back on return.
+static BOOL(WINAPI *o_ClipCursor)(const RECT *);
+static int(WINAPI *o_ShowCursor)(BOOL);
+static int g_cursorAdded;     // ShowCursor(TRUE) calls made while away, undone on return
+static RECT g_clipBefore;     // the clip rectangle the game had set, put back on return
+static bool g_hadClip;
+static bool g_away;           // the game window is not in front (it still runs: the deactivation is swallowed)
+
+// While away the game keeps calling ShowCursor(FALSE) every frame, so its hide counter sinks further and further (-30 and
+// below in the 14/10 logs): a loop that gave up after a few calls left the cursor hidden. Two things now: the hook below
+// ignores the game's "hide" calls while away, and CursorUp() raises the counter to 0 whatever it is (no cap worth the name).
+static int WINAPI h_ShowCursor(BOOL show)
+{
+    int (WINAPI *real)(BOOL) = o_ShowCursor ? o_ShowCursor : ShowCursor;
+    if (!show && g_away) { real(TRUE); return real(FALSE); }   // net zero: just report the counter
+    return real(show);
+}
+
+static void CursorUp()
+{
+    int (WINAPI *real)(BOOL) = o_ShowCursor ? o_ShowCursor : ShowCursor;
+    int n = real(TRUE);
+    if (n >= 1) { real(FALSE); return; }   // already visible: undo the probe
+    g_cursorAdded++;
+    for (int guard = 0; n < 0 && guard < 100000; guard++) { n = real(TRUE); g_cursorAdded++; }
+}
+
+static void FocusWatch()
+{
+    if (g_cfg.background || !g_hwnd) return;
+    static bool had = true;
+    bool now = GameHasFocus();
+    if (now == had) { if (!now) CursorUp(); return; }
+    had = now;
+    if (!now) {
+        g_away = true;
+        RECT screen = { 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) }, clip = screen;
+        GetClipCursor(&clip);
+        g_hadClip = clip.left > screen.left || clip.top > screen.top || clip.right < screen.right || clip.bottom < screen.bottom;
+        if (g_hadClip) g_clipBefore = clip;
+        ReleaseInput();
+        (o_ClipCursor ? o_ClipCursor : ClipCursor)(NULL);
+        if (GetCapture() == g_hwnd) ReleaseCapture();
+        g_cursorAdded = 0;
+        CursorUp();
+        Log("fenetre : le jeu perd le premier plan, souris rendue a Windows (clip %s, curseur +%d)", g_hadClip ? "retire" : "aucun", g_cursorAdded);
+    } else {
+        g_away = false;
+        int added = g_cursorAdded;
+        int (WINAPI *real)(BOOL) = o_ShowCursor ? o_ShowCursor : ShowCursor;
+        while (g_cursorAdded > 0) { real(FALSE); g_cursorAdded--; }
+        if (g_hadClip) (o_ClipCursor ? o_ClipCursor : ClipCursor)(&g_clipBefore);
+        g_hadClip = false;
+        ReacquireInput();
+        Log("fenetre : le jeu a le premier plan, souris reprise (curseur -%d)", added);
+    }
+}
+
 static HRESULT WINAPI h_Present(IDirect3DDevice9 *dev, const RECT *src, const RECT *dst, HWND wnd, const RGNDATA *dirty)
 {
+    FocusWatch();
     WatchdogFrame();
     GiveBackForeground();
     static bool inFrame;
@@ -227,6 +310,7 @@ static BOOL WINAPI h_SetCursorPos(int x, int y)
 // --- Perte d'activation : le jeu met alors son son en pause (et la cinematique d'intro attend pour toujours une piste
 // audio qui ne se charge plus : instance figee dans 0x4DC0E0 le 30/09). En coop le jeu ne s'arrete jamais quand on
 // change de fenetre : les messages de desactivation ne lui sont pas transmis.
+static void FocusWatch();
 static WNDPROC o_WndProc;
 static LRESULT CALLBACK h_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -234,10 +318,15 @@ static LRESULT CALLBACK h_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && PanelWindowMessage(msg, wp)) return 0;  // panneau F10
     if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && ChatWindowMessage(msg, wp)) return 0;   // saisie du tchat
     if ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) && CameraWindowMessage(msg, wp)) return 0; // vue a la premiere personne
+    if (msg == WM_SYSKEYDOWN && wp == VK_RETURN && !(lp & (1 << 30))) { WindowToggleFullscreen(); return 0; }   // Alt+Entree
+    if (msg == WM_SYSKEYDOWN && wp == VK_RETURN) return 0;
+    if (msg == WM_SETCURSOR && !g_cfg.background && g_away && LOWORD(lp) == HTCLIENT) { SetCursor(LoadCursor(NULL, IDC_ARROW)); return TRUE; }   // away: an arrow over the game window, not a hidden cursor
     if (msg == WM_KEYDOWN) PassengerWindowMessage(msg, wp);                                    // G : passager
+    if (msg == WM_SETFOCUS || (msg == WM_ACTIVATE && LOWORD(wp) != WA_INACTIVE) || (msg == WM_ACTIVATEAPP && wp)) ReacquireInput();   // back from Alt+Tab: mouse and keyboard again
     if ((msg == WM_ACTIVATEAPP && !wp) || (msg == WM_ACTIVATE && LOWORD(wp) == WA_INACTIVE) || msg == WM_KILLFOCUS) {
         static int logged;
         if (logged++ < 5) Log("fenetre : desactivation ignoree (message 0x%X)", msg);
+        FocusWatch();
         return DefWindowProcA(hwnd, msg, wp, lp);
     }
     // Reprise du focus : le jeu demande le menu Pause (0x53BC60 : m_bActivateMenuNextFrame, 0xBA677B = 1). En coop,
@@ -249,6 +338,20 @@ static LRESULT CALLBACK h_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return r;
     }
     return CallWindowProcA(o_WndProc, hwnd, msg, wp, lp);
+}
+
+// Alt+Enter: borderless full screen <-> bordered window. The game keeps its resolution (changing it takes a device
+// reset and a reload of the menus); the window is just resized and Direct3D stretches the picture into it. The choice is
+// kept in sacoop.ini (Fenetre) for the next launch. Not for the game's own full screen (Fenetre=0), nor test instances.
+void WindowToggleFullscreen()
+{
+    if (!g_cfg.windowed || !g_hwnd || g_cfg.winX < -1000) { Log("fenetre : Alt+Entree sans effet (plein ecran du jeu ou instance de test)"); return; }
+    g_cfg.borderless = !g_cfg.borderless;
+    if (!g_cfg.borderless) g_scaled = true;
+    int w = g_bbW > 0 ? g_bbW : *(int *)0xC17044, h = g_bbH > 0 ? g_bbH : *(int *)0xC17048;
+    FitWindow(g_hwnd, w, h);
+    WritePrivateProfileStringA("SACoop", "Fenetre", g_cfg.borderless ? "2" : "1", IniPath());
+    Log("fenetre : Alt+Entree, %s", g_cfg.borderless ? "plein ecran sans bordure" : "fenetre");
 }
 
 // La fenetre du jeu existe deja quand dinput8.dll est charge : on la sous-classe a la creation du peripherique.
@@ -273,7 +376,10 @@ static BOOL WINAPI h_SetWindowPos(HWND hwnd, HWND after, int x, int y, int w, in
 {
     if (g_cfg.windowed && hwnd == g_hwnd) {
         if (g_cfg.borderless) { bool test = g_cfg.winX < -1000; x = test ? g_cfg.winX : 0; y = test ? g_cfg.winY : 0; w = GetSystemMetrics(SM_CXSCREEN); h = GetSystemMetrics(SM_CYSCREEN); flags &= ~(SWP_NOMOVE | SWP_NOSIZE); }
-        else { x = g_cfg.winX; y = g_cfg.winY; flags &= ~SWP_NOMOVE; }
+        else {
+            x = g_cfg.winX; y = g_cfg.winY; flags &= ~SWP_NOMOVE;
+            if (g_scaled && g_bbW > 0) { OuterSize(g_bbW, g_bbH, &w, &h); flags &= ~SWP_NOSIZE; }
+        }
     }
     if (g_cfg.background) flags |= SWP_NOACTIVATE;
     return o_SetWindowPos(hwnd, after, x, y, w, h, flags);
@@ -294,7 +400,6 @@ static HWND WINAPI h_SetFocus(HWND hwnd)
 }
 
 // Sans le premier plan, le jeu ne doit ni capturer ni enfermer la souris.
-static BOOL(WINAPI *o_ClipCursor)(const RECT *);
 static BOOL WINAPI h_ClipCursor(const RECT *r)
 {
     if (r && !GameHasFocus()) return TRUE;
@@ -327,6 +432,7 @@ void InstallWindowHooks()
     o_ClipCursor = (decltype(o_ClipCursor))HookImport("user32.dll", "ClipCursor", (void *)h_ClipCursor);
     o_SetCapture = (decltype(o_SetCapture))HookImport("user32.dll", "SetCapture", (void *)h_SetCapture);
     o_SetCursorPos = (BOOL(WINAPI *)(int, int))HookImport("user32.dll", "SetCursorPos", (void *)h_SetCursorPos);
+    o_ShowCursor = (int(WINAPI *)(BOOL))HookImport("user32.dll", "ShowCursor", (void *)h_ShowCursor);
     o_SetForegroundWindow = (BOOL(WINAPI *)(HWND))HookImport("user32.dll", "SetForegroundWindow", (void *)h_SetForegroundWindow);
     // Le chargeur du 1.0 US resout d3d9 lui-meme (pas de table d'importation utilisable au moment de DllMain) : on
     // detourne directement Direct3DCreate9 dans d3d9.dll. Sans ca, la fenetre n'est pas forcee et le jeu part en plein

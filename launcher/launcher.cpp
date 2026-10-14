@@ -1326,8 +1326,9 @@ static void DrawUI(Graphics &g)
         g.FillPath(&pb, &pp);
         Text(g, L"PRE-ALPHA", pr, 10, FontStyleBold, Color(255, 255, 255, 255));
     }
-    // Fork label, under the PRE-ALPHA pill: tells at a glance that this is the fork's launcher
-    Text(g, kForkLabel, RectF(128, 232, 200, 16), 10.5f, FontStyleBold, kGreen);
+    // Fork label: tells at a glance that this is the fork's launcher. It used to sit under the PRE-ALPHA pill and
+    // overlapped the status line (y 230); it now has its own line between the exe row and the footer.
+    Text(g, kForkLabel, RectF(56, 482, 344, 16), 10.5f, FontStyleBold, kGreen);
 
     if (g_state == ST_LAUNCH || g_state == ST_CLOSING) {
         int dots = (int)(g_time * 2.5f) % 4;
@@ -3355,7 +3356,8 @@ static bool EncoderClsid(const wchar_t *mime, CLSID *out)
 
 static Bitmap *LoadPng(const wchar_t *file)
 {
-    for (const std::wstring &d : { g_dir, g_gameDir }) {
+    // Next to the launcher, in the game folder, or (running build\SACoop.exe straight from a source checkout) in dist\files.
+    for (const std::wstring &d : { g_dir, g_gameDir, g_dir + L"..\\dist\\files\\", g_dir + L"dist\\files\\" }) {
         if (d.empty()) continue;
         std::wstring p = d + L"SACoop\\interface\\" + file;
         if (!FileExists(p)) continue;

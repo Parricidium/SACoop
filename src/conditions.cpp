@@ -25,6 +25,24 @@
 
 using namespace game;
 
+// Guest: a story mission cannot be started from a guest's game. Its main script still draws the start marker (the host
+// can use it to find the place), but the "is the player standing in it" test of a mission-start marker is made false.
+// A mission-start marker is a LOCATE test of the main script (not a mission script) around a contact-point blip
+// (radar blip type 5), so the places of those blips are remembered (g_spots) and the test is refused there.
+static float g_spots[96][2];
+static int g_spotN;
+static void NoteContactSpots()
+{
+    for (int i = 0; i < 175; i++) {
+        const uint8_t *t = (const uint8_t *)0xBA86F0 + i * 0x28;
+        if (((t[0x26] >> 2) & 15) != 5 || *(const uint32_t *)(t + 0x20) || (int8_t)t[0x24] == 41) continue;
+        float x = *(const float *)(t + 0x08), y = *(const float *)(t + 0x0C);
+        bool known = false;
+        for (int k = 0; k < g_spotN && !known; k++) known = fabsf(g_spots[k][0] - x) < 2.0f && fabsf(g_spots[k][1] - y) < 2.0f;
+        if (!known && g_spotN < 96) { g_spots[g_spotN][0] = x; g_spots[g_spotN][1] = y; g_spotN++; }
+    }
+}
+
 // mode : 0 tous moyens, 1 a pied, 2 en voiture ; stopped : a l'arret ; shape : 0 rayon 2D, 1 rayon 3D, 2 boite 2D,
 // 3 boite 3D, 4 dans telle voiture, 5 dans une voiture, 6 dans tel modele.
 struct CondOp { uint16_t op; uint8_t shape, mode, stopped, n; };
@@ -86,9 +104,23 @@ static bool Satisfies(void *ped, const CondOp &c, const int *v)
 }
 
 // --- Hote : autour de chaque commande (script.cpp) ---
+static void *g_guardScript;
+static const CondOp *g_guardCond;
+static int g_guardVals[8];
+
 void ConditionBefore(void *script, int op)
 {
     g_curCond = nullptr;
+    g_guardCond = nullptr;
+    if (!g_cfg.host && g_cfg.lockGuestMissions && NetRunning() && !ScriptIsMission(script) && g_spotN) {
+        const CondOp *c = FindCond(op);
+        void *me = FindPlayerPed();
+        if (c && c->shape <= 3 && me) {
+            uint8_t *ip = *(uint8_t **)((uint8_t *)script + 0x14);
+            if (ScriptReadValues(script, ip, c->n, g_guardVals) && g_guardVals[0] == PedRef(me)) { g_guardScript = script; g_guardCond = c; }
+        }
+        return;
+    }
     if (!g_cfg.host || !NetRunning() || !ScriptIsMission(script)) return;
     const CondOp *c = FindCond(op);
     if (!c) return;
@@ -112,15 +144,32 @@ void ConditionBefore(void *script, int op)
         }
     }
 }
-void ConditionAfter() { g_curCond = nullptr; }
+void ConditionAfter() { g_curCond = nullptr; g_guardCond = nullptr; }
 
 static int g_follow = -1;   // invite a rejoindre (hote)
 static uint32_t g_lastFollow;
 
 typedef void(__thiscall *UpdateCompareFlag_t)(void *script, bool result);
 static UpdateCompareFlag_t o_UpdateCompareFlag;
+// Centre (x, y) of the area of a LOCATE test, from its parameters.
+static void AreaCentre(const CondOp &c, const int *v, float &x, float &y)
+{
+    if (c.shape >= 2) { int j = c.shape == 2 ? 3 : 4; x = (F(v[1]) + F(v[j])) * 0.5f; y = (F(v[2]) + F(v[j + 1])) * 0.5f; }
+    else { x = F(v[1]); y = F(v[2]); }
+}
 static void __fastcall h_UpdateCompareFlag(void *script, void *, bool result)
 {
+    if (result && g_guardCond && script == g_guardScript && !*((uint8_t *)script + 0xD2)) {
+        float x, y;
+        AreaCentre(*g_guardCond, g_guardVals, x, y);
+        for (int k = 0; k < g_spotN; k++)
+            if (fabsf(g_spots[k][0] - x) < 3.5f && fabsf(g_spots[k][1] - y) < 3.5f) {
+                result = false;
+                static uint32_t said;
+                if (GetTickCount() - said > 10000) { said = GetTickCount(); Log("conditions : marqueur de depart de mission en %.1f %.1f : l'invite ne peut pas lancer de mission (marqueur visible)", x, y); }
+                break;
+            }
+    }
     if (!result && g_curCond && script == g_curScript && g_valsOk) {
         for (int i = 1; i < MAX_PLAYERS; i++)
             if (void *ped = PuppetOf(i))
@@ -211,6 +260,7 @@ static void FollowGuest()
 void ConditionsFrame()
 {
     g_onMarker = OnMarker;
+    if (!g_cfg.host && g_cfg.lockGuestMissions && GameState() == 9 && FindPlayerPed()) NoteContactSpots();
     if (g_cfg.host && g_follow >= 0 && GameState() == 9) FollowGuest();
     if (g_cfg.host || GameState() != 9 || !FindPlayerPed()) return;
     uint32_t now = GetTickCount();

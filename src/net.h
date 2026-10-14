@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 22, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 23, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -68,7 +68,8 @@ struct MsgState {
     uint8_t animCount;  // animations d'action en cours (sauts, accroupi, coups, nage...), rejouees par le pantin
     NetAnim anims[ANIMS_MAX];
     uint8_t air;        // a pied : 1 en l'air (saut, chute), 2 accroche a un mur (escalade) ; le pantin suit sa hauteur
-    uint8_t radio;      // au volant : station de radio ecoutee (les passagers l'entendent aussi) ; 0xFF sinon
+    uint8_t radio;      // en vehicule (n'importe quelle place) : station de radio ecoutee ; 0xFF a pied
+    uint8_t radioSeq;   // compteur : +1 a chaque changement de station voulu par ce joueur (coop.cpp RadioFrame : le conducteur le suit)
     uint8_t gear;       // accessoires : 1 jetpack (tache 1303), 4 telephone (tache 1600) ; a pied ; 0x10 : une cinematique tourne chez lui ; 0x20 : le menu pause est ouvert chez lui
     uint8_t camScripted;// camera tenue par un script (TheCamera +0x2B m_bLookingAtPlayer a 0 : fixe, cinematique de mission)
     int16_t attModel;   // objet attache au joueur par un script (parachute ouvert, colis...) : modele, 0 aucun
@@ -93,10 +94,12 @@ struct MsgVehicle {
     int ownerRef;       // reference de pool du vehicule chez son proprietaire (handle de ses scripts)
     float steer, gas, brake;   // commandes du conducteur (CVehicle +0x494, +0x49C, +0x4A0), rejouees par la copie
     uint8_t handbrake;  // frein a main (+0x428, bit 0x20)
+    float rotor;        // helicoptere : vitesse du rotor (CAutomobile +0x84C) ; avion : vitesse de l'helice (CPlane +0x9C4) ; sinon 0
     uint32_t time;      // GetTickCount de l'envoi (interpolation, interp.cpp)
 };
 enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */, VF_SCRIPT = 16 /* cree par un script de mission (CreatedBy 2) */, VF_HORN = 32 /* klaxon (CVehicle +0x514) */,
-       VF_PLAYBACK = 64 /* sur un trajet enregistre (CVehicleRecording::pVehicleForPlayback 0x97D840) : copie posee telle quelle */ };
+       VF_PLAYBACK = 64 /* sur un trajet enregistre (CVehicleRecording::pVehicleForPlayback 0x97D840) : copie posee telle quelle */,
+       VF_GONE = 128 /* le proprietaire a retire ce vehicule (menu F10) : les copies disparaissent tout de suite */ };
 // Coup porte par le joueur "from" au joueur "to" : touche decidee chez le tireur, degats appliques par le jeu du joueur
 // touche (regles du joueur, gilet, reaction, mort).
 // pedId : coup d'un personnage de mission de l'hote (son id MsgPed), 0 : du joueur "from".

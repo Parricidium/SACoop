@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.53.0-vcport"
+#define SACOOP_VERSION "0.54.2-vcport"
 #define SACOOP_FORK "Zebra's forked repo"   // shown in the log, the F10 menu and the launcher: tells this build from the original
 
 struct Config {
@@ -55,6 +55,7 @@ struct Config {
     bool radarSync;         // MarqueursRadar : marqueurs du radar de l'hote (coordonnees, points de contact) reproduits chez l'invite (mirror.cpp)
     bool radioSync;         // RadioSync: the guests follow the host's radio (station, track, position, adverts) - radio.cpp
     bool syncWeather;       // GuestWeatherGuard: the guest never changes weather by itself (coop.cpp h_WeatherUpdate)
+    bool lockGuestMissions; // GuestMissionLock: a guest cannot start a story mission (its start marker is still drawn) (conditions.cpp)
     bool syncTrains;        // TrainSync: the host's trains (random and mission) run the same on every guest's rails (trains.cpp)
     bool deathDrop;         // ArmesMort: weapons are kept on death (given back after the respawn, events.cpp); 0 = vanilla, they are lost
     bool hideCut;           // CacherEnCinematique : pantins, copies de PNJ de mission et de vehicules caches pendant une cinematique
@@ -73,6 +74,9 @@ bool GameHasFocus();
 void InstallCrashLog();
 void InstallFileHooks();
 void InstallWindowHooks();
+void ReacquireInput();          // dllmain.cpp: DirectInput mouse and keyboard acquired again (after Alt+Tab)
+void ReleaseInput();            // dllmain.cpp: DirectInput mouse and keyboard let go (Alt+Tab away): the mouse goes back to Windows
+void WindowToggleFullscreen();  // window.cpp: Alt+Enter, borderless full screen <-> window
 void InstallGamePatches();
 void InstallPuppetRender();   // coop.cpp : rendu des pantins (faces arriere)
 void StartWatchdog();

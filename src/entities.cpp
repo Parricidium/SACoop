@@ -8,6 +8,7 @@
 // retenu chez chacun par un detour de cette fonction.
 #include "util.h"
 #include "sacoop.h"
+#include <math.h>
 #include "net.h"
 #include "game.h"
 #include "peds.h"
@@ -90,7 +91,12 @@ static void HostSend()
         m.animCount = (uint8_t)AnimsCollect(ped, m.anims, 2);
         if (!PedVehicle(ped)) {   // hauteur suivie par la copie (escalade, saut, chute)
             if (AnimsClimbing(ped)) m.flags |= PF_CLIMB;
-            else if (!(Field<uint8_t>(ped, 0x46C) & 1)) m.flags |= PF_AIR;
+            else if (!(Field<uint8_t>(ped, 0x46C) & 1)) {
+                // The game only refreshes the "standing" flag of a ped it runs through the collision code, which it skips for a ped
+                // at rest: a mission ped the script has just placed (the old man of Home Invasion, 14/10) keeps 0 for good and his
+                // copy hung in the air pose on the guest. Being in the air needs real vertical speed, a jump or swimming.
+                if (fabsf(MoveSpeed(ped)[2]) > 0.03f || HasTaskType(ped, 1304) || HasTaskType(ped, 210) || HasTaskType(ped, 211)) m.flags |= PF_AIR;
+            }
         }
         if (void *veh = PedVehicle(ped)) {
             m.vehicleId = HostVehicleId(veh, true, ambient);

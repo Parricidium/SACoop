@@ -66,7 +66,7 @@ void PanelMouseInput(int dx, int dy, int dz, bool lmb)
 }
 
 // ======================================================================= Actions (boucle du jeu)
-enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH };
+enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH, A_SKIPCUT, A_REMOVELAST, A_REMOVEALL };
 struct Action { int kind, arg; };
 static std::vector<Action> g_actions;
 static void Queue(int kind, int arg = 0) { g_actions.push_back({ kind, arg }); }
@@ -195,6 +195,16 @@ void PanelFrame()
         case A_WEATHER: if (a.arg < 0) RunScriptCommand(0x01B7, 0, nullptr); else { int w = a.arg; RunScriptCommand(0x01B6, 1, &w); } break;
         case A_GOTO: if (GoToPlayer(a.arg)) g_open = false; break;
         case A_GODEATH: if (GoToDeathSpot()) g_open = false; break;
+        case A_SKIPCUT: SkipCutsceneNow(); break;
+        case A_REMOVELAST:
+        case A_REMOVEALL: {
+            int n = VehiclesRemoveSpawned(a.kind == A_REMOVEALL);
+            char msg[64];
+            if (n) wsprintfA(msg, a.kind == A_REMOVEALL ? L("%d vehicule(s) retire(s)", "%d vehicle(s) removed") : L("Vehicule retire", "Vehicle removed"), n);
+            else lstrcpyA(msg, L("Aucun vehicule pose a retirer", "No spawned vehicle to remove"));
+            HudToast(msg, 2500);
+            break;
+        }
         case A_FRIENDLY: g_cfg.friendlyFire = !g_cfg.friendlyFire; SaveIni("TirAmi", g_cfg.friendlyFire); break;
         case A_SHAREWANTED: g_cfg.shareWanted = !g_cfg.shareWanted; SaveIni("RecherchePartagee", g_cfg.shareWanted); break;
         case A_HOSTPOLICE: g_cfg.hostPolice = !g_cfg.hostPolice; SaveIni("PoliceHote", g_cfg.hostPolice); break;
@@ -359,14 +369,21 @@ static void ToolsTab(float x0, float y0, float x1, float y1)
     float k = K();
     struct { const char *fr, *en; int action; } tools[] = {
         { "SANT\xC9" " + GILET", "HEALTH + ARMOUR", A_HEAL }, { "ARMES", "WEAPONS", A_WEAPONS }, { "+10 000 $", "+10,000 $", A_MONEY },
-        { "R\xC9" "PARER LE V\xC9" "HICULE", "REPAIR VEHICLE", A_REPAIR }, { "\xC9" "TOILES \xC0" " Z\xC9" "RO", "CLEAR WANTED LEVEL", A_NOWANTED }, { "JETPACK", "JETPACK", A_JETPACK } };
+        { "R\xC9" "PARER LE V\xC9" "HICULE", "REPAIR VEHICLE", A_REPAIR }, { "\xC9" "TOILES \xC0" " Z\xC9" "RO", "CLEAR WANTED LEVEL", A_NOWANTED }, { "JETPACK", "JETPACK", A_JETPACK },
+        { "PASSER LA CIN\xC9" "MATIQUE", "SKIP CUTSCENE", A_SKIPCUT }, { "RETIRER MON DERNIER V\xC9" "HICULE", "REMOVE MY LAST VEHICLE", A_REMOVELAST }, { "RETIRER TOUS MES V\xC9" "HICULES", "REMOVE ALL MY VEHICLES", A_REMOVEALL } };
     float bw = (x1 - x0 - 2 * 10 * k) / 3, bh = 42 * k;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 9; i++) {
         float bx = x0 + (i % 3) * (bw + 10 * k), by = y0 + (i / 3) * (bh + 10 * k);
-        if (Button(bx, by, bx + bw, by + bh, g_fr ? tools[i].fr : tools[i].en)) { Queue(tools[i].action); if (tools[i].action == A_JETPACK) g_open = false; }
+        const char *label = g_fr ? tools[i].fr : tools[i].en;
+        // (the long labels of the last row get a smaller font so they fit the button)
+        if (Button(bx, by, bx + bw, by + bh, label, false, true, i >= 7 ? 11.5f * k : 0)) { Queue(tools[i].action); if (tools[i].action == A_JETPACK) g_open = false; }
     }
-    UiText(x0, y0 + 2 * (bh + 10 * k) + 10 * k, 12.5f * k, C_GREY, UI_LEFT,
+    float ny = y0 + 3 * (bh + 10 * k) + 6 * k;
+    UiText(x0, ny, 12.5f * k, C_GREY, UI_LEFT,
            L("Armes : Desert Eagle, fusil \xE0" " pompe, MP5, M4, fusil de pr\xE9" "cision, grenades.", "Weapons: Desert Eagle, shotgun, MP5, M4, sniper rifle, grenades."));
+    UiText(x0, ny + 18 * k, 12.5f * k, C_GREY, UI_LEFT,
+           L("Cin\xE9matique bloqu\xE9" "e : un 2e clic la termine de force et rend commandes et cam\xE9ra. Retirer : seulement les v\xE9" "hicules que vous avez pos\xE9s.",
+             "Stuck in a cutscene: a 2nd click ends it by force and gives controls and camera back. Remove: only vehicles you spawned."));
 }
 
 // Tenues : CJ puis tous les pietons de data\peds.ide (ordre et noms : launcher\skins.h, comme le lanceur).

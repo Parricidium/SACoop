@@ -227,11 +227,97 @@ static bool OtherPlayerNear(const float *pos, float radius)
 // Vehicule pose par le joueur local (menu du jeu, code de triche) : vehicule reseau envoye tant qu'il existe, comme un
 // vehicule de mission de l'hote. Avant, seul le vehicule occupe etait partage : une voiture posee n'etait vue de
 // l'autre joueur que lorsque son proprietaire y montait, et disparaissait quand il en descendait.
+// The vehicles this player spawned (F10 menu, cheat code), oldest first: the F10 buttons "remove my last vehicle" and
+// "remove all my vehicles" (VehiclesRemoveSpawned).
+struct Spawned { void *veh; int ref; uint32_t id; };
+static Spawned g_spawned[24];
+static int g_spawnedN;
+static void NoteSpawned(void *veh, uint32_t id)
+{
+    for (int i = 0; i < g_spawnedN; i++) if (g_spawned[i].veh == veh && g_spawned[i].ref == VehRef(veh)) return;
+    if (g_spawnedN == 24) { memmove(g_spawned, g_spawned + 1, sizeof(Spawned) * 23); g_spawnedN = 23; }
+    g_spawned[g_spawnedN++] = { veh, VehRef(veh), id };
+}
+
 void VehicleSpawnedHere(void *veh)
 {
-    if (!veh || IsTrain(veh) || FindByVeh(veh)) return;
+    if (!veh || IsTrain(veh)) return;
+    if (FindByVeh(veh)) { NoteSpawned(veh, FindByVeh(veh)->id); return; }
     uint32_t id = HostVehicleId(veh, false, false);
+    NoteSpawned(veh, id);
     if (id) Log("vehicule pose par le joueur %08X (modele %d) : partage", id, *(int16_t *)((uint8_t *)veh + 0x22));
+}
+
+// The local player out of this vehicle, standing next to it (WARP_CHAR_FROM_CAR_TO_COORD 0362).
+static void EjectLocalPlayer(void *veh)
+{
+    void *me = FindPlayerPed();
+    if (!me || PedVehicle(me) != veh) return;
+    const float *p = EntityPos(veh);
+    const uint8_t *mat = *(uint8_t **)((uint8_t *)veh + 0x14);
+    float side[3] = { mat ? ((const float *)mat)[0] : 1.0f, mat ? ((const float *)mat)[1] : 0.0f, 0.0f };
+    float to[3] = { p[0] + side[0] * 3.0f, p[1] + side[1] * 3.0f, p[2] + 0.8f };
+    int warp[4] = { PedRef(me) };
+    memcpy(warp + 1, to, 12);
+    RunScriptCommandTyped(0x0362, 4, "ifff", warp);
+}
+
+// A vehicle out of the world at once, its other occupants (passengers, driver) deleted first (DELETE_CHAR 009B, DELETE_CAR 00A6).
+static void RemoveVehicleNow(void *veh)
+{
+    for (int k = 0; k < 8; k++)
+        if (void *ps = Field<void *>(veh, VEH_PASSENGERS + k * 4)) if (ps != FindPlayerPed() && PuppetIndex(ps) < 0) { int r = PedRef(ps); RunScriptCommand(0x009B, 1, &r); }
+    void *drv = Field<void *>(veh, VEH_DRIVER);
+    if (drv && drv != FindPlayerPed() && PuppetIndex(drv) < 0) { int r = PedRef(drv); RunScriptCommand(0x009B, 1, &r); }
+    int ref = VehRef(veh);
+    RunScriptCommand(0x00A6, 1, &ref);
+}
+
+// Gone notices go out four times (the network is not reliable): 0 = free.
+struct GoneNote { uint32_t id; uint8_t left; uint32_t next; };
+static GoneNote g_gone[8];
+static void SendGoneNotices()
+{
+    uint32_t now = GetTickCount();
+    for (auto &g : g_gone) {
+        if (!g.id || (int)(now - g.next) < 0) continue;
+        MsgVehicle m = {};
+        m.type = MSG_VEHICLE;
+        m.owner = (uint8_t)g_localId;
+        m.id = g.id;
+        m.flags = VF_GONE;
+        m.time = now;
+        NetSendToAll(&m, sizeof(m));
+        g.next = now + 120;
+        if (--g.left == 0) g.id = 0;
+    }
+}
+
+// The F10 buttons: removes the vehicle this player spawned last (all = false) or every one of them. The player is put
+// out of it first; a vehicle shared with the others disappears on their side at once. Returns how many were removed.
+int VehiclesRemoveSpawned(bool all)
+{
+    int removed = 0;
+    for (int i = g_spawnedN - 1; i >= 0; i--) {
+        Spawned s = g_spawned[i];
+        void *v = VehFromRef(s.ref);
+        if (v != s.veh) {   // gone already (destroyed, deleted by the game)
+            if (!all) { g_spawnedN = i; if (removed) break; continue; }
+            continue;
+        }
+        EjectLocalPlayer(v);
+        NetVeh *n = FindByVeh(v);
+        uint32_t id = n ? n->id : s.id;
+        if (id)
+            for (auto &g : g_gone) if (!g.id) { g.id = id; g.left = 4; g.next = 0; break; }
+        RemoveVehicleNow(v);
+        if (n) memset(n, 0, sizeof(*n));
+        removed++;
+        Log("vehicle %08X removed by its owner (F10 menu)", id);
+        if (!all) { g_spawnedN = i; break; }
+    }
+    if (all) g_spawnedN = 0;
+    return removed;
 }
 
 // Vehicule qui vient d'apparaitre tout pres du joueur local, a pied, sans conducteur : posee par un code de triche
@@ -318,6 +404,11 @@ static void SendOwned()
         m.gas = *(float *)(v + 0x49C);
         m.brake = *(float *)(v + 0x4A0);
         m.handbrake = (v[0x428] & 0x20) ? 1 : 0;
+        {   // helicopter rotor / plane propeller speed: the copy shows the blades turning
+            int vt = *(const int *)(v + VEH_TYPE);
+            float r = vt == 3 ? *(const float *)(v + 0x84C) : vt == 4 ? *(const float *)(v + 0x9C4) : 0.0f;
+            m.rotor = fabsf(r) < 10.0f ? r : 0.0f;
+        }
         if (n.mission || n.ambient) m.flags |= VF_MISSION;   // envoye tant qu'il existe (copie retiree 3 s apres)
         if (v[0x4A4] == 2) m.flags |= VF_SCRIPT;
         m.health = *(float *)(v + 0x4C0);
@@ -342,6 +433,18 @@ static void OnVehicle(const MsgVehicle &m)
 {
     if (m.owner == g_localId) return;
     NetVeh *n = FindById(m.id);
+    if (m.flags & VF_GONE) {   // the owner removed it (F10 menu): the copy goes at once, whoever sits in it gets out first
+        if (n && n->owner != g_localId) {
+            if (Alive(*n)) {
+                void *me = FindPlayerPed();
+                if (me && PedVehicle(me) == n->veh) EjectLocalPlayer(n->veh);
+                RemoveVehicleNow(n->veh);
+            }
+            Log("vehicle %08X removed by its owner", m.id);
+            memset(n, 0, sizeof(*n));
+        }
+        return;
+    }
     if (n && n->owner == g_localId && Alive(*n)) {
         // Un autre joueur a pris le volant de notre vehicule : il devient une copie chez nous.
         Log("vehicule %08X : le joueur %d en prend la propriete", m.id, m.owner);
@@ -750,6 +853,19 @@ void VehiclesAfterProcess()
         }
         EntityRefresh(v);
     }
+    // Helicopters and planes: the copy's engine is "on" and its rotor / propeller turns at the owner's speed. Written after
+    // the game's own step (its engine-off copy would slow the rotor down to a stop), so that the pre-render turns the blades.
+    for (auto &n : g_veh) {
+        if (!n.id || n.owner == g_localId || !n.veh || !Alive(n) || now - n.lastRecv >= 1500) continue;
+        uint8_t *v = (uint8_t *)n.veh;
+        int vt = *(int *)(v + VEH_TYPE);
+        if (vt != 3 && vt != 4) continue;
+        if (me && PedVehicle(me) == n.veh && Field<void *>(v, VEH_DRIVER) == me) continue;   // we fly it: the game's own rotor
+        float r = n.last.rotor;
+        if (!(fabsf(r) < 10.0f)) r = 0.0f;
+        if (r > 0.01f) v[0x428] |= 0x10;   // bEngineOn
+        *(float *)(v + (vt == 3 ? 0x84C : 0x9C4)) = r;
+    }
 }
 
 void VehiclesFrame()
@@ -772,4 +888,5 @@ void VehiclesFrame()
     GuestMissionVehicle();
     ShareSpawnedVehicles();
     SendOwned();
+    SendGoneNotices();
 }
