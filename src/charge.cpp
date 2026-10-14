@@ -164,6 +164,22 @@ static void TopProcesses(ULONGLONG wall100ns, char *out, int cap)
     }
 }
 
+// --- Meteo (diagnostic) : chaque changement de la meteo du jeu est journalise, avec l'heure du jeu et la cinematique ---
+// CWeather : ancienne 0xC81320, nouvelle 0xC8131C, forcee 0xC81318, fondu 0xC8130C ; CClock 0xB70153 / 0xB70152 ;
+// CCutsceneMgr::ms_running 0xB5F851 ; gGameState 0xC8D4C0. Lecture seule, depuis ce fil.
+static void WeatherWatch()
+{
+    static short o = -2, n = -2, f = -2;
+    static int said;
+    if (*(int *)0xC8D4C0 != 9 || said >= 300) return;
+    short wo = *(short *)0xC81320, wn = *(short *)0xC8131C, wf = *(short *)0xC81318;
+    if (wo == o && wn == n && wf == f) return;
+    o = wo; n = wn; f = wf;
+    said++;
+    Log("meteo : ancienne %d, nouvelle %d, forcee %d, fondu %.2f ; heure du jeu %02d:%02d ; cinematique %d",
+        (int)wo, (int)wn, (int)wf, *(float *)0xC8130C, (int)*(uint8_t *)0xB70153, (int)*(uint8_t *)0xB70152, (int)*(uint8_t *)0xB5F851);
+}
+
 // --- Windows 11 : limitation d'energie du processus (EcoQoS) et minuterie ---
 // Un processus juge "en arriere-plan" peut etre ralenti et voir la resolution de sa minuterie ignoree : on demande a
 // ne pas l'etre (ProcessPowerThrottling = 4, ControlMask = vitesse d'execution 1 + resolution de minuterie 4,
@@ -202,7 +218,8 @@ static DWORD WINAPI ChargeThread(LPVOID)
         ULONGLONG deadline = GetTickCount64() + 10000;
         while (GetTickCount64() < deadline) {
             if (sampling) { TakeSample(th); Sleep(20); }
-            else Sleep(500);
+            else Sleep(100);
+            WeatherWatch();
         }
         ULONGLONG nowWall = GetTickCount64(), wall100 = (nowWall - prevWall) * 10000;
         if (!wall100) continue;

@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.49.0-vcport"
+#define SACOOP_VERSION "0.50.0-vcport"
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)
@@ -50,6 +50,9 @@ struct Config {
     bool freezeCopies;      // GelerCopies : la physique du jeu ne deplace plus les copies de vehicules (CPhysical bDontApplySpeed)
     bool guard;             // GardeFou : vehicules / personnages aberrants (NaN...) remis a leur derniere position saine
     bool mirrorExtra;       // MiroirEtendu : commandes de mission supplementaires rejouees chez les invites (mirror.cpp)
+    bool fallRescue;        // SecoursChute : joueur tombe sous le monde (collisions absentes) remis a sa derniere position sure (coop.cpp)
+    bool radarSync;         // MarqueursRadar : marqueurs du radar de l'hote (coordonnees, points de contact) reproduits chez l'invite (mirror.cpp)
+    bool hideCut;           // CacherEnCinematique : pantins, copies de PNJ de mission et de vehicules caches pendant une cinematique
 };
 extern Config g_cfg;
 

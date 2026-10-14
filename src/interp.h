@@ -37,6 +37,13 @@ bool InterpActive();            // hook installed and enabled: callers stop plac
 // for every pose written after CGame::Process, or the renderer draws the old one.
 void EntityRefresh(void *e);
 
+// Cinematiques : une tourne chez nous (CCutsceneMgr::ms_running, 0xB5F851).
+bool CutsceneNow();
+// Cache (CEntity::m_bIsVisible, +0x1C bit 7) un double reseau pendant une cinematique : pantin d'un autre joueur, copie
+// d'un PNJ ou d'un vehicule de mission se tiennent dans la scene, par-dessus les acteurs de la cinematique, et
+// scintillent (deux modeles aux memes endroits). mine memorise qu'on l'a cache : on ne remet visible que ce qu'on a cache.
+void CutsceneHide(void *e, bool hide, bool &mine);
+
 // Provided by the modules:
 void PuppetsAfterProcess();    // coop.cpp
 void VehiclesAfterProcess();   // vehicles.cpp

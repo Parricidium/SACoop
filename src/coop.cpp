@@ -62,6 +62,7 @@ struct Puppet {
     int attObj, attModel;// objet attache recopie (poignee de script, modele)
     Track track;         // etats recus horodates (interpolation apres la physique, interp.cpp)
     bool follow;         // UpdatePuppet l'a laisse suivre son joueur a pied cette image : PuppetsAfterProcess le place
+    bool cutHidden;      // cache par nous pendant une cinematique (CutsceneHide)
 };
 
 // Coups au corps a corps (poings, fichier d'animations PED) : vus sur le joueur (RpAnimBlendClumpGetAssociation
@@ -193,6 +194,8 @@ static void SendLocalState()
             if (HasTaskType(ped, 1600)) s.gear |= 4;   // CTaskComplexUseMobilePhone
         }
         AttachedToPlayer(ped, s);
+        if (CutsceneNow()) s.gear |= 0x10;   // une cinematique tourne chez nous : notre pantin est cache chez les autres
+        if (*(uint8_t *)(0xBA6748 + 0x5C)) s.gear |= 0x20;   // menu pause ouvert : notre pantin se tient tranquille, "(pause)" a cote de notre nom
         if (!PedVehicle(ped)) {
             if (AnimsClimbing(ped)) s.air = 2;
             else if (!(Field<uint8_t>(ped, 0x46C) & 1)) s.air = 1;   // CPed::bIsStanding (+0x46C bit 0) a zero
@@ -239,6 +242,10 @@ static void SendLocalState()
 static void OnWorld(const MsgWorld &w)
 {
     if (GameState() != 9) return;
+    // Pendant une cinematique (la notre : sa meteo et son heure sont fixees par le jeu / le script), on ne touche a rien ;
+    // les valeurs de l'hote reprennent a la fin (message suivant, 1 s). Avant, l'invite voyait la meteo changer a chaque
+    // message pendant les cinematiques (mission Home Invasion, 14/10).
+    if (*(uint8_t *)0xB5F851) return;
     uint8_t &h = *(uint8_t *)0xB70153, &m = *(uint8_t *)0xB70152;
     int mine = h * 60 + m, host = w.hours * 60 + w.minutes, diff = host - mine;
     if (diff > 720) diff -= 1440;
@@ -517,7 +524,20 @@ static void UpdatePuppet(int id)
     bool want = np.connected && np.state.inGame && local && GetTickCount() - np.lastStateAt < 3000;
     p.follow = false;
     if (!want) { DestroyPuppet(id); if (!np.connected) p.track.Clear(); return; }
-    const MsgState &s = np.state;
+    // Menu pause ouvert chez lui (gear 0x20) : son joueur ne bouge plus, mais le dernier etat recu portait encore une
+    // allure de course (son pantin courait sur place). Le pantin se tient tranquille : allure "immobile", pas de vitesse
+    // (donc rien a extrapoler : pas de derive), pas de visee. Position, hauteur, etat en l'air et animations d'action
+    // (accroupi, nage, chute...) restent ceux recus : il ne flotte pas et ne retombe pas en boucle, il fait comme son joueur.
+    MsgState pausedState;
+    const MsgState *src = &np.state;
+    if (np.state.gear & 0x20) {
+        pausedState = np.state;
+        memset(pausedState.speed, 0, sizeof(pausedState.speed));
+        pausedState.moveState = 0;
+        pausedState.aiming = 0;
+        src = &pausedState;
+    }
+    const MsgState &s = *src;
     if (p.ped && PedFromRef(p.ref) != p.ped) {   // supprime par le jeu (nettoyage de fin de cinematique...)
         Log("pantin du joueur %d supprime par le jeu, recreation", id);
         p.ped = nullptr;
@@ -531,6 +551,7 @@ static void UpdatePuppet(int id)
     if (p.model == 0 && g_clothesHash[id] && p.clothes != g_clothesHash[id] && GetTickCount() - p.builtAt > 2000) DressPuppet(id);
     void *ped = p.ped;
     if (EntityArea(ped) != s.area) EntityArea(ped) = s.area;
+    CutsceneHide(ped, g_cfg.hideCut && (CutsceneNow() || (s.gear & 0x10)), p.cutHidden);   // (cinematique, la notre ou la sienne)
     // Mort : le pantin meurt aussi (animation du jeu) ; a la reapparition du joueur (hopital), il est recree.
     int pstate = Field<int>(ped, PED_STATE);
     bool puppetDead = pstate == 54 || pstate == 55 || Field<float>(ped, PED_HEALTH) <= 0.0f;
@@ -759,7 +780,7 @@ static void OnState(const MsgState &s)
     if (!s.inGame) { p.track.Clear(); return; }
     Snap n = {};
     n.t = s.time;
-    for (int k = 0; k < 3; k++) { n.pos[k] = s.pos[k]; n.vel[k] = s.speed[k]; }
+    for (int k = 0; k < 3; k++) { n.pos[k] = s.pos[k]; n.vel[k] = (s.gear & 0x20) ? 0.0f : s.speed[k]; }   // (menu pause : rien a extrapoler)
     n.heading = s.heading;
     p.track.Push(n);
 }
@@ -1730,6 +1751,48 @@ static void Autotest()
 }
 
 static void CoopFrameInner(bool inGameLoop);
+// --- Chute sous le monde ---
+// Un joueur mis dans une zone dont les collisions ne sont pas (encore) chargees tombe sans fin (cinematique de mission,
+// retour d'un interieur, arrivee aupres de l'hote ; mission "Home Invasion" : l'invite tombait apres l'echec). On retient la
+// derniere position sure (a pied, debout, au-dessus de -5, hors cinematique) et on y remet le joueur s'il reste sous -150
+// plus d'une demi-seconde. Sans position sure, un invite est remis aupres de l'hote. Journalise.
+static void FallRescue()
+{
+    static float safe[3], safeHeading;
+    static uint8_t safeArea;
+    static bool haveSafe;
+    static uint32_t lastSafe, belowSince, lastRescue;
+    void *me = FindPlayerPed();
+    if (!g_cfg.fallRescue || !InGame() || !me) { belowSince = 0; return; }
+    uint32_t now = GetTickCount();
+    float *p = EntityPos(me);
+    bool cut = *(uint8_t *)0xB5F851 != 0;
+    if (!PedVehicle(me) && !cut && (Field<uint8_t>(me, 0x46C) & 1) && p[2] > -5.0f && p[2] < 2000.0f && now - lastSafe > 1000) {
+        lastSafe = now;
+        memcpy(safe, p, sizeof(safe));
+        safeHeading = Field<float>(me, PED_ROTATION);
+        safeArea = EntityArea(me);
+        haveSafe = true;
+    }
+    if (!(p[2] < -150.0f)) { belowSince = 0; return; }
+    if (!belowSince) { belowSince = now; return; }
+    if (now - belowSince < 500 || now - lastRescue < 3000) return;
+    lastRescue = now;
+    float to[3];
+    uint8_t area = 0;
+    const char *why;
+    if (haveSafe) { memcpy(to, safe, sizeof(to)); area = safeArea; why = "derniere position sure"; }
+    else if (!g_cfg.host && g_players[0].connected && g_players[0].state.inGame) { memcpy(to, g_players[0].state.pos, sizeof(to)); area = g_players[0].state.area; why = "aupres de l'hote"; }
+    else { Log("chute : joueur sous le monde (%.1f %.1f %.1f, zone %d), aucune position sure connue", p[0], p[1], p[2], EntityArea(me)); return; }
+    to[2] += 1.0f;
+    Log("chute : joueur sous le monde (%.1f %.1f %.1f, zone %d, vehicule %p), remis %s (%.1f %.1f %.1f, zone %d)", p[0], p[1], p[2],
+        EntityArea(me), PedVehicle(me), why, to[0], to[1], to[2], area);
+    if (PedVehicle(me)) return;
+    PlacePuppet(me, to, haveSafe ? safeHeading : Field<float>(me, PED_ROTATION));
+    EntityArea(me) = area;
+    memset(MoveSpeed(me), 0, 12);
+}
+
 void CoopFrame(bool inGameLoop)
 {
     CoopFrameInner(inGameLoop);
@@ -1772,6 +1835,7 @@ static void CoopFrameInner(bool inGameLoop)
     MirrorMenuFrame();
     if (!inGameLoop) return;
     if (!InGame() || *(uint8_t *)0xB5F851) g_calmSince = GetTickCount();
+    FallRescue();
     // Menu Pause ouvert par un joueur : tant qu'un autre joueur est connecte, le monde continue (CTimer::m_UserPause).
     bool others = false;
     for (int i = 0; i < MAX_PLAYERS; i++) others |= i != g_localId && g_players[i].connected;

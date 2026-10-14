@@ -1,4 +1,4 @@
-# Port of VCCoop's robustness layer to SACoop (0.49.0-vcport, NET_VERSION 19)
+# Port of VCCoop's robustness layer to SACoop (0.50.0-vcport, NET_VERSION 20)
 
 Both players must run the **same build** (the wire format of vehicle and ped messages gained a `time` field).
 
@@ -19,6 +19,9 @@ game's physics step*. SACoop used to place them after the whole frame was render
 | `GelerCopies=1`           | Sets `bDontApplySpeed` (CPhysical flags +0x40, bit 13) on copies so local physics cannot push them; cleared when the local player drives it or updates go stale (1.5 s). | `0` |
 | `GardeFou=1`              | Before each `CGame::Process`, vehicles and peds with NaN / absurd matrix, position or speed get their last sane pose back (or are laid flat), speeds zeroed, logged as `sanitizer: ...` (first 60). Targets the world-sector crash seen on VC guests. | `0` |
 | `MiroirEtendu=1`          | ~120 more mission opcodes mirrored from host to guest (texts, blips, camera/fade, mission audio, cutscene helpers, roads, garages, objects, pickups). Blip modifications no longer overwrite the creation entry kept for late joiners. | `0` |
+| `CacherEnCinematique=1`   | Pantin de l'autre joueur, copies de PNJ de mission et copies de vehicules sont caches (bIsVisible) pendant une cinematique (la notre ou la sienne, drapeau `gear & 0x10` du message d'etat) : sinon ils chevauchent les acteurs de la scene et scintillent. | `0` |
+| `MarqueursRadar=1`        | L'hote envoie l'etat de ses marqueurs du radar de type coordonnees / point de contact (`MSG`/`RL_BLIPS`, 2 fois par seconde au plus, toutes les 5 s sinon) ; l'invite cree, retire et met a jour les siens (miroir.cpp, `BlipsReconcile`). Couvre les marqueurs poses par le script principal, que le miroir de commandes (scripts de mission seulement) ne voyait pas. | `0` |
+| `SecoursChute=1`          | Un joueur sous le monde (z < -150 m pendant 0,5 s) est remis a sa derniere position sure (ou aupres de l'hote). Journal : `chute :`. | `0` |
 
 ## Bisect order if the build is worse than before
 
@@ -38,3 +41,13 @@ Ragdoll sync (VC bone tags do not map to SA), on-screen timers/counters (need sc
 
 `build-dll.cmd` finds Visual Studio (2019–2026), builds `build\dinput8.dll` (Win32, /MT) and writes `build\build.log`.
 Copy that DLL over `dinput8.dll` in the San Andreas folder, on both machines.
+
+
+## Ajouts du 14/10 (retours du test Home Invasion)
+
+- **Marqueurs du radar** (`MarqueursRadar`) : voir ci-dessus. Journal : `radar : ...` (hote : nombre de marqueurs partages ; invite : crees / retires / mis a jour).
+- **Meteo** : `WeatherWatch` (charge.cpp) journalise chaque changement de meteo (`meteo :`) ; l'invite ne reprend plus la meteo/l'heure de l'hote pendant une cinematique.
+- **Vehicules poses** : un vehicule pose par le menu F10 (`VehicleSpawnedHere`) ou par un code de triche (detecte : apparu a moins de 12 m du joueur a pied, sans conducteur) devient un vehicule reseau envoye tant qu'il existe. Un vehicule gare reste envoye (1 fois par seconde) tant qu'un autre joueur est a moins de 350 m, au lieu de disparaitre chez lui 10 s plus tard.
+- **Circulation de l'invite** : quand une copie de vehicule de l'hote va naitre, une voiture ordinaire de chez l'invite deja a cet endroit (a 6 m) est retiree avec ses occupants (journal : `circulation : voiture locale retiree`) ; un vehicule d'un joueur ou de mission fait attendre la copie (4 s au plus).
+- **Menu pause** : `gear & 0x20` dans l'etat du joueur. Chez les autres, son pantin passe a l'allure immobile (vitesse nulle, pas de visee, rien a extrapoler) et son nom affiche `(paused)` / `(en pause)`.
+- **Affinite** (`AffiniteCoeur=0`) : le processus du jeu est limite au coeur 0 des le lancement (comme Gestionnaire des taches > Definir l'affinite) : corrige le curseur de souris qui derape. `-1` = aucune restriction. Journal : `affinite :`.

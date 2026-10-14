@@ -36,6 +36,8 @@ struct NetVeh {
     uint32_t blownAt;    // derniere demande d'explosion de la copie
     float sentPos[3];    // (vehicules a nous) position au dernier envoi, et quand : vitesse reelle
     uint32_t sentAt;
+    bool cutHidden;      // (copies) cachee par nous pendant une cinematique (CutsceneHide)
+    uint32_t blockedSince; // (copies) depuis quand un vehicule de chez nous occupe l'emplacement de la copie
     Track track;         // (copies) etats recus horodates : interpolation apres la physique (interp.cpp)
 };
 static NetVeh g_veh[MAX_NETVEH];
@@ -206,6 +208,59 @@ static bool AnyDamage(const MsgVehicle &m)
     return m.lights || m.panels;
 }
 
+// Un autre joueur en partie a moins de radius (m) de ce point (meme interieur, ou presque) ?
+static bool OtherPlayerNear(const float *pos, float radius)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (i == g_localId || !g_players[i].connected || !g_players[i].state.inGame) continue;
+        const float *q = g_players[i].state.pos;
+        float dx = pos[0] - q[0], dy = pos[1] - q[1];
+        if (dx * dx + dy * dy < radius * radius) return true;
+    }
+    return false;
+}
+
+// Vehicule pose par le joueur local (menu du jeu, code de triche) : vehicule reseau envoye tant qu'il existe, comme un
+// vehicule de mission de l'hote. Avant, seul le vehicule occupe etait partage : une voiture posee n'etait vue de
+// l'autre joueur que lorsque son proprietaire y montait, et disparaissait quand il en descendait.
+void VehicleSpawnedHere(void *veh)
+{
+    if (!veh || FindByVeh(veh)) return;
+    uint32_t id = HostVehicleId(veh, false, false);
+    if (id) Log("vehicule pose par le joueur %08X (modele %d) : partage", id, *(int16_t *)((uint8_t *)veh + 0x22));
+}
+
+// Vehicule qui vient d'apparaitre tout pres du joueur local, a pied, sans conducteur : posee par un code de triche
+// (CCheat::VehicleCheat : a 2 m devant le joueur, CreatedBy 1 comme la circulation) -> partage. La circulation et les
+// voitures garees naissent a distance, hors de vue : jamais a moins de 12 m d'un joueur a pied.
+static void ShareSpawnedVehicles()
+{
+    static uint32_t last;
+    static int seen[256];
+    static bool primed;
+    uint32_t now = GetTickCount();
+    if (now - last < 200) return;
+    last = now;
+    Pool *p = *(Pool **)0xB74494;
+    void *me = FindPlayerPed();
+    if (!p || !me || p->size > 256) return;
+    bool onFoot = !PedVehicle(me);
+    const float *mp = EntityPos(me);
+    for (int i = 0; i < p->size; i++) {
+        if (p->flags[i] & 0x80) { seen[i] = 0; continue; }
+        uint8_t *v = p->objects + i * 0xA18;
+        int ref = VehRef(v);
+        if (seen[i] == ref) continue;
+        seen[i] = ref;
+        if (!primed || !onFoot || v[0x4A4] != 1 || FindByVeh(v) || Field<void *>(v, VEH_DRIVER)) continue;
+        const float *vp = EntityPos(v);
+        float dx = vp[0] - mp[0], dy = vp[1] - mp[1], dz = vp[2] - mp[2];
+        if (dx * dx + dy * dy + dz * dz > 12.0f * 12.0f) continue;
+        VehicleSpawnedHere(v);
+    }
+    primed = true;
+}
+
 // --- Envoi : vehicules dont on est proprietaire ---
 static void SendOwned()
 {
@@ -220,7 +275,13 @@ static void SendOwned()
         uint32_t every = driving ? 33 : hosted && moving ? 66 : 500;
         // circulation de l'hote loin de tout invite (80 m) : 5 fois par seconde suffisent
         if (n.ambient && !driving && g_cfg.host && every < 200 && !NearSharedGuestAnywhere(EntityPos(n.veh), 80.0f)) every = 200;
-        if (!driving && !hosted && now - n.lastDriven > 10000) continue;   // gare depuis 10 s : plus rien a envoyer
+        // Gare depuis plus de 10 s : l'etat est quand meme renvoye (une fois par seconde) tant qu'un autre joueur est a
+        // moins de 350 m. Avant, la copie disparaissait chez l'autre joueur des qu'on descendait (voiture posee par le
+        // menu ou par un code de triche, voiture volee et laissee la). Au-dela, plus rien : de toute facon hors de vue.
+        if (!driving && !hosted && now - n.lastDriven > 10000) {
+            if (!OtherPlayerNear(EntityPos(n.veh), 350.0f)) continue;
+            if (every < 1000) every = 1000;
+        }
         if (now - n.lastSend < every) continue;
         n.lastSend = now;
         uint8_t *v = (uint8_t *)n.veh;
@@ -306,6 +367,39 @@ static void OnVehicle(const MsgVehicle &m)
     n->lastRecv = GetTickCount();
 }
 
+// Un vehicule de chez nous a l'emplacement ou la copie va naitre ? Voiture ordinaire de notre jeu (circulation, voiture
+// garee) : elle est retiree avec ses occupants (la zone est celle d'un autre joueur, il y fait foi ; sans cela les deux
+// voitures se rentraient dedans a la naissance de la copie, test du 14/10 : "la circulation de l'invite apparait dans
+// celle de l'hote"). Autre chose (vehicule partage, du joueur, de mission) : la copie attend, au plus 4 s.
+static bool ClearSpotForCopy(NetVeh &n)
+{
+    Pool *p = *(Pool **)0xB74494;
+    if (!p) return true;
+    uint32_t now = GetTickCount();
+    bool blocked = false;
+    for (int i = 0; i < p->size; i++) {
+        if (p->flags[i] & 0x80) continue;
+        uint8_t *v = p->objects + i * 0xA18;
+        if (v == n.veh) continue;
+        const float *vp = EntityPos(v);
+        float dx = vp[0] - n.last.pos[0], dy = vp[1] - n.last.pos[1], dz = vp[2] - n.last.pos[2];
+        if (dx * dx + dy * dy > 6.0f * 6.0f || fabsf(dz) > 3.0f) continue;
+        void *drv = Field<void *>(v, VEH_DRIVER);
+        bool ordinary = (v[0x4A4] == 1 || v[0x4A4] == 3) && !FindByVeh(v) && (!drv || (drv != FindPlayerPed() && PuppetIndex(drv) < 0));
+        if (ordinary) {
+            for (int k = 0; k < 8; k++) if (void *ps = Field<void *>(v, VEH_PASSENGERS + k * 4)) { int r = PedRef(ps); RunScriptCommand(0x009B, 1, &r); }
+            if (drv) { int r = PedRef(drv); RunScriptCommand(0x009B, 1, &r); }
+            int ref = VehRef(v);
+            RunScriptCommand(0x00A6, 1, &ref);   // DELETE_CAR
+            static int said;
+            if (said < 20) { said++; Log("circulation : voiture locale retiree, la copie %08X va naitre a sa place", n.id); }
+        } else blocked = true;
+    }
+    if (!blocked) { n.blockedSince = 0; return true; }
+    if (!n.blockedSince) n.blockedSince = now;
+    return now - n.blockedSince > 4000;
+}
+
 static void CreateCopy(NetVeh &n)
 {
     int model = n.last.model;
@@ -323,6 +417,7 @@ static void CreateCopy(NetVeh &n)
         LoadAllRequestedModels(false);
         if (!ModelLoaded(model)) return;
     }
+    if (!ClearSpotForCopy(n)) return;
     void *v = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(model, n.last.pos[0], n.last.pos[1], n.last.pos[2], false);
     if (!v) return;
     n.veh = v;
@@ -350,7 +445,7 @@ static void DestroyCopy(NetVeh &n, bool forget = true)
         Log("copie du vehicule %08X retiree", n.id);
     }
     if (forget) memset(&n, 0, sizeof(n));
-    else n.veh = nullptr;
+    else { n.veh = nullptr; n.cutHidden = false; }
 }
 
 // Etat de la carrosserie recu : sante, sirene, explosion, degats (seulement ceux en plus : une copie abimee par sa
@@ -639,8 +734,10 @@ void VehiclesFrame()
         uint32_t timeout = (n.last.flags & VF_MISSION) ? 3000 : 30000;   // mission : l'hote l'envoie tant qu'il existe
         if (now - n.lastRecv > timeout && !PuppetInVehicle(n.veh)) { DestroyCopy(n, true); continue; }
         if (!n.veh) CreateCopy(n);
+        if (n.veh) CutsceneHide(n.veh, g_cfg.hideCut && CutsceneNow(), n.cutHidden);
         if (n.veh && now - n.lastRecv < 1500) { if (!g_cfg.placeVeh) UpdateCopy(n); ApplyBody(n); }   // (placeVeh : la pose vient de VehiclesAfterProcess)
     }
     GuestMissionVehicle();
+    ShareSpawnedVehicles();
     SendOwned();
 }

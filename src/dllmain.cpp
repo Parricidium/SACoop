@@ -151,6 +151,9 @@ static void LoadConfig()
     g_cfg.freezeCopies = GetPrivateProfileIntA("SACoop", "GelerCopies", 1, ini) != 0;
     g_cfg.guard = GetPrivateProfileIntA("SACoop", "GardeFou", 1, ini) != 0;
     g_cfg.mirrorExtra = GetPrivateProfileIntA("SACoop", "MiroirEtendu", 1, ini) != 0;
+    g_cfg.hideCut = GetPrivateProfileIntA("SACoop", "CacherEnCinematique", 1, ini) != 0;
+    g_cfg.radarSync = GetPrivateProfileIntA("SACoop", "MarqueursRadar", 1, ini) != 0;
+    g_cfg.fallRescue = GetPrivateProfileIntA("SACoop", "SecoursChute", 1, ini) != 0;
     GetPrivateProfileStringA("SACoop", "Autotest", "", g_cfg.autotest, sizeof(g_cfg.autotest), ini);
     char role[16];
     GetPrivateProfileStringA("SACoop", "Role", "hote", role, sizeof(role), ini);
@@ -240,6 +243,21 @@ static bool IsVersion10US()
     return memcmp((void *)0x469FB0, sig, sizeof(sig)) == 0;
 }
 
+// Affinite du processeur : le jeu d'origine est ecrit pour un seul coeur ; sur une machine a plusieurs coeurs, la souris
+// (curseur du menu, camera) se met a derailler. Equivaut a Gestionnaire des taches > Details > Definir l'affinite, fait au
+// lancement. AffiniteCoeur : numero du coeur (0 par defaut), -1 = aucune restriction.
+static void ApplyAffinity()
+{
+    int core = GetPrivateProfileIntA("SACoop", "AffiniteCoeur", 0, IniPath());
+    if (core < 0 || core > 31) { Log("affinite : non restreinte (AffiniteCoeur=%d)", core); return; }
+    DWORD_PTR procMask = 0, sysMask = 0;
+    if (!GetProcessAffinityMask(GetCurrentProcess(), &procMask, &sysMask)) { Log("affinite : lecture impossible (erreur %lu)", GetLastError()); return; }
+    DWORD_PTR want = (DWORD_PTR)1 << core;
+    if (!(want & sysMask)) { Log("affinite : le coeur %d n'existe pas sur cette machine (masque %08X), non restreinte", core, (unsigned)sysMask); return; }
+    if (SetProcessAffinityMask(GetCurrentProcess(), want)) Log("affinite : processus limite au coeur %d (masque %08X -> %08X)", core, (unsigned)procMask, (unsigned)want);
+    else Log("affinite : SetProcessAffinityMask a echoue (erreur %lu)", GetLastError());
+}
+
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
 {
     if (reason == DLL_PROCESS_DETACH) { NetSendBye(); return TRUE; }   // fermeture du jeu : les autres le savent tout de suite
@@ -262,6 +280,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
         MessageBoxA(NULL, "SACoop a besoin de gta_sa.exe en version 1.0 US.\nLe mod est desactive.", "SACoop", MB_ICONWARNING);
         return TRUE;
     }
+    ApplyAffinity();
     StartWatchdog();
     StartCharge();
     InstallFileHooks();

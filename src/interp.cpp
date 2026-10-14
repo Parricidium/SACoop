@@ -109,6 +109,21 @@ bool TrackSample(const Track &tr, int src, Snap &o, bool linear)
     return true;
 }
 
+// --- Cinematiques ---
+bool CutsceneNow() { return *(const uint8_t *)0xB5F851 != 0; }
+
+void CutsceneHide(void *e, bool hide, bool &mine)
+{
+    if (!e) return;
+    uint8_t &f = *((uint8_t *)e + 0x1C);   // CEntity::m_nFlags, octet 0 : bit 7 = bIsVisible
+    if (hide) {
+        if (f & 0x80) { f &= (uint8_t)~0x80; mine = true; }
+    } else if (mine) {
+        f |= 0x80;
+        mine = false;
+    }
+}
+
 // --- RenderWare frame ---
 // CEntity::UpdateRwMatrix (0x446F90) copies the CMatrix into the RwMatrix of the model, CEntity::UpdateRwFrame
 // (0x532B00) tells RenderWare the frame changed. CWorld::Process does both for every moving entity at the end of its

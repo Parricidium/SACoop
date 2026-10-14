@@ -71,7 +71,13 @@ static void DrawNames()
         font::SetEdge(1);
         font::SetDropColor(RGBA(0, 0, 0, 255));
         font::SetColor(kNameColor[i]);
-        font::Print(scr[0], scr[1], g_players[i].state.name[0] ? g_players[i].state.name : "?");
+        {   // menu pause ouvert chez ce joueur (gear 0x20) : "(paused)" a cote de son nom
+            static const bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+            char label[64];
+            lstrcpynA(label, g_players[i].state.name[0] ? g_players[i].state.name : "?", 40);
+            if (g_players[i].state.gear & 0x20) lstrcatA(label, fr ? " (en pause)" : " (paused)");
+            font::Print(scr[0], scr[1], label);
+        }
         any = true;
     }
     if (any) font::DrawFonts();

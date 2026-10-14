@@ -8,6 +8,7 @@
 //  - Les actions (faire apparaitre, armes...) sont mises en file pendant le dessin et faites dans la boucle du jeu.
 #include "util.h"
 #include "sacoop.h"
+#include "vehicles.h"
 #include "net.h"
 #include "game.h"
 #include "peds.h"
@@ -154,6 +155,7 @@ static void SpawnVehicle(int model)
         r[0] = cosf(a); r[1] = sinf(a); r[2] = 0;
     }
     EntityArea(v) = EntityArea(me);
+    VehicleSpawnedHere(v);   // partage tout de suite avec les autres joueurs (sinon vu seulement quand on y monte)
     Log("menu jeu : vehicule %d pose devant le joueur", model);
 }
 

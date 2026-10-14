@@ -132,6 +132,7 @@ struct Copy {
     bool air;            // suit la hauteur de l'original (FollowAir)
     Track track;         // etats recus horodates (interpolation apres la physique, interp.cpp)
     bool follow;         // UpdateCopy l'a laissee suivre l'original a pied cette image : GhostsAfterProcess la place
+    bool cutHidden;      // cachee par nous pendant une cinematique (CutsceneHide)
 };
 static Copy g_copies[MAX_COPIES];
 
@@ -251,6 +252,7 @@ static void UpdateCopy(Copy &c, uint32_t now)
     const MsgPed &m = c.last;
     void *ped = c.ped;
     c.follow = false;
+    CutsceneHide(ped, g_cfg.hideCut && CutsceneNow(), c.cutHidden);
     if (EntityArea(ped) != m.area) EntityArea(ped) = m.area;
     if (c.air && (m.flags & PF_DEAD)) FollowAirEnd(ped, c.air);
     if (m.flags & PF_DEAD) {

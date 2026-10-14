@@ -35,7 +35,7 @@
 
 using namespace game;
 
-enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5 };
+enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6 };
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
 // q/Q sphere (entree/sortie), o/O objet (entree/sortie), k/K pickup, r/R feu de script. (A l'envoi, un P qui designe le joueur de l'hote devient H :
@@ -333,6 +333,107 @@ static int SendGlobals(int peer, bool all)
     return total;
 }
 
+// --- Marqueurs du radar ---
+// CRadar::ms_RadarTrace 0xBA86F0 : 175 entrees de 0x28 octets. +0x00 couleur, +0x04 entite, +0x08 position, +0x14 compteur
+// (poignee = indice | compteur << 16), +0x1C taille, +0x20 entree/sortie, +0x24 icone (int8), +0x25 drapeaux (0x01 vif,
+// 0x02 en service, 0x04 courte portee), +0x26 affichage (bits 0-1), type (bits 2-5), apparence (bits 6-7).
+// Les marqueurs que l'histoire pose depuis le script principal (mission suivante, icones de contact) ne passaient pas
+// par le miroir de commandes, limite aux scripts de mission : l'invite gardait ceux de la sauvegarde et rien d'autre.
+// L'hote envoie donc l'etat de ses marqueurs de coordonnees (types 4 et 5) ; l'invite les reproduit.
+enum { TRACES = 175, TRACE_SIZE = 0x28, BLIP_WIRE = 21, BLIPS_PER_MSG = 11 };
+struct Blip { float x, y, z; uint32_t colour; uint16_t size; int8_t sprite; uint8_t flags, kind; };
+static uint8_t *Trace(int i) { return (uint8_t *)0xBA86F0 + i * TRACE_SIZE; }
+static int BlipType(uint8_t kind) { return (kind >> 2) & 15; }
+
+// Marqueur partage : en service, de type coordonnees (4) ou point de contact (5), pas une entree/sortie de batiment (creee
+// par le jeu), pas la destination posee par le joueur sur la carte (icone 41).
+static bool SharedTrace(const uint8_t *t)
+{
+    int type = BlipType(t[0x26]);   // (une case libre est de type 0 : ClearActualBlip)
+    if (type != 4 && type != 5) return false;
+    if (*(const uint32_t *)(t + 0x20)) return false;
+    if ((int8_t)t[0x24] == 41) return false;
+    return true;
+}
+static void ReadBlip(const uint8_t *t, Blip &b)
+{
+    memcpy(&b.x, t + 0x08, 4); memcpy(&b.y, t + 0x0C, 4); memcpy(&b.z, t + 0x10, 4);
+    memcpy(&b.colour, t, 4);
+    memcpy(&b.size, t + 0x1C, 2);
+    b.sprite = (int8_t)t[0x24];
+    b.flags = t[0x25];
+    b.kind = t[0x26];
+}
+static void PackBlip(const Blip &b, uint8_t *w)
+{
+    memcpy(w, &b.x, 4); memcpy(w + 4, &b.y, 4); memcpy(w + 8, &b.z, 4);
+    memcpy(w + 12, &b.colour, 4); memcpy(w + 16, &b.size, 2);
+    w[18] = (uint8_t)b.sprite; w[19] = b.flags; w[20] = b.kind;
+}
+static void UnpackBlip(const uint8_t *w, Blip &b)
+{
+    memcpy(&b.x, w, 4); memcpy(&b.y, w + 4, 4); memcpy(&b.z, w + 8, 4);
+    memcpy(&b.colour, w + 12, 4); memcpy(&b.size, w + 16, 2);
+    b.sprite = (int8_t)w[18]; b.flags = w[19]; b.kind = w[20];
+}
+// Meme marqueur (type, icone, position a 0,5 pres) : l'etat (couleur, taille, drapeaux) peut differer.
+static bool SameSpot(const Blip &a, const Blip &b)
+{
+    return BlipType(a.kind) == BlipType(b.kind) && a.sprite == b.sprite &&
+           fabsf(a.x - b.x) < 0.5f && fabsf(a.y - b.y) < 0.5f && fabsf(a.z - b.z) < 1.5f;
+}
+static bool SameState(const Blip &a, const Blip &b)
+{
+    return a.colour == b.colour && a.size == b.size && a.flags == b.flags && ((a.kind ^ b.kind) & 0xC3) == 0;
+}
+
+// Hote : tous les 500 ms, l'etat des marqueurs partages ; renvoye a chaque invite en partie quand il change, a son arrivee, et
+// toutes les 5 s (rien ne se perd, l'invite rapproche de toute facon).
+static void HostBlipsFrame()
+{
+    if (!g_cfg.radarSync) return;
+    static uint32_t scanAt, sentAt[MAX_PLAYERS], sentHash[MAX_PLAYERS];
+    static bool sent[MAX_PLAYERS];
+    static Blip list[TRACES];
+    static int count, logged;
+    static uint32_t hash = 1;
+    uint32_t now = GetTickCount();
+    if (now - scanAt >= 500) {
+        scanAt = now;
+        int n = 0;
+        uint32_t h = 2166136261u;
+        for (int i = 0; i < TRACES; i++) {
+            const uint8_t *t = Trace(i);
+            if (!SharedTrace(t)) continue;
+            ReadBlip(t, list[n]);
+            uint8_t w[BLIP_WIRE];
+            PackBlip(list[n], w);
+            for (int k = 0; k < BLIP_WIRE; k++) h = (h ^ w[k]) * 16777619u;
+            n++;
+        }
+        if (n != count || h != hash) {
+            if (logged++ < 40) Log("radar : l'hote a %d marqueurs partages (etait %d)", n, count);
+            count = n; hash = h;
+        }
+    }
+    for (int p = 1; p < MAX_PLAYERS; p++) {
+        if (!g_players[p].connected || !g_players[p].state.inGame) { sent[p] = false; continue; }
+        if (sent[p] && sentHash[p] == hash && now - sentAt[p] < 5000) continue;
+        sent[p] = true; sentHash[p] = hash; sentAt[p] = now;
+        int done = 0;
+        do {
+            int k = count - done < BLIPS_PER_MSG ? count - done : BLIPS_PER_MSG;
+            uint8_t m[3 + BLIPS_PER_MSG * BLIP_WIRE];
+            m[0] = RL_BLIPS;
+            m[1] = (uint8_t)((done == 0 ? 1 : 0) | (done + k >= count ? 2 : 0));
+            m[2] = (uint8_t)k;
+            for (int i = 0; i < k; i++) PackBlip(list[done + i], m + 3 + i * BLIP_WIRE);
+            NetSendReliableTo(p, m, 3 + k * BLIP_WIRE);
+            done += k;
+        } while (done < count);
+    }
+}
+
 // Hote, chaque image : etat complet pour chaque invite arrive en partie.
 static int g_hostSlot = -1;          // partie de l'hote : emplacement charge, -1 nouvelle partie
 static bool g_sessionSent[MAX_PLAYERS];
@@ -349,6 +450,7 @@ static void HostGlobalsFrame()
     if (!inGame && wasInGame) seenSlot = -1;
     wasInGame = inGame;
     if (!inGame) return;
+    HostBlipsFrame();
     for (int i = 1; i < MAX_PLAYERS; i++) {
         if (!g_players[i].connected) { g_sessionSent[i] = false; continue; }
         if (g_sessionSent[i] || g_players[i].state.inGame) continue;
@@ -521,6 +623,112 @@ static void ExecCommand(int op)
     ScriptOriginalHandler(op / 100)(g_script, op);
 }
 
+// --- Invite : marqueurs du radar de l'hote ---
+// Les messages RL_BLIPS passent par la meme file que les commandes rejouees (ordre garde : un marqueur de mission cree
+// par le miroir est deja la quand l'etat des marqueurs arrive, il est reconnu et pas double). Pour chaque marqueur
+// de l'hote : le meme chez nous (type, icone, position) est reconnu, sinon il est cree. Un marqueur de chez nous
+// qui n'est plus chez l'hote est retire s'il y etait au dernier etat recu, ou, au premier etat de la partie, s'il n'y
+// est pas (la sauvegarde de l'invite date d'avant). Les marqueurs que seul l'invite a (activites locales) ne sont
+// pas touches. L'etat (couleur, taille, drapeaux) n'est recopie que s'il vient de changer chez l'hote.
+static Blip g_got[TRACES + BLIPS_PER_MSG], g_prevBlips[TRACES];
+static int g_gotN, g_prevN;
+static bool g_havePrev;
+
+static int CreateBlip(const Blip &b)
+{
+    int type = BlipType(b.kind);
+    bool shortRange = (b.flags & 0x04) != 0;
+    int op = type == 5 ? (shortRange ? 0x0570 : 0x02A7) : (shortRange ? 0x04CE : 0x018A);
+    int c = 2;
+    *(uint16_t *)g_code = (uint16_t)op;
+    const float xyz[3] = { b.x, b.y, b.z };
+    for (float f : xyz) { g_code[c++] = 6; memcpy(g_code + c, &f, 4); c += 4; }
+    if (op != 0x018A) { int sp = b.sprite; g_code[c++] = 1; memcpy(g_code + c, &sp, 4); c += 4; }
+    g_code[c++] = 3; *(uint16_t *)(g_code + c) = 0; c += 2;   // sortie : variable locale 0
+    *(int *)(g_script + 0x3C) = -1;
+    ExecCommand(op);
+    int handle = *(int *)(g_script + 0x3C);
+    int idx = handle & 0xFFFF;
+    if (handle == -1 || idx >= TRACES || BlipType(Trace(idx)[0x26]) == 0) return -1;
+    return idx;
+}
+static void ApplyBlipState(int idx, const Blip &b)
+{
+    uint8_t *t = Trace(idx);
+    memcpy(t, &b.colour, 4);
+    memcpy(t + 0x1C, &b.size, 2);
+    t[0x24] = (uint8_t)b.sprite;
+    t[0x25] = (uint8_t)((b.flags & ~0x02) | (t[0x25] & 0x02));   // drapeaux de l'hote, sauf "en service" (bit 1) qui reste le notre
+    t[0x26] = (uint8_t)((t[0x26] & 0x3C) | (b.kind & 0xC3));   // le type reste celui de la creation
+}
+static void RemoveBlipAt(int idx)
+{
+    int handle = idx | (*(uint16_t *)(Trace(idx) + 0x14) << 16);
+    *(uint16_t *)g_code = 0x0164;
+    g_code[2] = 1; memcpy(g_code + 3, &handle, 4);
+    ExecCommand(0x0164);
+}
+
+static void BlipsReconcile()
+{
+    bool used[TRACES] = {};
+    int made = 0, updated = 0, removed = 0, failed = 0;
+    for (int h = 0; h < g_gotN; h++) {
+        const Blip &b = g_got[h];
+        int found = -1;
+        for (int i = 0; i < TRACES && found < 0; i++) {
+            if (used[i] || !SharedTrace(Trace(i))) continue;
+            Blip g;
+            ReadBlip(Trace(i), g);
+            if (SameSpot(g, b)) found = i;
+        }
+        bool apply = false;
+        if (found < 0) {
+            found = CreateBlip(b);
+            if (found < 0) { failed++; continue; }
+            made++;
+            apply = true;
+        } else {
+            apply = !g_havePrev;
+            if (!apply) {
+                bool known = false;
+                for (int p = 0; p < g_prevN && !known; p++) if (SameSpot(g_prevBlips[p], b)) { known = true; apply = !SameState(g_prevBlips[p], b); }
+                if (!known) apply = true;
+            }
+            if (apply) updated++;
+        }
+        used[found] = true;
+        if (apply) ApplyBlipState(found, b);
+    }
+    for (int i = 0; i < TRACES; i++) {
+        if (used[i] || !SharedTrace(Trace(i))) continue;
+        Blip g;
+        ReadBlip(Trace(i), g);
+        bool hostHadIt = !g_havePrev;
+        for (int p = 0; p < g_prevN && !hostHadIt; p++) if (SameSpot(g, g_prevBlips[p])) hostHadIt = true;
+        if (!hostHadIt) continue;
+        RemoveBlipAt(i);
+        removed++;
+    }
+    static int logged;
+    if ((made || removed || failed || !g_havePrev) && logged++ < 60)
+        Log("radar : %d marqueurs de l'hote, %d crees, %d retires, %d mis a jour%s%s", g_gotN, made, removed, updated,
+            failed ? ", creation impossible (table pleine)" : "", g_havePrev ? "" : " (premier etat de la partie)");
+    memcpy(g_prevBlips, g_got, sizeof(Blip) * g_gotN);
+    g_prevN = g_gotN;
+    g_havePrev = true;
+}
+
+static void BlipsReplay(const uint8_t *d, int len)
+{
+    if (!g_cfg.radarSync || len < 3) return;
+    int n = d[2];
+    if (len < 3 + n * BLIP_WIRE) return;
+    if (d[1] & 1) g_gotN = 0;
+    for (int i = 0; i < n && g_gotN < TRACES; i++) UnpackBlip(d + 3 + i * BLIP_WIRE, g_got[g_gotN++]);
+    if (d[1] & 2) BlipsReconcile();
+}
+
 static void RestoreScreen();
 static uint32_t g_teleportedAt;
 static bool IsWeaponOp(int op) { return op == 0x01B2 || op == 0x0555 || op == 0x048F || op == 0x01B9; }
@@ -576,6 +784,7 @@ static bool Replay(const uint8_t *d, int len)
         Log("miroir : fin de mission de l'hote, ecran retabli");
         return true;
     }
+    if (d[0] == RL_BLIPS) { BlipsReplay(d, len); return true; }
     if (d[0] == RL_GLOBALS && len >= 3) {
         int n = *(const uint16_t *)(d + 1);
         int *g = Globals();
@@ -917,7 +1126,7 @@ void MirrorFrame()
 {
     g_onReliable = OnReliable;
     if (g_cfg.host) { if (NetRunning()) HostGlobalsFrame(); return; }
-    if (GameState() != 9 || !FindPlayerPed()) return;
+    if (GameState() != 9 || !FindPlayerPed()) { g_havePrev = false; return; }
     UnstickFade();
     CameraWatch();
     memcpy(g_script + 8, "sacoop", 7);
