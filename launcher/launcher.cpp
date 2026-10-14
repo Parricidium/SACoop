@@ -4,7 +4,7 @@
 //    par pixel) ; textes, champs et boutons dessines par-dessus avec GDI+.
 //  - Cible gta_sa.exe : celui du dossier, ou celui choisi (retenu dans sacoop-launcher.ini). Seul l'exe 1.0 US est
 //    accepte (meme signature que dllmain.cpp IsVersion10US) ; Steam 3.0 et autres : message, sans lien.
-//  - A chaque lancement : derniere version publiee sur GitHub (Parricidium/SACoop, pre-versions comprises). Plus
+//  - A chaque lancement : derniere version publiee sur GitHub (zebra032-cyber/SACoop, "Zebra's forked repo", pre-versions comprises). Plus
 //    recente que SACoop\version.txt (ou mod absent) : telechargement du zip, extraction (tar.exe de Windows), copie
 //    dans le dossier du jeu. sacoop.ini de l'utilisateur garde ses valeurs (seules les cles nouvelles sont ajoutees) ;
 //    sacoop-joueur.ini n'est pas dans le paquet. Le lanceur se remplace lui-meme (renomme en .old) puis se relance.
@@ -45,8 +45,10 @@ using std::max;
 
 using namespace Gdiplus;
 
-static const wchar_t *kReleasesApi = L"https://api.github.com/repos/Parricidium/SACoop/releases?per_page=40";
-static const wchar_t *kGithubUrl = L"https://github.com/Parricidium/SACoop";   // bouton GitHub sous le logo
+// Zebra's forked repo: updates and the GitHub button point to the fork, not to Parricidium/SACoop.
+static const wchar_t *kReleasesApi = L"https://api.github.com/repos/zebra032-cyber/SACoop/releases?per_page=40";
+static const wchar_t *kGithubUrl = L"https://github.com/zebra032-cyber/SACoop";   // bouton GitHub sous le logo
+static const wchar_t *kForkLabel = L"Zebra's forked repo";                          // shown under the logo and in the window title
 static const wchar_t *kStoreUrl = L"https://store.rockstargames.com/fr/game/buy-grand-theft-auto-the-trilogy";   // Trilogy (meme lien que le README et VCCoop)
 static const float kImgW = 1000, kImgH = 620;   // mise en page (coordonnees de launcher.png)
 
@@ -550,7 +552,10 @@ static std::string g_releasesJson;   // derniere reponse de l'API (partagee entr
 static bool FetchReleases(std::string &json)
 {
     std::wstring cache = g_dir + L"SACoop\\notes-maj.json";
-    if (HttpGet(kReleasesApi, &json, L"", false) && json.find("\"tag_name\"") != std::string::npos) {
+    // A reply that is a JSON list is a good answer, even an empty one ("[]": a fork that has not published a release yet is
+    // online and up to date, not "offline"). Errors (rate limit, unknown repo) are objects: {"message": ...}.
+    auto isList = [](const std::string &t) { size_t i = t.find_first_not_of(" \t\r\n\xEF\xBB\xBF"); return i != std::string::npos && t[i] == '['; };
+    if (HttpGet(kReleasesApi, &json, L"", false) && isList(json)) {
         CreateDirectoryW((g_dir + L"SACoop").c_str(), NULL);
         HANDLE f = CreateFileW(cache.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
         if (f != INVALID_HANDLE_VALUE) { DWORD w; WriteFile(f, json.data(), (DWORD)json.size(), &w, NULL); CloseHandle(f); }
@@ -1321,6 +1326,8 @@ static void DrawUI(Graphics &g)
         g.FillPath(&pb, &pp);
         Text(g, L"PRE-ALPHA", pr, 10, FontStyleBold, Color(255, 255, 255, 255));
     }
+    // Fork label, under the PRE-ALPHA pill: tells at a glance that this is the fork's launcher
+    Text(g, kForkLabel, RectF(128, 232, 200, 16), 10.5f, FontStyleBold, kGreen);
 
     if (g_state == ST_LAUNCH || g_state == ST_CLOSING) {
         int dots = (int)(g_time * 2.5f) % 4;
@@ -3520,7 +3527,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int)
     int x = work.left + (work.right - work.left - g_winW) / 2, y = work.top + (work.bottom - work.top - g_winH) / 2;
     bool test = !g_testLog.empty() || !g_testSalonLog.empty();
     if (test) x = y = -5000;
-    g_wnd = CreateWindowExW(WS_EX_LAYERED | (test ? WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW : WS_EX_APPWINDOW), wc.lpszClassName, L"SACoop", WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU,
+    g_wnd = CreateWindowExW(WS_EX_LAYERED | (test ? WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW : WS_EX_APPWINDOW), wc.lpszClassName, L"SACoop - Zebra's forked repo", WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU,
                             x, y, g_winW, g_winH, NULL, NULL, inst, NULL);
 
     BITMAPINFO bi = {};

@@ -158,6 +158,36 @@ static void OnMarker(const MsgMarker &m)
     slot->until = GetTickCount() + 600;
 }
 
+// Pose le joueur local en (pos, heading) dans l'interieur "area" (0 : dehors), comme une commande de script le ferait :
+// interieur choisi et lie au joueur (SELECT_INTERIOR 04BB, LINK_CHAR_TO_INTERIOR 0860), decor charge tout de suite autour
+// du point (LOAD_SCENE 03CB : sans lui, les collisions d'un endroit lointain ou d'un interieur ne sont pas la et le
+// joueur tombe sans fin : essai du 14/10, l'hote "aller vers" l'invite dans sa maison, tombe de 1014 a 936, mort), sorti
+// du vehicule s'il y est (WARP_CHAR_FROM_CAR_TO_COORD 0362), vitesse remise a zero. Journalise.
+void TeleportPed(void *ped, const float *pos, float heading, int area, const char *why)
+{
+    if (!ped) return;
+    int ref = PedRef(ped);
+    int cur = *(int *)0xB72914;   // CGame::currArea
+    if (ped == FindPlayerPed() && area != cur) {
+        RunScriptCommand(0x04BB, 1, &area);
+        int link[2] = { ref, area };
+        RunScriptCommand(0x0860, 2, link);
+    }
+    int scene[3];
+    memcpy(scene, pos, 12);
+    RunScriptCommandTyped(0x03CB, 3, "fff", scene);
+    if (PedVehicle(ped)) {
+        int warp[4] = { ref };
+        memcpy(warp + 1, pos, 12);
+        RunScriptCommandTyped(0x0362, 4, "ifff", warp);
+    }
+    EntityArea(ped) = (uint8_t)area;
+    PlacePuppet(ped, pos, heading);
+    memset(MoveSpeed(ped), 0, 12);
+    if (ped == FindPlayerPed()) NoteLocalRelocated();
+    Log("teleportation (%s) : %.1f %.1f %.1f, interieur %d (etait %d)", why ? why : "?", pos[0], pos[1], pos[2], area, cur);
+}
+
 // Hote : rejoindre l'invite qui vient de faire avancer la mission (voir en tete).
 static void FollowGuest()
 {
@@ -169,22 +199,8 @@ static void FollowGuest()
     const float *b = EntityPos(ped);
     float h = Field<float>(ped, PED_ROTATION);
     float pos[3] = { b[0] + sinf(h) * 1.5f, b[1] - cosf(h) * 1.5f, b[2] };
-    int area = EntityArea(ped), ref = PedRef(me);
-    if (area != *(int *)0xB72914) {   // CGame::currArea : autre interieur
-        RunScriptCommand(0x04BB, 1, &area);   // SELECT_INTERIOR
-        int link[2] = { ref, area };
-        RunScriptCommand(0x0860, 2, link);    // LINK_CHAR_TO_INTERIOR
-    }
-    int scene[3];
-    memcpy(scene, pos, 12);
-    RunScriptCommandTyped(0x03CB, 3, "fff", scene);   // LOAD_SCENE
-    if (PedVehicle(me)) {
-        int warp[4] = { ref };
-        memcpy(warp + 1, pos, 12);
-        RunScriptCommandTyped(0x0362, 4, "ifff", warp);   // REMOVE_CHAR_FROM_CAR_MAINTAIN_POSITION... pose au point
-    }
-    EntityArea(me) = (uint8_t)area;
-    PlacePuppet(me, pos, h);
+    int area = EntityArea(ped);
+    TeleportPed(me, pos, h, area, "suivre l'invite");
     const char *name = g_players[i].state.name[0] ? g_players[i].state.name : "?";
     char msg[96];
     wsprintfA(msg, PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH ? "Mission : tu rejoins %s" : "Mission: joining %s", name);

@@ -69,4 +69,4 @@ sacoop.log et logs.
 
 Projet de fan, non officiel, sans lien avec Rockstar Games ni Take-Two.
 Aucun fichier du jeu n'est fourni : il faut posseder le jeu.
-https://github.com/Parricidium/SACoop
+https://github.com/zebra032-cyber/SACoop   (Zebra's forked repo, base : Parricidium/SACoop)

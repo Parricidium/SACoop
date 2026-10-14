@@ -633,6 +633,8 @@ static void ExecCommand(int op)
 static Blip g_got[TRACES + BLIPS_PER_MSG], g_prevBlips[TRACES];
 static int g_gotN, g_prevN;
 static bool g_havePrev;
+static bool g_hostMission;   // the host is in a story mission (RL_MISSION_START .. RL_MISSION_END)
+static bool g_partial;       // a list from the host is still being received (several messages)
 
 static int CreateBlip(const Blip &b)
 {
@@ -704,7 +706,10 @@ static void BlipsReconcile()
         if (used[i] || !SharedTrace(Trace(i))) continue;
         Blip g;
         ReadBlip(Trace(i), g);
-        bool hostHadIt = !g_havePrev;
+        // During a host mission the host's list is the whole truth: the guest's own mission-start letters and contact
+        // icons (from his own save and script) are not on the host's map any more, so they must not be on the guest's
+        // either (test of 14/10: the joining player still had all the other mission letters).
+        bool hostHadIt = !g_havePrev || g_hostMission;
         for (int p = 0; p < g_prevN && !hostHadIt; p++) if (SameSpot(g, g_prevBlips[p])) hostHadIt = true;
         if (!hostHadIt) continue;
         RemoveBlipAt(i);
@@ -726,7 +731,20 @@ static void BlipsReplay(const uint8_t *d, int len)
     if (len < 3 + n * BLIP_WIRE) return;
     if (d[1] & 1) g_gotN = 0;
     for (int i = 0; i < n && g_gotN < TRACES; i++) UnpackBlip(d + 3 + i * BLIP_WIRE, g_got[g_gotN++]);
+    g_partial = !(d[1] & 2);
     if (d[1] & 2) BlipsReconcile();
+}
+
+// The host's mission starts or ends: from now on (or no more) the guest's own coordinate / contact blips that the host
+// does not have are removed. At the start the last list received is reconciled again right away (the host's main
+// script has just removed its mission letters; waiting for the next list could take up to 5 s).
+static void BlipsMissionState(bool active)
+{
+    g_hostMission = active;
+    if (!active || !g_cfg.radarSync || !g_havePrev || g_partial || g_prevN <= 0) return;
+    memcpy(g_got, g_prevBlips, sizeof(Blip) * g_prevN);
+    g_gotN = g_prevN;
+    BlipsReconcile();
 }
 
 static void RestoreScreen();
@@ -747,6 +765,7 @@ static void CameraVectorReset()
 static bool Replay(const uint8_t *d, int len)
 {
     if (d[0] == RL_MISSION_END) {
+        BlipsMissionState(false);
         VehiclesMissionEnded();
         PopulationHostDensity(false, 1.0f);   // densites normales apres la mission de l'hote
         PopulationHostDensity(true, 1.0f);
@@ -795,6 +814,7 @@ static bool Replay(const uint8_t *d, int len)
         return true;
     }
     if (d[0] == RL_MISSION_START && len >= 17) {
+        BlipsMissionState(true);
         void *me = FindPlayerPed();
         float host[3], h;
         memcpy(host, d + 1, 12);

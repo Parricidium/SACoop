@@ -32,6 +32,8 @@ namespace game {
 
     // Vehicule : +0x460 conducteur, +0x464 passagers (8), +0x488 places passagers, +0x434/0x435 couleurs.
     enum : int { VEH_DRIVER = 0x460, VEH_PASSENGERS = 0x464, VEH_MAXPASS = 0x488, VEH_TYPE = 0x590 };
+    // CVehicle::m_nVehicleType (+0x590): 6 = CTrain. Trains have their own sync (trains.cpp) and never go through the vehicle one.
+    inline bool IsTrain(void *veh) { return *(int *)((uint8_t *)veh + VEH_TYPE) == 6; }
     // Personnage en vehicule : drapeau bInVehicle (+0x46C bit 0x100) et CPed::m_pVehicle (+0x58C).
     inline void *PedVehicle(void *ped)
     {

@@ -16,6 +16,7 @@
 #include "prefs.h"
 #include "events.h"
 #include "interp.h"
+#include "trains.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -154,6 +155,10 @@ static void LoadConfig()
     g_cfg.hideCut = GetPrivateProfileIntA("SACoop", "CacherEnCinematique", 1, ini) != 0;
     g_cfg.radarSync = GetPrivateProfileIntA("SACoop", "MarqueursRadar", 1, ini) != 0;
     g_cfg.fallRescue = GetPrivateProfileIntA("SACoop", "SecoursChute", 1, ini) != 0;
+    g_cfg.syncWeather = GetPrivateProfileIntA("SACoop", "GuestWeatherGuard", 1, ini) != 0;
+    g_cfg.radioSync = GetPrivateProfileIntA("SACoop", "RadioSync", 1, ini) != 0;
+    g_cfg.deathDrop = GetPrivateProfileIntA("SACoop", "ArmesMort", 1, ini) != 0;
+    g_cfg.syncTrains = GetPrivateProfileIntA("SACoop", "TrainSync", 1, ini) != 0;
     GetPrivateProfileStringA("SACoop", "Autotest", "", g_cfg.autotest, sizeof(g_cfg.autotest), ini);
     char role[16];
     GetPrivateProfileStringA("SACoop", "Role", "hote", role, sizeof(role), ini);
@@ -272,7 +277,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     wsprintfA(logPath, "%ssacoop.log", GameDir());
     LogInit(logPath);
     LoadConfig();
-    Log("SACoop %s charge, dossier %s, processus %lu", SACOOP_VERSION, GameDir(), GetCurrentProcessId());
+    Log("SACoop %s (%s) loaded, folder %s, process %lu", SACOOP_VERSION, SACOOP_FORK, GameDir(), GetCurrentProcessId());
     InstallCrashLog();
 
     if (!IsVersion10US()) {
@@ -299,5 +304,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallPrefs();
     InstallEvents();
     InstallInterp();
+    InstallWeatherGuard();
+    InstallTrainHook();
     return TRUE;
 }

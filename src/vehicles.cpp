@@ -38,6 +38,8 @@ struct NetVeh {
     uint32_t sentAt;
     bool cutHidden;      // (copies) cachee par nous pendant une cinematique (CutsceneHide)
     uint32_t blockedSince; // (copies) depuis quand un vehicule de chez nous occupe l'emplacement de la copie
+    uint32_t nearSince;    // (copies) depuis quand le joueur local est a moins de 4 m de l'emplacement de la copie
+    uint8_t waitLogged;    // (copies) raisons d'attente deja journalisees (1 : joueur trop pres, 2 : place occupee)
     Track track;         // (copies) etats recus horodates : interpolation apres la physique (interp.cpp)
 };
 static NetVeh g_veh[MAX_NETVEH];
@@ -110,6 +112,7 @@ void *NetVehicleById(uint32_t id)
 // Identifiant reseau du vehicule occupe par le joueur local (enregistre au besoin : il en devient proprietaire).
 uint32_t LocalVehicleId(void *veh, bool driver)
 {
+    if (IsTrain(veh)) return 0;   // trains: trains.cpp
     NetVeh *n = FindByVeh(veh);
     if (!n) {
         n = NewSlot();
@@ -136,6 +139,7 @@ bool IsRemoteVehicle(void *veh) { NetVeh *n = FindByVeh(veh); return n && n->own
 
 uint32_t HostVehicleId(void *veh, bool occupied, bool ambient)
 {
+    if (IsTrain(veh)) return 0;   // trains: trains.cpp
     NetVeh *n = FindByVeh(veh);
     if (n && n->owner != g_localId) return n->id;   // copie du vehicule d'un invite
     if (!n) {
@@ -165,7 +169,7 @@ void HostRegisterAmbientVehicles()
     for (int i = 0; i < p->size; i++) {
         if (p->flags[i] & 0x80) continue;
         uint8_t *v = p->objects + i * 0xA18;
-        if ((v[0x4A4] == 1 || v[0x4A4] == 3) && !FindByVeh(v) && NearSharedGuest(EntityPos(v), 150.0f)) HostVehicleId(v, false, true);
+        if ((v[0x4A4] == 1 || v[0x4A4] == 3) && !IsTrain(v) && !FindByVeh(v) && NearSharedGuest(EntityPos(v), 150.0f)) HostVehicleId(v, false, true);
     }
     for (auto &n : g_veh) {
         if (!n.id || !n.ambient || n.owner != g_localId) continue;
@@ -181,7 +185,7 @@ void HostRegisterMissionVehicles()
     for (int i = 0; i < p->size; i++) {
         if (p->flags[i] & 0x80) continue;
         uint8_t *v = p->objects + i * 0xA18;
-        if (v[0x4A4] == 2 && !FindByVeh(v)) HostVehicleId(v, false, false);
+        if (v[0x4A4] == 2 && !IsTrain(v) && !FindByVeh(v)) HostVehicleId(v, false, false);
     }
 }
 
@@ -225,7 +229,7 @@ static bool OtherPlayerNear(const float *pos, float radius)
 // l'autre joueur que lorsque son proprietaire y montait, et disparaissait quand il en descendait.
 void VehicleSpawnedHere(void *veh)
 {
-    if (!veh || FindByVeh(veh)) return;
+    if (!veh || IsTrain(veh) || FindByVeh(veh)) return;
     uint32_t id = HostVehicleId(veh, false, false);
     if (id) Log("vehicule pose par le joueur %08X (modele %d) : partage", id, *(int16_t *)((uint8_t *)veh + 0x22));
 }
@@ -252,7 +256,7 @@ static void ShareSpawnedVehicles()
         int ref = VehRef(v);
         if (seen[i] == ref) continue;
         seen[i] = ref;
-        if (!primed || !onFoot || v[0x4A4] != 1 || FindByVeh(v) || Field<void *>(v, VEH_DRIVER)) continue;
+        if (!primed || !onFoot || v[0x4A4] != 1 || IsTrain(v) || FindByVeh(v) || Field<void *>(v, VEH_DRIVER)) continue;
         const float *vp = EntityPos(v);
         float dx = vp[0] - mp[0], dy = vp[1] - mp[1], dz = vp[2] - mp[2];
         if (dx * dx + dy * dy + dz * dz > 12.0f * 12.0f) continue;
@@ -376,7 +380,8 @@ static bool ClearSpotForCopy(NetVeh &n)
     Pool *p = *(Pool **)0xB74494;
     if (!p) return true;
     uint32_t now = GetTickCount();
-    bool blocked = false;
+    bool blocked = false, hard = false;
+    uint8_t *blocker = nullptr;
     for (int i = 0; i < p->size; i++) {
         if (p->flags[i] & 0x80) continue;
         uint8_t *v = p->objects + i * 0xA18;
@@ -385,7 +390,7 @@ static bool ClearSpotForCopy(NetVeh &n)
         float dx = vp[0] - n.last.pos[0], dy = vp[1] - n.last.pos[1], dz = vp[2] - n.last.pos[2];
         if (dx * dx + dy * dy > 6.0f * 6.0f || fabsf(dz) > 3.0f) continue;
         void *drv = Field<void *>(v, VEH_DRIVER);
-        bool ordinary = (v[0x4A4] == 1 || v[0x4A4] == 3) && !FindByVeh(v) && (!drv || (drv != FindPlayerPed() && PuppetIndex(drv) < 0));
+        bool ordinary = (v[0x4A4] == 1 || v[0x4A4] == 3) && !IsTrain(v) && !FindByVeh(v) && (!drv || (drv != FindPlayerPed() && PuppetIndex(drv) < 0));
         if (ordinary) {
             for (int k = 0; k < 8; k++) if (void *ps = Field<void *>(v, VEH_PASSENGERS + k * 4)) { int r = PedRef(ps); RunScriptCommand(0x009B, 1, &r); }
             if (drv) { int r = PedRef(drv); RunScriptCommand(0x009B, 1, &r); }
@@ -393,24 +398,47 @@ static bool ClearSpotForCopy(NetVeh &n)
             RunScriptCommand(0x00A6, 1, &ref);   // DELETE_CAR
             static int said;
             if (said < 20) { said++; Log("circulation : voiture locale retiree, la copie %08X va naitre a sa place", n.id); }
-        } else blocked = true;
+        } else {
+            blocked = true;
+            // Occupe (joueur, pantin) ou en mouvement : la copie attend longtemps (4 s) qu'il s'ecarte. Vehicule partage a
+            // l'arret et vide (celui que l'autre joueur vient de poser a cote, essai du 14/10 : la voiture de l'invite
+            // mettait 4 s a apparaitre chez l'hote parce que la Sentinel de l'hote etait a 5 m) : 0,6 s suffisent.
+            const float *sp = (const float *)(v + 0x44);
+            if (drv || sp[0] * sp[0] + sp[1] * sp[1] + sp[2] * sp[2] > 0.0004f) hard = true;
+            if (!blocker) blocker = v;
+            for (int k = 0; k < 8; k++) if (Field<void *>(v, VEH_PASSENGERS + k * 4)) hard = true;
+        }
     }
     if (!blocked) { n.blockedSince = 0; return true; }
     if (!n.blockedSince) n.blockedSince = now;
-    return now - n.blockedSince > 4000;
+    if (!(n.waitLogged & 2)) {
+        n.waitLogged |= 2;
+        Log("copie du vehicule %08X en attente : place occupee par un vehicule (modele %d, %s)", n.id, blocker ? (int)*(int16_t *)(blocker + 0x22) : 0, hard ? "occupe ou en mouvement, 4 s" : "a l'arret et vide, 0,6 s");
+    }
+    return now - n.blockedSince > (hard ? 4000u : 600u);
 }
 
 static void CreateCopy(NetVeh &n)
 {
     int model = n.last.model;
     if (model < 400 || model > 611) return;
+    if (model == 449 || model == 537 || model == 538 || model == 569 || model == 570 || model == 590) return;   // trains and trams: trains.cpp
     // Pas sur le joueur : une copie qui apparaitrait a moins de 4 m de lui (ou de sa voiture) attend que la place soit
     // libre (voitures qui surgissaient sur l'invite qui suivait l'hote, 01/10).
     if (void *me = FindPlayerPed()) {
         void *mine = PedVehicle(me);
         const float *a = EntityPos(mine ? mine : me), *b = n.last.pos;
         float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
-        if (dx * dx + dy * dy + dz * dz < 16.0f && !(n.last.flags & VF_MISSION && n.last.driven)) return;
+        if (dx * dx + dy * dy + dz * dz < 16.0f && !(n.last.flags & VF_MISSION && n.last.driven)) {
+            // (un vehicule pose a l'arret pres de nous attend 1,5 s au plus : sans cela, l'autre joueur le posant devant
+            // un joueur qui se tient a cote de lui ne le voyait jamais apparaitre)
+            const float *sp = n.last.speed;
+            bool still = sp[0] * sp[0] + sp[1] * sp[1] + sp[2] * sp[2] < 0.0004f && !n.last.driven;
+            uint32_t now = GetTickCount();
+            if (!n.nearSince) n.nearSince = now;
+            if (!(n.waitLogged & 1)) { n.waitLogged |= 1; Log("copie du vehicule %08X en attente : joueur local a moins de 4 m (%s)", n.id, still ? "a l'arret, 1,5 s" : "en mouvement"); }
+            if (!still || now - n.nearSince < 1500) return;
+        } else n.nearSince = 0;
     }
     if (!ModelLoaded(model)) {
         RequestModel(model, 2);
@@ -626,6 +654,10 @@ static void GuestMissionVehicle()
     VehiclesMissionEnded();
     g_guestMissionCopy = v;
     g_guestMissionRef = VehRef(v);
+    // Registered at once as the guest's own network vehicle: before, it only became one when the guest got in, so the
+    // host did not see it appear (and a copy that was only seen later came late) - report of 14/10, "sometimes this
+    // doesn't sync for the host when it appears". Parked, it is sent twice a second like any vehicle of ours.
+    if (uint32_t nid = LocalVehicleId(v, false)) Log("host mission vehicle: our copy registered as %08X for the host to see", nid);
     HudToast(g_fr ? "Un vehicule pour toi est a cote" : "A vehicle for you is next to you", 5000);
     Log("vehicule de mission de l'hote (modele %d) : copie posee a cote de l'invite", model);
 }

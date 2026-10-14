@@ -3,7 +3,8 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.50.0-vcport"
+#define SACOOP_VERSION "0.53.0-vcport"
+#define SACOOP_FORK "Zebra's forked repo"   // shown in the log, the F10 menu and the launcher: tells this build from the original
 
 struct Config {
     bool windowed;          // Fenetre (1 = fenetre, 2 = sans bordure, 0 = plein ecran du jeu)
@@ -52,6 +53,10 @@ struct Config {
     bool mirrorExtra;       // MiroirEtendu : commandes de mission supplementaires rejouees chez les invites (mirror.cpp)
     bool fallRescue;        // SecoursChute : joueur tombe sous le monde (collisions absentes) remis a sa derniere position sure (coop.cpp)
     bool radarSync;         // MarqueursRadar : marqueurs du radar de l'hote (coordonnees, points de contact) reproduits chez l'invite (mirror.cpp)
+    bool radioSync;         // RadioSync: the guests follow the host's radio (station, track, position, adverts) - radio.cpp
+    bool syncWeather;       // GuestWeatherGuard: the guest never changes weather by itself (coop.cpp h_WeatherUpdate)
+    bool syncTrains;        // TrainSync: the host's trains (random and mission) run the same on every guest's rails (trains.cpp)
+    bool deathDrop;         // ArmesMort: weapons are kept on death (given back after the respawn, events.cpp); 0 = vanilla, they are lost
     bool hideCut;           // CacherEnCinematique : pantins, copies de PNJ de mission et de vehicules caches pendant une cinematique
 };
 extern Config g_cfg;
@@ -75,5 +80,8 @@ void StartCharge();   // charge.cpp : processeur, disque, processus gourmands, e
 void WatchdogFrame();
 void OnFrame();             // une fois par image, sur le fil du jeu (window.cpp, juste avant Present)
 void CoopFrame(bool inGameLoop);
+void InstallWeatherGuard();
+void RadioSyncFrame();   // radio.cpp: host sends what its radio plays, guests follow it
+void NoteLocalRelocated();   // the local ped was moved (teleport...): his "standing" state is settled for 2 s (coop.cpp)   // coop.cpp : the guest's weather only changes when the host says so
 bool RequestGameStart(int slot);   // game.cpp : depuis le menu, nouvelle partie (-1) ou chargement (0-7)
 int MenuLoadingSlot();             // game.cpp : emplacement en cours de chargement depuis le menu, sinon -1   // chaque tour de la boucle du jeu (game.cpp) : menu (false) ou partie (true)

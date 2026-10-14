@@ -5,6 +5,7 @@
 #include "net.h"
 #include "game.h"
 #include "interp.h"
+#include "trains.h"
 #include <math.h>
 #include <string.h>
 
@@ -202,6 +203,7 @@ static void __cdecl h_GameProcess()
     // Vehicle copies are placed BEFORE the physics too: CWorld::Process seats their occupants and the camera of a
     // passenger follows; placed only afterwards, driver and passengers were one frame behind the vehicle.
     if (playing && g_cfg.placeVeh) VehiclesAfterProcess();
+    if (playing) TrainsApply();   // trains: the owner's rail distance and speed, written before the game moves them (trains.cpp)
     ((void(__cdecl *)())0x53BEE0)();   // CGame::Process
     if (GameState() != 9 || !FindPlayerPed()) return;
     if (g_cfg.placeFoot) PuppetsAfterProcess();

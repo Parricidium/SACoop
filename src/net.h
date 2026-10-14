@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 20, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 22, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -24,6 +24,8 @@ enum MsgType : uint8_t {
     MSG_MARKER,      // hote -> invites : commande LOCATE / IS_CHAR_IN_AREA a marqueur (conditions.cpp)
     MSG_BATCH,       // plusieurs messages d'une meme image : n (1 octet) puis, pour chacun, longueur (2 octets) et octets
     MSG_OBJECT,      // objet du decor deplace (objects.cpp), par le joueur le plus proche ; relaye par l'hote
+    MSG_RADIO,       // host -> guests: what the host's radio is playing (radio.cpp), twice a second and on every change
+    MSG_TRAIN,       // a train's place on its track, by its owner (trains.cpp); relayed by the host
 };
 
 #pragma pack(push, 1)
@@ -125,8 +127,40 @@ struct MsgWorld {
     uint8_t type;
     uint8_t hours, minutes;
     short oldWeather, newWeather, forcedWeather;
-    float weatherBlend;   // CWeather::InterpolationValue (passage de l'ancienne a la nouvelle meteo)
+    float weatherBlend;   // CWeather::InterpolationValue (not applied any more: the game derives it from the clock)
+    uint8_t ping[MAX_PLAYERS];   // each guest's ping to the host in ms as the host measured it (255 max, 0 = unknown)
+    uint8_t trains;              // the host shares its trains (trains.cpp): the guests switch their own random trains off
 };
+// What the host's radio is playing: station (0-12, -1 = not audible), the track being played (game track id: music,
+// advert, DJ, ident...), the position in it, its length, and the queue of the radio manager (current track first, then the
+// next ones) with their types and indexes. userSig = signature of the host's custom track library (0 = none/unknown).
+struct MsgRadio {
+    uint8_t type;
+    int8_t station;
+    int8_t curType;
+    uint8_t pad;
+    int32_t track, playMs, lengthMs;
+    int32_t queue[5];
+    int8_t types[5], idx[5];
+    uint32_t userSig;
+};
+// A train, by its owner (the host, or the player driving it): id = (host << 24) | counter. The guests build their copy from the
+// type, track, node, position and carriage models, then follow dist (CTrain::m_fCurrentRailDistance) and speed
+// (m_fTrainSpeed, units per 1/50 s). flags: TRF_*.
+struct MsgTrain {
+    uint8_t type, owner;
+    uint32_t id;
+    uint8_t flags;
+    int8_t track;        // 0-3
+    uint8_t trainType;   // CTrain::CreateMissionTrain "train type" (255 = unknown)
+    uint8_t cars;
+    int16_t node;        // CTrain::m_nNodeIndex
+    float pos[3];        // engine position
+    float dist, speed;
+    uint16_t models[8];  // model of each carriage, engine first
+    uint32_t time;       // GetTickCount of the send (interpolation, interp.cpp)
+};
+enum { TRF_CLOCKWISE = 1, TRF_MISSION = 2, TRF_STOPPED = 4, TRF_DERAILED = 8, TRF_RELEASE = 16 /* its driver got out: the host owns it again */, TRF_GONE = 32 /* it does not exist any more */ };
 #pragma pack(pop)
 
 struct NetPlayer {
@@ -149,6 +183,7 @@ void NetSendBye();
 void NetKeepAlive();    // signe de vie envoye depuis un autre fil (watchdog.cpp), meme si le jeu ne presente plus d'image
 void NetFlush();   // envoie les messages regroupes de l'image (fin de CoopFrame)
 void NetSendToGuests(const void *data, int len);   // hote seulement
+bool NetGetRadio(MsgRadio *out, uint32_t *rxAt);   // guest: the last MsgRadio from the host and when it arrived (GetTickCount)
 void NetSendToAll(const void *data, int len);
 void NetSendReliable(const void *data, int len);   // hote : a tous les invites ; invite : a l'hote
 void NetSendReliableTo(int peer, const void *data, int len);
@@ -157,6 +192,8 @@ extern void (*g_onState)(const MsgState &s);       // chaque etat de joueur recu
 extern void (*g_onReliable)(int from, const uint8_t *data, int len);
 extern void (*g_onJoin)(int peer);                 // hote : un invite vient d'entrer (ou revient)
 extern uint16_t g_myPing;
+float NetPing(int player);                          // ping in ms between us (or the host, for other guests) and that player, -1 = unknown or ourselves
+void NetFillPings(uint8_t *out);                    // host: MAX_PLAYERS pings for MsgWorld
 extern void (*g_onClothes)(const MsgClothes &c);   // vetements d'un autre joueur
 extern void (*g_onVehicle)(const MsgVehicle &v);   // etat d'un vehicule d'un autre joueur
 extern void (*g_onDamage)(const MsgDamage &d);     // coup porte par un joueur a un autre
@@ -164,4 +201,5 @@ extern void (*g_onObject)(const MsgObject &o);     // objet du decor deplace par
 extern void (*g_onPed)(const MsgPed &p);           // invite : personnage de mission de l'hote
 extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite sur un personnage de mission
 extern void (*g_onMarker)(const MsgMarker &m);     // invite : marqueur de zone de l'hote
+extern void (*g_onTrain)(const MsgTrain &t);       // a train of another player (or of the host)
 

@@ -15,6 +15,8 @@
 #include "chat.h"
 #include "hud.h"
 #include "mirror.h"
+#include "conditions.h"
+#include "events.h"
 #include "panel.h"
 #include "combat.h"
 #include "ui.h"
@@ -64,7 +66,7 @@ void PanelMouseInput(int dx, int dy, int dz, bool lmb)
 }
 
 // ======================================================================= Actions (boucle du jeu)
-enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO };
+enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH };
 struct Action { int kind, arg; };
 static std::vector<Action> g_actions;
 static void Queue(int kind, int arg = 0) { g_actions.push_back({ kind, arg }); }
@@ -90,8 +92,10 @@ bool GoToPlayer(int id)
     const float *p = EntityPos(other);
     float h = Field<float>(other, PED_ROTATION);
     float pos[3] = { p[0] + sinf(h) * 2.0f, p[1] - cosf(h) * 2.0f, p[2] };
-    EntityArea(me) = EntityArea(other);
-    PlacePuppet(me, pos, h);
+    // Interieur de l'autre joueur (celui qu'il annonce : CGame::currArea chez lui), decor charge sur place : sans cela,
+    // arriver dans sa maison depuis dehors = tomber sans fin (essai du 14/10).
+    int area = g_players[id].state.inGame ? g_players[id].state.area : EntityArea(other);
+    TeleportPed(me, pos, h, area, "aller vers un joueur");
     return true;
 }
 
@@ -159,8 +163,12 @@ static void SpawnVehicle(int model)
     Log("menu jeu : vehicule %d pose devant le joueur", model);
 }
 
+static bool f10held, f1held;   // touches maintenues (PanelFrame les remet a zero si le relachement n'a pas ete vu)
+
 void PanelFrame()
 {
+    if (!(GetAsyncKeyState(VK_F10) & 0x8000)) f10held = false;
+    if (!(GetAsyncKeyState(VK_F1) & 0x8000)) f1held = false;
     std::vector<Action> todo;
     todo.swap(g_actions);
     void *me = FindPlayerPed();
@@ -186,6 +194,7 @@ void PanelFrame()
         case A_HOUR: *(uint8_t *)0xB70153 = (uint8_t)a.arg; *(uint8_t *)0xB70152 = 0; *(uint32_t *)0xB70158 = *(uint32_t *)0xB7CB84; break;
         case A_WEATHER: if (a.arg < 0) RunScriptCommand(0x01B7, 0, nullptr); else { int w = a.arg; RunScriptCommand(0x01B6, 1, &w); } break;
         case A_GOTO: if (GoToPlayer(a.arg)) g_open = false; break;
+        case A_GODEATH: if (GoToDeathSpot()) g_open = false; break;
         case A_FRIENDLY: g_cfg.friendlyFire = !g_cfg.friendlyFire; SaveIni("TirAmi", g_cfg.friendlyFire); break;
         case A_SHAREWANTED: g_cfg.shareWanted = !g_cfg.shareWanted; SaveIni("RecherchePartagee", g_cfg.shareWanted); break;
         case A_HOSTPOLICE: g_cfg.hostPolice = !g_cfg.hostPolice; SaveIni("PoliceHote", g_cfg.hostPolice); break;
@@ -206,12 +215,17 @@ bool PanelWindowMessage(UINT msg, WPARAM wp)
     bool down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN, keyMsg = msg >= WM_KEYFIRST && msg <= WM_KEYLAST;
     if (ChatTyping()) return false;
     if (!InGameNow()) { g_open = g_help = false; return keyMsg && wp == VK_F10; }   // F10 : jamais la barre de menus de Windows
+    // (une touche maintenue repete WM_KEYDOWN toutes les 30 ms : le menu s'ouvrait et se fermait en boucle, journaux du 14/10 ;
+    // on ne reagit qu'au premier appui, jusqu'au relachement)
+    bool up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
     if (keyMsg && wp == VK_F10) {
-        if (down) { g_open = !g_open; g_help = false; if (g_open && g_mx < 0) { g_mx = ScreenW() * 0.5f; g_my = ScreenH() * 0.5f; } Log("menu jeu : %s", g_open ? "ouvert" : "ferme"); }
+        if (up) f10held = false;
+        else if (down && !f10held) { f10held = true; g_open = !g_open; g_help = false; if (g_open && g_mx < 0) { g_mx = ScreenW() * 0.5f; g_my = ScreenH() * 0.5f; } Log("menu jeu : %s", g_open ? "ouvert" : "ferme"); }
         return true;
     }
     if (keyMsg && wp == VK_F1) {
-        if (down) { g_help = !g_help; g_open = false; Log("aide : %s", g_help ? "ouverte" : "fermee"); }
+        if (up) f1held = false;
+        else if (down && !f1held) { f1held = true; g_help = !g_help; g_open = false; Log("aide : %s", g_help ? "ouverte" : "fermee"); }
         return true;
     }
     if (g_open || g_help) {
@@ -270,8 +284,28 @@ static void PlayersTab(float x0, float y0, float x1, float y1)
             float d = sqrtf((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
             sprintf(info, L("%.0f m  -  vie %.0f", "%.0f m  -  health %.0f"), d, p.state.health);
         }
+        float pg = self ? (g_cfg.host ? -1.0f : NetPing(0)) : NetPing(i);   // ping to the host (a guest's own, or each guest's as the host measured it)
+        if (pg >= 0.0f) sprintf(info + strlen(info), "  -  ping %d ms", pg < 1.0f ? 1 : (int)(pg + 0.5f));
         UiText(x0 + 16 * k, y + 27 * k, 12.5f * k, C_GREY, UI_LEFT, info);
         if (!self && p.state.inGame && Button(x1 - 150 * k, y + 9 * k, x1 - 12 * k, y + 39 * k, L("ALLER VERS", "GO TO"))) Queue(A_GOTO, i);
+        y += 56 * k;
+    }
+    // Last death: go back to the spot (the weapons are kept on death and given back after the respawn: events.cpp).
+    {
+        UiRect(x0, y, x1, y + 48 * k, 10 * k, 0xFFFFFF10, 0xFFFFFF08, 0xFFFFFF20, 1 * k);
+        UiText(x0 + 16 * k, y + 6 * k, 16 * k, C_INK, UI_LEFT, L("O\xF9 je suis mort", "Where I died"), true);
+        float dp[3];
+        int darea = 0;
+        bool known = DeathSpot(dp, &darea);
+        char info[112];
+        if (!known) sprintf(info, "%s", L("aucun d\xE9" "c\xE8s pour l'instant", "no death yet"));
+        else {
+            const float *a = me ? EntityPos(me) : dp;
+            float d = sqrtf((a[0] - dp[0]) * (a[0] - dp[0]) + (a[1] - dp[1]) * (a[1] - dp[1]) + (a[2] - dp[2]) * (a[2] - dp[2]));
+            sprintf(info, "%.0f m", d);
+        }
+        UiText(x0 + 16 * k, y + 27 * k, 12.5f * k, C_GREY, UI_LEFT, info);
+        if (Button(x1 - 150 * k, y + 9 * k, x1 - 12 * k, y + 39 * k, L("Y ALLER", "GO THERE"), false, known)) Queue(A_GODEATH);
         y += 56 * k;
     }
     y += 10 * k;
@@ -489,6 +523,7 @@ static void DrawMenu()
     char who[64];
     sprintf(who, "%s  -  %s", g_cfg.playerName, g_cfg.host ? L("h\xF4" "te", "host") : L("invit\xE9" "", "guest"));
     UiText(x0 + 140 * k, y0 + 18 * k, 13 * k, C_GREY, UI_LEFT, who);
+    UiText(x1 - 56 * k, y0 + 19 * k, 11.5f * k, C_GREY, UI_RIGHT, SACOOP_VERSION "  -  " SACOOP_FORK);
     if (Button(x1 - 44 * k, y0 + 12 * k, x1 - 14 * k, y0 + 40 * k, "X")) g_open = false;
     UiRect(x0 + 16 * k, y0 + 48 * k, x1 - 16 * k, y0 + 50 * k, 1 * k, 0xFFFFFF70, 0xFFFFFF70);
     static const char *tabFr[] = { "JOUEURS", "V\xC9" "HICULES", "OUTILS", "TENUE", "AFFICHAGE", "MONDE", "H\xD4" "TE" }, *tabEn[] = { "PLAYERS", "VEHICLES", "TOOLS", "OUTFIT", "DISPLAY", "WORLD", "HOST" };

@@ -35,6 +35,7 @@
 #include "mods.h"
 #include "npc.h"
 #include "interp.h"
+#include "trains.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -152,6 +153,57 @@ static void LocalSkin();
 static void RadioFrame();
 static void AttachedToPlayer(void *ped, MsgState &s);
 
+// --- "In the air" state of the local player, as sent to the others ---
+// Before: air = 1 as soon as CPed::bIsStanding was 0. But the game only refreshes that flag when the ped is processed by the
+// collision code, which it skips for a ped at rest: after a teleport ("go to", fall rescue, the script that moves you out of
+// a safe house...) a ped that stands still keeps bIsStanding = 0 until he moves (tests of 14/10: "coming out of a safe house
+// the other player sees me doing the falling animation", "keeps defaulting to the fall until they start moving"). The other
+// players' copy of us then followed us in the air state with the fall animation. Now:
+//  - being in the air needs real vertical speed (jumps, falls, parachute) - the state is kept 400 ms after it stops;
+//  - for 2 s after a relocation (teleport, area change, jump of more than 4 m) the ped is told he is standing again and the
+//    game's "in the air" reaction (CTaskComplexInAirAndLand, type 240) is dropped, unless he really is dropping fast;
+//  - swimming (CTaskSimpleSwim, 1304) keeps the old rule (not standing = following in height).
+static uint32_t g_settleUntil;
+void NoteLocalRelocated() { g_settleUntil = GetTickCount() + 2000; }
+
+static int LocalAirState(void *ped, const float *pos, const float *speed, uint8_t area)
+{
+    static float lastPos[3];
+    static uint8_t lastArea;
+    static bool haveLast, reported;
+    static uint32_t movingAt;
+    static int said;
+    uint32_t now = GetTickCount();
+    float dx = pos[0] - lastPos[0], dy = pos[1] - lastPos[1], dz = pos[2] - lastPos[2];
+    if (haveLast && (area != lastArea || dx * dx + dy * dy + dz * dz > 16.0f)) {
+        g_settleUntil = now + 2000;
+        if (said < 30) { said++; Log("relocated: %.1f %.1f %.1f area %d -> %.1f %.1f %.1f area %d (standing flag %d)", lastPos[0], lastPos[1], lastPos[2], lastArea, pos[0], pos[1], pos[2], area, Field<uint8_t>(ped, 0x46C) & 1); }
+    }
+    memcpy(lastPos, pos, sizeof(lastPos));
+    lastArea = area;
+    haveLast = true;
+    uint8_t &flags = Field<uint8_t>(ped, 0x46C);
+    if (flags & 1) { reported = false; return 0; }
+    if (HasTaskType(ped, 1304)) return 1;   // swimming
+    float vz = speed[2];
+    if ((int)(g_settleUntil - now) > 0 && vz > -0.15f) {
+        if (fabsf(vz) < 0.03f) {
+            flags |= 1;   // resting: the game just did not refresh the flag
+            void **t = PrimaryTasks(ped);
+            for (int k = 1; k <= 2; k++)
+                if (t[k] && ((int(__thiscall *)(void *))(*(void ***)t[k])[4])(t[k]) == 240) {
+                    SetPrimaryTask(ped, nullptr, k);
+                    if (said < 30) { said++; Log("relocated: in-air reaction dropped"); }
+                }
+        }
+        reported = false;
+        return 0;
+    }
+    if (fabsf(vz) > 0.03f) { movingAt = now; reported = true; }
+    else if (reported && now - movingAt > 400) reported = false;
+    return reported ? 1 : 0;
+}
+
 // --- Etat du joueur local, envoye 30 fois par seconde ---
 static void SendLocalState()
 {
@@ -198,7 +250,7 @@ static void SendLocalState()
         if (*(uint8_t *)(0xBA6748 + 0x5C)) s.gear |= 0x20;   // menu pause ouvert : notre pantin se tient tranquille, "(pause)" a cote de notre nom
         if (!PedVehicle(ped)) {
             if (AnimsClimbing(ped)) s.air = 2;
-            else if (!(Field<uint8_t>(ped, 0x46C) & 1)) s.air = 1;   // CPed::bIsStanding (+0x46C bit 0) a zero
+            else s.air = (uint8_t)LocalAirState(ped, s.pos, s.speed, s.area);   // CPed::bIsStanding (+0x46C bit 0) at zero, filtered
         }
         // Visee (tache secondaire d'attaque = CTaskSimpleUseGun, type 1017, mesure 01/10) : point vise = 40 m devant la
         // camera (cadre de la camera RenderWare de la scene, 0xC1703C : at +0x70, position +0x80 de sa matrice LTM).
@@ -241,6 +293,7 @@ static void SendLocalState()
 // CWeather : ancienne 0xC81320, nouvelle 0xC8131C, forcee 0xC81318, transition 0xC8130C.
 static void OnWorld(const MsgWorld &w)
 {
+    TrainsSetHost(w.trains != 0);   // (before the early returns: the host's train flag must not depend on a cutscene)
     if (GameState() != 9) return;
     // Pendant une cinematique (la notre : sa meteo et son heure sont fixees par le jeu / le script), on ne touche a rien ;
     // les valeurs de l'hote reprennent a la fin (message suivant, 1 s). Avant, l'invite voyait la meteo changer a chaque
@@ -257,7 +310,35 @@ static void OnWorld(const MsgWorld &w)
     *(short *)0xC81320 = w.oldWeather;
     *(short *)0xC8131C = w.newWeather;
     *(short *)0xC81318 = w.forcedWeather;
-    *(float *)0xC8130C = w.weatherBlend;
+    // (the blend value 0xC8130C is NOT copied: the game derives it from the clock every frame, see h_WeatherUpdate)
+}
+
+// --- Weather: no local weather changes on the guest ---
+// CWeather::Update (0x72B850) recomputes the blend value 0xC8130C from the clock each frame, (seconds / 60 + minutes) / 60,
+// and when the new value is LOWER than the previous one it takes that for the start of a new game hour: old weather =
+// new weather, new weather = next entry of its own random list. Copying the host's blend every second made the guest's
+// value jump backwards all the time, so the guest picked a new random weather every second or two (test of 14/10:
+// sky colours changing at random at dusk and dawn, "meteo :" lines flipping 2, 3, 0, 3, 2, 0...). Now the previous
+// value is set to 0 just before Update on a guest, so the comparison can never be true: the guest's weather only
+// changes when the host's message says so (OnWorld), and the blend still follows the synchronised clock.
+static void __cdecl h_WeatherUpdate()
+{
+    if (!g_cfg.host && g_cfg.syncWeather && NetRunning() && g_players[0].connected) *(float *)0xC8130C = 0.0f;
+    ((void(__cdecl *)())0x72B850)();
+}
+
+void InstallWeatherGuard()
+{
+    const uintptr_t process = 0x53BEE0, update = 0x72B850;
+    uintptr_t found = 0;
+    int hits = 0;
+    for (uintptr_t a = process; a < process + 0x600; a++) {
+        if (*(const uint8_t *)a != 0xE8) continue;
+        if (a + 5 + *(const int32_t *)(a + 1) == update) { found = a; hits++; }
+    }
+    if (hits != 1) { Log("weather: call to CWeather::Update not found in CGame::Process (%d candidates), guest weather may change by itself", hits); g_cfg.syncWeather = false; return; }
+    PatchCall(found, (void *)h_WeatherUpdate);
+    Log("weather: CWeather::Update hooked (call at %08X)", (unsigned)found);
 }
 
 static void SyncWorld()
@@ -267,6 +348,8 @@ static void SyncWorld()
     if (GetTickCount() - last < 1000) return;
     last = GetTickCount();
     MsgWorld w = { MSG_WORLD, *(uint8_t *)0xB70153, *(uint8_t *)0xB70152, *(short *)0xC81320, *(short *)0xC8131C, *(short *)0xC81318, *(float *)0xC8130C };
+    NetFillPings(w.ping);
+    w.trains = TrainsHostReady() ? 1 : 0;
     NetSendToGuests(&w, sizeof(w));
 }
 
@@ -458,6 +541,7 @@ void FollowAirEnd(void *ped, bool &airState)
     uint8_t *e = (uint8_t *)ped;
     *(uint32_t *)(e + 0x40) |= 2u;
     e[0x1C] |= 1;
+    e[0x46C] |= 1;   // standing again (the flag stayed at 0 after the air state: the copy kept the fall animation until its player moved)
     airState = false;
 }
 
@@ -767,6 +851,9 @@ void PuppetsAfterProcess()
         Snap n;
         if (!TrackSample(p.track, i, n, true)) continue;
         PlaceFollower(ped, n);
+        // On foot: it stands (placed by us every frame, it has no ground of its own: interior or scene not loaded here).
+        // Without this the game raised its "in the air" event on every frame and the copy played the fall animation.
+        if (!p.air) Field<uint8_t>(ped, 0x46C) |= 1;
     }
 }
 
@@ -1754,30 +1841,48 @@ static void CoopFrameInner(bool inGameLoop);
 // --- Chute sous le monde ---
 // Un joueur mis dans une zone dont les collisions ne sont pas (encore) chargees tombe sans fin (cinematique de mission,
 // retour d'un interieur, arrivee aupres de l'hote ; mission "Home Invasion" : l'invite tombait apres l'echec). On retient la
-// derniere position sure (a pied, debout, au-dessus de -5, hors cinematique) et on y remet le joueur s'il reste sous -150
-// plus d'une demi-seconde. Sans position sure, un invite est remis aupres de l'hote. Journalise.
+// derniere position sure (a pied, debout, au-dessus de -5, hors cinematique) et on y remet le joueur dans deux cas :
+//  - il reste sous -150 plus d'une demi-seconde ;
+//  - il tombe depuis plus d'1,2 s sans rien toucher (ni vehicule, jetpack, parachute) de plus de 20 m dans un interieur,
+//    ou de plus de 40 m depuis une altitude d'au moins 500 (hauteur des interieurs : 900 a 1300) : essai du 14/10,
+//    l'hote "aller vers" l'invite dans sa maison tombait de 1014 a 936 et mourait, sans jamais passer sous -150.
+// Sans position sure, un invite est remis aupres de l'hote. Le joueur est remis en entier (TeleportPed : interieur, decor
+// charge sur place). Journalise.
 static void FallRescue()
 {
-    static float safe[3], safeHeading;
+    static float safe[3], safeHeading, airStartZ;
     static uint8_t safeArea;
     static bool haveSafe;
-    static uint32_t lastSafe, belowSince, lastRescue;
+    static uint32_t lastSafe, belowSince, lastRescue, airSince;
     void *me = FindPlayerPed();
-    if (!g_cfg.fallRescue || !InGame() || !me) { belowSince = 0; return; }
+    if (!g_cfg.fallRescue || !InGame() || !me) { belowSince = airSince = 0; return; }
     uint32_t now = GetTickCount();
     float *p = EntityPos(me);
-    bool cut = *(uint8_t *)0xB5F851 != 0;
-    if (!PedVehicle(me) && !cut && (Field<uint8_t>(me, 0x46C) & 1) && p[2] > -5.0f && p[2] < 2000.0f && now - lastSafe > 1000) {
+    bool cut = *(uint8_t *)0xB5F851 != 0, standing = (Field<uint8_t>(me, 0x46C) & 1) != 0;
+    if (!PedVehicle(me) && !cut && standing && p[2] > -5.0f && p[2] < 2000.0f && now - lastSafe > 1000) {
         lastSafe = now;
         memcpy(safe, p, sizeof(safe));
         safeHeading = Field<float>(me, PED_ROTATION);
         safeArea = EntityArea(me);
         haveSafe = true;
     }
-    if (!(p[2] < -150.0f)) { belowSince = 0; return; }
-    if (!belowSince) { belowSince = now; return; }
-    if (now - belowSince < 500 || now - lastRescue < 3000) return;
+    bool under = p[2] < -150.0f;
+    if (!under) belowSince = 0;
+    else if (!belowSince) belowSince = now;
+    // chute sans fin : en l'air depuis un moment, de haut, sans parachute ni jetpack
+    bool para = false;
+    for (int slot = 0; slot < 13; slot++) para |= Field<int>(me, PED_WEAPONS + slot * 0x1C) == 46;
+    bool air = !standing && !PedVehicle(me) && !cut && !para && Field<float>(me, PED_HEALTH) > 0.0f && !HasTaskType(me, 1303);
+    bool endless = false;
+    if (!air) airSince = 0;
+    else if (!airSince) { airSince = now; airStartZ = p[2]; }
+    else {
+        float drop = airStartZ - p[2];
+        endless = now - airSince > 1200 && ((EntityArea(me) != 0 && drop > 20.0f) || (airStartZ >= 500.0f && drop > 40.0f));
+    }
+    if (!((under && now - belowSince >= 500) || endless) || now - lastRescue < 3000) return;
     lastRescue = now;
+    airSince = belowSince = 0;
     float to[3];
     uint8_t area = 0;
     const char *why;
@@ -1785,12 +1890,26 @@ static void FallRescue()
     else if (!g_cfg.host && g_players[0].connected && g_players[0].state.inGame) { memcpy(to, g_players[0].state.pos, sizeof(to)); area = g_players[0].state.area; why = "aupres de l'hote"; }
     else { Log("chute : joueur sous le monde (%.1f %.1f %.1f, zone %d), aucune position sure connue", p[0], p[1], p[2], EntityArea(me)); return; }
     to[2] += 1.0f;
-    Log("chute : joueur sous le monde (%.1f %.1f %.1f, zone %d, vehicule %p), remis %s (%.1f %.1f %.1f, zone %d)", p[0], p[1], p[2],
-        EntityArea(me), PedVehicle(me), why, to[0], to[1], to[2], area);
+    Log("chute : %s (%.1f %.1f %.1f, zone %d, vehicule %p, en l'air depuis %.1f m), remis %s (%.1f %.1f %.1f, zone %d)",
+        endless ? "chute sans fin" : "joueur sous le monde", p[0], p[1], p[2], EntityArea(me), PedVehicle(me), endless ? airStartZ - p[2] : 0.0f, why, to[0], to[1], to[2], area);
     if (PedVehicle(me)) return;
-    PlacePuppet(me, to, haveSafe ? safeHeading : Field<float>(me, PED_ROTATION));
-    EntityArea(me) = area;
-    memset(MoveSpeed(me), 0, 12);
+    TeleportPed(me, to, haveSafe ? safeHeading : Field<float>(me, PED_ROTATION), area, "secours chute");
+}
+
+// Menu du jeu (pause, sauvegarde) ouvert ou ferme : position et zone au journal (essai du 14/10 : chute apres le menu de sauvegarde).
+static void MenuWatch()
+{
+    static bool was;
+    static int said;
+    void *me = FindPlayerPed();
+    bool open = *(uint8_t *)(0xBA6748 + 0x5C) != 0;
+    if (open == was || !me || GameState() != 9) return;
+    was = open;
+    if (said++ < 60) {
+        const float *p = EntityPos(me);
+        Log("menu du jeu : %s (joueur en %.1f %.1f %.1f, zone %d, vie %.0f, etat %d)", open ? "ouvert" : "ferme", p[0], p[1], p[2], EntityArea(me),
+            Field<float>(me, PED_HEALTH), Field<int>(me, PED_STATE));
+    }
 }
 
 void CoopFrame(bool inGameLoop)
@@ -1806,9 +1925,12 @@ static void CoopFrameInner(bool inGameLoop)
     CameraFrame();   // (vue F6 et mods : en solo aussi)
     ModsFrame();
     PanelFrame();    // (menu F10 : en solo aussi)
+    DeathDropFrame();   // (armes perdues a la mort, "Ou je suis mort" : en solo aussi)
+    MenuWatch();
     GfxFrame();      // (distance d'affichage, population)
     PrefsFrame();    // (souris inversee ou non)
     PanelTest();
+    TrainsIdle();    // (before the NetRunning test: gives the random trains back when the session ends)
     if (!NetRunning()) return;
     SaveSyncFrame();
     {   // arrivees et departs des joueurs (message a l'ecran)
@@ -1841,6 +1963,7 @@ static void CoopFrameInner(bool inGameLoop)
     for (int i = 0; i < MAX_PLAYERS; i++) others |= i != g_localId && g_players[i].connected;
     if (others) *(uint8_t *)0xB7CB49 = 0;
     VehiclesFrame();
+    TrainsFrame();
     EntitiesFrame();
     MirrorFrame();
     ConditionsFrame();
@@ -1944,6 +2067,7 @@ static void LocalSkin()
 // 0x4E8330 la change comme les touches de radio : +0xAD et +0xE9).
 static void RadioFrame()
 {
+    RadioSyncFrame();   // radio.cpp: host's track and position for the guests
     static uint32_t last;
     if (GetTickCount() - last < 500) return;
     last = GetTickCount();

@@ -143,7 +143,7 @@ static void MergePopulation()
         if (veh->flags[i] & 0x80) { g_vehSeen[i] = 0; continue; }
         uint8_t *v = veh->objects + i * 0xA18;
         bool born = Newborn(g_vehSeen, g_vehBirth, i, VehicleRef(v), now);
-        if (v == mine || (v[0x4A4] != 1 && v[0x4A4] != 3) || IsNetVehicle(v)) continue;   // aleatoire ou garee, pas du reseau
+        if (v == mine || (v[0x4A4] != 1 && v[0x4A4] != 3) || IsTrain(v) || IsNetVehicle(v)) continue;   // aleatoire ou garee, pas du reseau (jamais un wagon de train : trains.cpp)
         if ((v[0x428] & 1) && OwnPolice()) continue;   // vehicule des forces de l'ordre (bIsLawEnforcer)
         bool playerInside = PlayerOrNet(Field<void *>(v, VEH_DRIVER), me);
         for (int k = 0; k < 8 && !playerInside; k++) playerInside = PlayerOrNet(Field<void *>(v, VEH_PASSENGERS + k * 4), me);

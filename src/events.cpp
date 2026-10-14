@@ -7,6 +7,12 @@
 //    GetRidOfObjects 0x454CF0 puis drapeau 1), et sa poignee est ajoutee a la liste des pickups ramasses (anneau de 20
 //    a 0x978628, index 0x978624) : HAS_PICKUP_BEEN_COLLECTED (0214) d'un script de l'hote la voit, un fer a cheval ou
 //    un objet de mission ramasse par un invite compte donc chez l'hote.
+//  - Disquette de sauvegarde (modele 1277) : jamais partagee. Ramassee par un joueur, elle ouvrait le menu de sauvegarde
+//    chez les autres aussi (essai du 14/10 : l'hote tombait ensuite sous le monde).
+//  - Armes perdues a la mort : le jeu retire les armes du joueur mort. On les retient (13 emplacements, a chaque image)
+//    et, a la mort, on les pose en cercle autour du corps (CREATE_PICKUP_WITH_AMMO 032B, type 3, par le script fantome :
+//    donc pas rejoue chez les autres) ; ces pickups ne sont ni annonces ni retires chez les autres (h_PickupUpdate),
+//    ils n'existent que chez le joueur mort. Le menu F10 sait y ramener ("Ou je suis mort"). Retires apres 10 minutes.
 //  - Tags (graffitis) : CTagManager::ms_tagDesc 0xA9A8C0 (150 x {CEntity*, alpha}), ms_numTags 0xA9AD70 ; un tag
 //    peint par l'un est peint chez tous (SetAlpha 0x49CEC0 : met a jour le compte et affiche "tags x/100").
 #include "util.h"
@@ -14,6 +20,9 @@
 #include "net.h"
 #include "game.h"
 #include "events.h"
+#include "mirror.h"
+#include "conditions.h"
+#include "hud.h"
 #include <string.h>
 #include <math.h>
 
@@ -41,6 +50,7 @@ static void Broadcast(const void *d, int len, int except)
 // --- Pickups ---
 static EvPickup g_pickQueue[16];
 static int g_pickQueued;
+enum { SAVE_DISK_MODEL = 1277 };
 
 typedef bool(__thiscall *PickupUpdate_t)(void *pickup, void *ped, void *veh, int playerId);
 static bool __fastcall h_PickupUpdate(uint8_t *pk, void *, void *ped, void *veh, int playerId)
@@ -48,12 +58,20 @@ static bool __fastcall h_PickupUpdate(uint8_t *pk, void *, void *ped, void *veh,
     EvPickup e = { RL_PICKUP, (uint8_t)(g_localId < 0 ? 0 : g_localId), *(int16_t *)(pk + 0x18),
                    { *(int16_t *)(pk + 0x10), *(int16_t *)(pk + 0x12), *(int16_t *)(pk + 0x14) }, pk[0x1C] };
     bool r = ((PickupUpdate_t)0x457410)(pk, ped, veh, playerId);
-    if (r && g_pickQueued < 16) g_pickQueue[g_pickQueued++] = e;
+    if (r && e.model == SAVE_DISK_MODEL) {
+        static int said;
+        if (said < 5) { said++; Log("pickup : disquette de sauvegarde ramassee, non partagee"); }
+    } else if (r && g_pickQueued < 16) g_pickQueue[g_pickQueued++] = e;
     return r;
 }
 
 static void ApplyPickup(const EvPickup &e)
 {
+    if (e.model == SAVE_DISK_MODEL) {   // la sauvegarde d'un joueur n'ouvre pas le menu de sauvegarde des autres
+        static int saidDisk;
+        if (saidDisk < 5) { saidDisk++; Log("pickup : disquette de sauvegarde du joueur %d ignoree", e.from); }
+        return;
+    }
     int best = -1, bestD = 9;   // meme modele, a moins d'un metre
     for (int i = 0; i < PICKUPS; i++) {
         uint8_t *p = Pickup(i);
@@ -82,6 +100,130 @@ static void ApplyPickup(const EvPickup &e)
         ((void(__cdecl *)(uint32_t))0x4573D0)(handle);   // CPickups::RemovePickUp (0215)
     }
     if (said < 30) { said++; Log("pickup ramasse par le joueur %d (modele %d, type %d) : retire chez nous", e.from, e.model, t); }
+}
+
+// --- Weapons kept on death ---
+// The game takes the dead player's weapons away (during the "WASTED" screen, before the respawn at the hospital). So we
+// remember the weapons held on every frame and, once the player is back on his feet, give them back (GIVE_WEAPON_TO_CHAR
+// 01B2 through the ghost script: not mirrored to the other players). Only what is missing is given, so weapons that the
+// game or a mission kept are not doubled. (Before, they were dropped on the ground around the body for the player to
+// fetch with F10 > Players > "Where I died".) Switch: ArmesMort=0 gives the vanilla behaviour (weapons lost).
+struct HeldWeapon { int type, ammo; };
+static HeldWeapon g_wcache[13], g_restore[13];
+static int g_wcount, g_restoreCount;
+static bool g_restorePending;
+static uint32_t g_aliveSince;
+static float g_alivePos[3];
+static uint8_t g_aliveArea;
+static bool g_haveAlive, g_wasAlive;
+static float g_deathPos[3];
+static int g_deathArea;
+static bool g_haveDeath;
+
+static void CacheWeapons(void *me)
+{
+    int n = 0;
+    for (int slot = 0; slot < 13; slot++) {
+        int type = Field<int>(me, PED_WEAPONS + slot * 0x1C), total = Field<int>(me, PED_WEAPONS + slot * 0x1C + 0xC);
+        if (type <= 0 || type > 46) continue;
+        g_wcache[n].type = type;
+        g_wcache[n].ammo = total;
+        n++;
+    }
+    g_wcount = n;
+}
+
+// Gives back what the player no longer has (same type: only the missing ammo).
+static void RestoreWeapons(void *me)
+{
+    int ref = PedRef(me), given = 0;
+    for (int i = 0; i < g_restoreCount; i++) {
+        int type = g_restore[i].type, want = g_restore[i].ammo, have = -1;
+        for (int slot = 0; slot < 13; slot++)
+            if (Field<int>(me, PED_WEAPONS + slot * 0x1C) == type) have = Field<int>(me, PED_WEAPONS + slot * 0x1C + 0xC);
+        bool gun = type >= 16 && type <= 43;   // firearms, thrown weapons, spray can...: they have ammo; the others (melee, parachute...) are given once
+        int give;
+        if (!gun) give = have < 0 ? 1 : 0;
+        else give = want - (have < 0 ? 0 : have);
+        if (give <= 0) continue;
+        int a[3] = { ref, type, give };
+        RunScriptCommand(0x01B2, 3, a);   // GIVE_WEAPON_TO_CHAR
+        given++;
+    }
+    Log("death: %d of %d weapon(s) given back", given, g_restoreCount);
+}
+
+void DeathDropFrame()
+{
+    static uint32_t lastAlive;
+    void *me = FindPlayerPed();
+    if (GameState() != 9 || !me) {   // loading, main menu: the world will be rebuilt
+        g_wasAlive = false;
+        g_restorePending = false;
+        g_aliveSince = 0;
+        g_haveDeath = false;
+        g_haveAlive = false;
+        return;
+    }
+    uint32_t now = GetTickCount();
+    float hp = Field<float>(me, PED_HEALTH);
+    int st = Field<int>(me, PED_STATE);
+    bool dead = hp <= 0.0f || st == 54 || st == 55;
+    bool cut = *(uint8_t *)0xB5F851 != 0;
+    float *p = EntityPos(me);
+    if (!dead) {
+        g_wasAlive = true;
+        if (g_restorePending) {   // respawned: wait until the player is really back (hospital cutscene and fade over)
+            if (!g_aliveSince) g_aliveSince = now;
+            if (!cut && now - g_aliveSince > 1500) {
+                RestoreWeapons(me);
+                g_restorePending = false;
+                g_aliveSince = 0;
+                CacheWeapons(me);
+            }
+        } else CacheWeapons(me);
+        if (!cut && now - lastAlive > 500 && p[2] > -5.0f && p[2] < 2000.0f) {
+            lastAlive = now;
+            memcpy(g_alivePos, p, sizeof(g_alivePos));
+            g_aliveArea = EntityArea(me);
+            g_haveAlive = true;
+        }
+        return;
+    }
+    g_aliveSince = 0;
+    if (!g_wasAlive || cut) return;   // already handled, or not a real death
+    g_wasAlive = false;
+    bool bad = !(p[2] > -5.0f && p[2] < 2000.0f);   // (in the void, or NaN: last safe place)
+    const float *at = bad && g_haveAlive ? g_alivePos : p;
+    int area = bad && g_haveAlive ? g_aliveArea : EntityArea(me);
+    memcpy(g_deathPos, at, sizeof(g_deathPos));
+    g_deathArea = area;
+    g_haveDeath = true;
+    // (while a restore is still pending the cache was not updated, so a second death keeps the same list)
+    memcpy(g_restore, g_wcache, sizeof(g_restore));
+    g_restoreCount = g_wcount;
+    g_restorePending = g_cfg.deathDrop && g_restoreCount > 0;
+    Log("death: player died at %.1f %.1f %.1f, interior %d, %d weapon(s) held%s%s", at[0], at[1], at[2], area, g_wcount, bad ? " (safe position used)" : "",
+        g_restorePending ? ", they will be given back after the respawn" : "");
+}
+
+bool DeathSpot(float pos[3], int *area)
+{
+    if (!g_haveDeath) return false;
+    memcpy(pos, g_deathPos, 12);
+    if (area) *area = g_deathArea;
+    return true;
+}
+
+bool GoToDeathSpot()
+{
+    static const bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    void *me = FindPlayerPed();
+    if (!me || !g_haveDeath) { HudToast(fr ? "Aucun deces a rejoindre" : "No death to go back to", 3000); return false; }
+    if (PedVehicle(me)) { HudToast(fr ? "Descendez d'abord du vehicule" : "Get out of the vehicle first", 3000); return false; }
+    float pos[3] = { g_deathPos[0], g_deathPos[1], g_deathPos[2] + 0.5f };
+    TeleportPed(me, pos, Field<float>(me, PED_ROTATION), g_deathArea, "ou je suis mort");
+    return true;
 }
 
 // --- Tags ---

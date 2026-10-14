@@ -151,7 +151,7 @@ static void DrawPlayers()
         bool local = i == g_localId;
         if (!local && !g_players[i].connected) continue;
         const MsgState &s = g_players[i].state;
-        char left[64], right[64];
+        char left[64], right[96];
         wsprintfA(left, "%s%s", local ? g_cfg.playerName : (s.name[0] ? s.name : "?"), i == 0 ? (fr ? " (hote)" : " (host)") : "");
         if (local) wsprintfA(right, fr ? "vie %d  -  vous" : "health %d  -  you", (int)Field<float>(me, PED_HEALTH));
         else {
@@ -159,6 +159,12 @@ static void DrawPlayers()
             int dist = (int)sqrtf(dx * dx + dy * dy + dz * dz);
             if (s.inGame) wsprintfA(right, fr ? "vie %d  -  %d m" : "health %d  -  %d m", (int)s.health, dist);
             else lstrcpyA(right, fr ? "au menu" : "in menu");
+        }
+        // Ping: the guests' to the host (the host measures it and shares it; a guest sees his own and the other guests' to the host).
+        float pg = NetPing(i);
+        if (pg >= 0.0f) {
+            int ms = (int)(pg + 0.5f);
+            wsprintfA(right + lstrlenA(right), "  -  %d ms", ms < 1 ? 1 : ms);
         }
         text(x, y, kNameColor[i], left, 1);
         text(sw - x, y, RGBA(230, 230, 230, 255), right, 2);
