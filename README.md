@@ -111,6 +111,36 @@ Versions are `0.49.0-vcport` to `0.54.8-vcport`; the original's last release is 
 per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
+### At a glance: what this fork adds over the original (`0.48.4-prealpha`)
+
+The original is Parricidium's mod as it stood at `0.48.4-prealpha`. Everything below was added on top of it, in
+`0.49.0-vcport` to `0.54.8-vcport`. Each point is described in detail in the sections that follow.
+
+- **Smoother play:** other players, vehicles and mission characters are interpolated between received states and placed
+  after the game's physics, so they no longer jitter; vehicle copies are frozen against the local physics; absurd
+  positions are caught before they crash the game; a precise clock is used for what is sent and played back; 30 FPS by
+  default, 60 FPS still an option.
+- **Missions:** about 120 more mission commands are repeated on the guest; only the host starts story missions; the
+  guest's radar follows the host's; cutscene handling (the guest's skip, doubles hidden, a forced end when one is
+  stuck); fixes for Home Invasion, new games and interiors; the mission **timer, counters and health bars** (Ryder's
+  health, the crates left) show on the guest's screen; **F10 > Tools > STOP MISSION** for a mission that is stuck.
+- **Vehicles:** spawned and parked vehicles stay for the other players; copies no longer appear inside a player or
+  on top of the guest's own traffic; colours, **paintjobs and upgrades** follow the owner (Pay'n'Spray, workshops);
+  rotors and propellers turn; any player in a shared vehicle can change the radio; F10 can remove the vehicles you
+  spawned, even after another player took the wheel.
+- **World:** trains run the same on every PC; weather and sky no longer flicker on the guest; the radio follows the
+  host's station, song and position.
+- **Players:** ping on the F5 board and in F10; weapons come back after a death; go to a player from anywhere
+  (interiors too) and to where you died; rescue from an endless fall; a pause indicator; Alt+Tab and Alt+Enter
+  (borderless or windowed) behave.
+- **Crashes fixed:** the game's pool of vehicle models filling up (Sweet's Girl), a crate exploding next to a car
+  (Robbing Uncle Sam), the Display Setup > Advanced menu, a host address typed as `address:port`.
+- **Diagnostics and tooling:** load diagnostics and many new lines in `sacoop.log`; a launcher and release script that
+  work with this repository; build scripts that find Visual Studio 2019 to 2026 by themselves.
+
+**What is not proven yet:** `0.54.7` and `0.54.8` were written and compiled but have not been played for real by two
+players when this was written (the mission HUD, the vehicle colour / upgrade sync and STOP MISSION are the newest).
+
 ### Smoother play (VCCoop's robustness layer, 0.49.0)
 
 - **Interpolation:** other players, vehicles and mission characters are shown about 110 ms in the past, between two
@@ -477,8 +507,12 @@ Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **
 5. Train sync is a first version: a player inside a train is not seated, and the game only builds trains near the host.
 6. The `sacoop.ini` key names, the in-game log lines and some code comments are still in French; the in-game menus
    and the launcher show French or English by your system language.
-7. Not ported from VCCoop on purpose: ragdoll sync, on-screen timers and counters, model-loading commands,
-   `CLEAR_AREA`, trains, roadblocks.
+7. Not ported from VCCoop on purpose: ragdoll sync, model-loading commands, `CLEAR_AREA`, roadblocks.
+8. The host's mission characters and mission vehicles are copies on the guest, placed from the host's state: the
+   guest's collisions cannot push them, so they feel like walls. Letting a hit move them needs the guest to take them
+   over for a moment; not done yet.
+9. Vehicle colour / upgrade / paintjob sync and the mission HUD (0.54.8) are new and untested. The HUD label shows
+   only if the guest's game has the mission's text.
 
 ## Credits and license
 
