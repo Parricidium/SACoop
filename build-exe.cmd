@@ -41,3 +41,4 @@ findstr /C:" error " build\build-exe.log
 echo.
 echo Full log: %~dp0build\build-exe.log
 exit /b 1
+pause
