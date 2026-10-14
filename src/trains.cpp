@@ -282,7 +282,7 @@ void SendTrain(NetTrain &n, uint8_t extra)
     m.dist = *(float *)(e + T_DIST);
     m.speed = *(float *)(e + T_SPEED);
     for (int k = 0; k < MAX_CARS; k++) m.models[k] = n.models[k];
-    m.time = GetTickCount();
+    m.time = NowMs();
     NetSendToAll(&m, sizeof(m));
 }
 

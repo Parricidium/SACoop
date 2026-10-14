@@ -79,7 +79,16 @@ namespace game {
     inline uint8_t *WeaponInfo(int type) { return ((uint8_t *(__cdecl *)(int, int))0x743C60)(type, 1); }
 
     // --- Chargement des modeles (CStreaming) ---
-    inline void RequestModel(int id, int flags) { ((void(__cdecl *)(int, int))0x4087E0)(id, flags); }   // flags 2 : mission
+    // Vehicle models (400-611) the mod asked for with flag 2 ("game required", which keeps them in memory for good): the age
+    // in half seconds since the last request (VehiclesFrame lets them go again, ReleaseVehicleModels). Every loaded vehicle
+    // model takes one of the 50 CVehicleStructure of the pool: the 51st one crashes the game (Sweet's Girl, 14/10).
+    inline uint8_t *VehicleModelAsks() { static uint8_t asks[212]; return asks; }
+    inline void RequestModel(int id, int flags)
+    {
+        ((void(__cdecl *)(int, int))0x4087E0)(id, flags);   // flags 2 : mission
+        if ((flags & 2) && id >= 400 && id < 612) VehicleModelAsks()[id - 400] = 1;
+    }
+    inline void ModelDeletable(int id) { ((void(__cdecl *)(int))0x409C10)(id); }   // CStreaming::SetModelIsDeletable: clears "game required"
     inline void LoadAllRequestedModels(bool priorityOnly) { ((void(__cdecl *)(bool))0x40EA10)(priorityOnly); }
     inline bool ModelLoaded(int id) { return *(uint8_t *)(0x8E4CC0 + id * 0x14 + 0x10) == 1; }   // ms_aInfoForModel[id].m_nLoadState
 

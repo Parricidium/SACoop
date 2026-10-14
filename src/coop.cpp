@@ -36,6 +36,7 @@
 #include "npc.h"
 #include "interp.h"
 #include "trains.h"
+#include "msnhud.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -215,8 +216,8 @@ static int LocalAirState(void *ped, const float *pos, const float *speed, uint8_
 static void SendLocalState()
 {
     static uint32_t last;
-    uint32_t now = GetTickCount();
-    if (now - last < 33) return;
+    uint32_t now = NowMs();   // (not GetTickCount, rounded to 15.6 ms: 30 per second became 15 at 30 images/s)
+    if (now - last < 30) return;
     last = now;
     MsgState s = {};
     s.type = MSG_STATE;
@@ -2141,6 +2142,7 @@ static void CoopFrameInner(bool inGameLoop)
     EventsFrame();
     ObjectsFrame();
     RadioFrame();
+    MissionHudFrame();
     LocalSkin();
     Autotest();
 

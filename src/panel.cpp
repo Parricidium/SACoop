@@ -66,7 +66,7 @@ void PanelMouseInput(int dx, int dy, int dz, bool lmb)
 }
 
 // ======================================================================= Actions (boucle du jeu)
-enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH, A_SKIPCUT, A_REMOVELAST, A_REMOVEALL };
+enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH, A_SKIPCUT, A_REMOVELAST, A_REMOVEALL, A_STOPMISSION };
 struct Action { int kind, arg; };
 static std::vector<Action> g_actions;
 static void Queue(int kind, int arg = 0) { g_actions.push_back({ kind, arg }); }
@@ -146,7 +146,7 @@ static void SpawnVehicle(int model)
 {
     void *me = FindPlayerPed();
     if (!me || PedVehicle(me)) { HudToast(L("Descendez d'abord du vehicule", "Get out of the vehicle first"), 3000); return; }
-    if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
+    if (!ModelLoaded(model)) { if (!VehicleModelRoom(model)) { HudToast(L("Trop de modeles de vehicule en memoire, reessayez", "Too many vehicle models in memory, try again"), 3000); return; } RequestModel(model, 2); LoadAllRequestedModels(false); }
     if (!ModelLoaded(model)) return;
     const float *p = EntityPos(me);
     float h = Field<float>(me, PED_ROTATION), d = 5.0f;
@@ -196,6 +196,7 @@ void PanelFrame()
         case A_GOTO: if (GoToPlayer(a.arg)) g_open = false; break;
         case A_GODEATH: if (GoToDeathSpot()) g_open = false; break;
         case A_SKIPCUT: SkipCutsceneNow(); break;
+        case A_STOPMISSION: MissionStopRequest(); break;
         case A_REMOVELAST:
         case A_REMOVEALL: {
             int n = VehiclesRemoveSpawned(a.kind == A_REMOVEALL);
@@ -370,20 +371,24 @@ static void ToolsTab(float x0, float y0, float x1, float y1)
     struct { const char *fr, *en; int action; } tools[] = {
         { "SANT\xC9" " + GILET", "HEALTH + ARMOUR", A_HEAL }, { "ARMES", "WEAPONS", A_WEAPONS }, { "+10 000 $", "+10,000 $", A_MONEY },
         { "R\xC9" "PARER LE V\xC9" "HICULE", "REPAIR VEHICLE", A_REPAIR }, { "\xC9" "TOILES \xC0" " Z\xC9" "RO", "CLEAR WANTED LEVEL", A_NOWANTED }, { "JETPACK", "JETPACK", A_JETPACK },
-        { "PASSER LA CIN\xC9" "MATIQUE", "SKIP CUTSCENE", A_SKIPCUT }, { "RETIRER MON DERNIER V\xC9" "HICULE", "REMOVE MY LAST VEHICLE", A_REMOVELAST }, { "RETIRER TOUS MES V\xC9" "HICULES", "REMOVE ALL MY VEHICLES", A_REMOVEALL } };
+        { "PASSER LA CIN\xC9" "MATIQUE", "SKIP CUTSCENE", A_SKIPCUT }, { "RETIRER MON DERNIER V\xC9" "HICULE", "REMOVE MY LAST VEHICLE", A_REMOVELAST }, { "RETIRER TOUS MES V\xC9" "HICULES", "REMOVE ALL MY VEHICLES", A_REMOVEALL },
+        { "ARR\xCATER LA MISSION", "STOP MISSION", A_STOPMISSION } };
     float bw = (x1 - x0 - 2 * 10 * k) / 3, bh = 42 * k;
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < 10; i++) {
         float bx = x0 + (i % 3) * (bw + 10 * k), by = y0 + (i / 3) * (bh + 10 * k);
         const char *label = g_fr ? tools[i].fr : tools[i].en;
         // (the long labels of the last row get a smaller font so they fit the button)
         if (Button(bx, by, bx + bw, by + bh, label, false, true, i >= 7 ? 11.5f * k : 0)) { Queue(tools[i].action); if (tools[i].action == A_JETPACK) g_open = false; }
     }
-    float ny = y0 + 3 * (bh + 10 * k) + 6 * k;
+    float ny = y0 + 4 * (bh + 10 * k) + 6 * k;
     UiText(x0, ny, 12.5f * k, C_GREY, UI_LEFT,
            L("Armes : Desert Eagle, fusil \xE0" " pompe, MP5, M4, fusil de pr\xE9" "cision, grenades.", "Weapons: Desert Eagle, shotgun, MP5, M4, sniper rifle, grenades."));
     UiText(x0, ny + 18 * k, 12.5f * k, C_GREY, UI_LEFT,
            L("Cin\xE9matique bloqu\xE9" "e : un 2e clic la termine de force et rend commandes et cam\xE9ra. Retirer : seulement les v\xE9" "hicules que vous avez pos\xE9s.",
              "Stuck in a cutscene: a 2nd click ends it by force and gives controls and camera back. Remove: only vehicles you spawned."));
+    UiText(x0, ny + 36 * k, 12.5f * k, C_GREY, UI_LEFT,
+           L("Mission bloqu\xE9" "e : 2 clics en 6 s l'arr\xEA" "tent (nettoyage normal, sans r\xE9" "compense ; un invit\xE9 le demande \xE0" " l'h\xF4" "te).",
+             "Stuck mission: 2 clicks within 6 s stop it (normal clean-up, no reward; a guest asks the host)."));
 }
 
 // Tenues : CJ puis tous les pietons de data\peds.ide (ordre et noms : launcher\skins.h, comme le lanceur).

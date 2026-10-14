@@ -94,7 +94,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**: every game starts, and guests follow the host (same save
    when they have it). Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a
    virtual LAN. A player who arrives after the start uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.5-vcport (Zebra's forked repo) loaded`. If it does not,
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.8-vcport (Zebra's forked repo) loaded`. If it does not,
    that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -107,7 +107,7 @@ Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini
 
 ## Everything this fork adds
 
-Versions are `0.49.0-vcport` to `0.54.5-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
+Versions are `0.49.0-vcport` to `0.54.8-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
 per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
@@ -153,7 +153,7 @@ per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the tech
 - Limits: the game only builds trains near the host, so a guest far away from the host sees none; a player inside a
   train is shown standing in it (no seat animation yet); a derailed train is not synced.
 
-### Missions, vehicles and the F10 menu (0.54.0 to 0.54.5)
+### Missions, vehicles and the F10 menu (0.54.0 to 0.54.8)
 
 - **Only the host starts story missions.** A guest who walks into a mission-start marker no longer starts anything,
   but still sees the marker, so a guest can show the host where it is. Setting `GuestMissionLock`.
@@ -162,6 +162,11 @@ per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the tech
   and what the mission puts on the map stay.
 - **F10 > Tools > SKIP CUTSCENE:** uses the game's own skip; a second click (or a click when the controls or camera are
   stuck after a cutscene) ends it by force and gives the controls and camera back.
+- **F10 > Tools > STOP MISSION:** for a mission that is stuck. Two clicks within 6 s (a guest's click asks the host); the
+  mission ends through its own clean-up, as if the game's `FAIL_CURRENT_MISSION` had run: no reward, the contact can start
+  it again.
+- **Mission timer and counters** (Ryder's health, the crates left, the time left) are shown on the guest's screen too.
+- **Colours, paintjobs and upgrades** of a vehicle (Pay'n'Spray, workshops) are seen by the other players.
 - **F10 > Tools > REMOVE MY LAST VEHICLE / REMOVE ALL MY VEHICLES:** removes the vehicles you spawned (menu or cheat code),
   also on the other players' screens at once.
 - **Alt+Tab:** leaving the game gives the mouse back to Windows at once (cursor shown and free, no longer held by
@@ -213,6 +218,22 @@ per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the tech
   cleared it). Fixed: the command buffer is kept, a pickup whose model does not load waits 0.8 s once and is then skipped, and
   a cutscene the guest skips (Enter, Space, click, cross or F10) is cleared at once with controls, camera and screen given
   back. The guest's cutscenes are logged (`cinematique de l'invite :` start, every 5 s, end).
+- **0.54.6:** a guest who joined with `address:port` (the launcher's lobby accepts it, then handed the text to the game
+  as typed) never connected: the game could not resolve `61.245.130.116:7800`, stayed at the main menu, and "Start game"
+  made a solo game and a black screen. The game now takes `address:port` (the port after the colon wins over the setting),
+  the in-game join box accepts a colon, and an address that cannot be found shows a message box instead of staying silent.
+- **0.54.7:** the game crashed (both players) when too many different vehicle models had been loaded: the mod kept every
+  vehicle model it had asked for in memory for good, and the game has room for 50 (Sweet's Girl brought the guest to 48).
+  The models are now let go of a few seconds after the vehicle exists, and a new one waits when the pool is nearly full. A
+  vehicle spawned with F10 can be removed after another player took the wheel (it came straight back before). The
+  guest riding in a host vehicle that the host's clean-up removed is put out of it first (he died with it at the end of Home
+  Invasion). Driving looked jerky for the other player: the game's clock moves in 15.6 ms steps, which cut the 30 updates a
+  second to 15 and rounded every timestamp; the mod now uses a precise clock for what it sends and plays back. The black
+  screen a guest could be left with after a cutscene is undone after 1 s instead of 2.
+- **0.54.8:** the guest crashed when a box Ryder threw hit a car and it exploded (Robbing Uncle Sam): a stale animation
+  callback of the "fall out of the car" task; patched. New: the mission HUD (timer, counters, Ryder's health) on the guest's
+  screen, colours / paintjobs / upgrades of vehicles seen by everyone, and F10 > Tools > STOP MISSION. Network version 24:
+  everybody needs the same dll.
 
 ### Players
 
@@ -311,7 +332,7 @@ Everything below comes from the original SACoop and still works.
 | **T** | Chat (Enter to send; `/join` brings you back next to the host) |
 | **F5** (hold) | Players board: name, health, distance and ping |
 | **F6** | First-person view on foot |
-| **F10** | In-game menu, used with the mouse: **Players** (go to a player, where I died, friendly fire, ping), **Vehicles** (3D thumbnails, a click spawns it in front of you), **Tools** (health and armour, weapons, money, repair, clear wanted level, jetpack, skip cutscene, remove my vehicles), **Outfit**, and for the host **World** (time, weather) and **Host** settings |
+| **F10** | In-game menu, used with the mouse: **Players** (go to a player, where I died, friendly fire, ping), **Vehicles** (3D thumbnails, a click spawns it in front of you), **Tools** (health and armour, weapons, money, repair, clear wanted level, jetpack, skip cutscene, stop mission, remove my vehicles), **Outfit**, and for the host **World** (time, weather) and **Host** settings |
 | **F1** | Help (keys, tips) |
 | **Alt+Enter** | Borderless full screen <-> window |
 
@@ -377,7 +398,7 @@ ready).
 Versions 0.49 to 0.54 have been written and checked for build errors, but are still being tested in real play. If you
 want to help, play a session and look at these:
 
-- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.5-vcport (Zebra's forked repo)`).
+- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.8-vcport (Zebra's forked repo)`).
 - [ ] **Ping** shows in F5 and F10 > Players and looks like the real ping (a few ms on the same PC or network).
 - [ ] The **sky** no longer flickers at dusk and dawn.
 - [ ] After a **teleport** or leaving a safe house, the other player is not stuck in the falling animation.
@@ -440,11 +461,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.5-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.8-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.5-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.5-vcport.zip`.
+`v0.54.8-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.8-vcport.zip`.
 
 ## Known gaps and roadmap
 

@@ -38,7 +38,7 @@
 
 using namespace game;
 
-enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6 };
+enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */ };
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
 // q/Q sphere (entree/sortie), o/O objet (entree/sortie), k/K pickup, r/R feu de script. (A l'envoi, un P qui designe le joueur de l'hote devient H :
@@ -628,6 +628,7 @@ struct Pending { uint8_t data[256]; int len; uint32_t since; };
 static Pending g_queue[QUEUE];
 static int g_qHead, g_qTail;
 
+static void HostStopMission(const char *by);
 static void OnReliable(int from, const uint8_t *data, int len)
 {
     (void)from;
@@ -644,6 +645,7 @@ static void OnReliable(int from, const uint8_t *data, int len)
         if (RequestGameStart(slot)) Log("miroir : partie de l'hote suivie (%s)", slot >= 0 ? path : "nouvelle partie");
         return;
     }
+    if (g_cfg.host && len >= 1 && data[0] == RL_MISSION_STOP) { HostStopMission(from == 1 ? "guest 1" : from == 2 ? "guest 2" : "a guest"); return; }
     if (g_cfg.host || len < 1 || len > 256) return;
     if ((g_qTail + 1) % QUEUE == g_qHead) { Log("miroir : file pleine, commande perdue"); return; }
     Pending &p = g_queue[g_qTail];
@@ -1310,7 +1312,7 @@ void MirrorMenuFrame()
 }
 
 // Invite arrive apres les fondus de l'hote (sa propre INTRO est bloquee) : reste noir alors que l'hote voit clair.
-// Si l'ecran est noir sans fondu en cours (CCamera +0xBFC alpha, +0x51 m_bFading) depuis 2 s, joueur vivant, hors
+// Si l'ecran est noir sans fondu en cours (CCamera +0xBFC alpha, +0x51 m_bFading) depuis 1 s, joueur vivant, hors
 // cinematique, et que l'hote est clair : fondu d'entree (DO_FADE 500 ms).
 static void UnstickFade()
 {
@@ -1331,7 +1333,7 @@ static void UnstickFade()
                  host.connected && host.state.inGame && host.state.fade < 20;
     if (!stuck) { stuckSince = 0; return; }
     if (!stuckSince) stuckSince = GetTickCount();
-    if (GetTickCount() - stuckSince < 2000) return;
+    if (GetTickCount() - stuckSince < 1000) return;   // (was 2 s: the guest watched 3 s of black after every cutscene the host had already left)
     stuckSince = 0;
     int args[2] = { 500, 1 };
     RunScriptCommand(0x016A, 2, args);
@@ -1370,6 +1372,46 @@ void SkipCutsceneNow()
     softAt = 0;
     ForceCutsceneEnd(running ? "F10 menu, second press" : "F10 menu, none running");
     HudToast(PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH ? "Commandes et camera rendues" : running ? "Cutscene ended by force" : "Controls and camera restored", 2500);
+}
+
+// F10 "stop mission": the way out of a mission that is stuck (a script waiting for something that never happens on this PC, a
+// step the guest cannot do). It is what the game's own FAIL_CURRENT_MISSION command does (CTheScripts::FailCurrentMission,
+// 0xA444B0, set to 2): the mission script (the one flagged "must be the only mission running") is thrown back to the line
+// after its first GOSUB, which is the mission's own clean-up (MISSION_HAS_FINISHED, MISSION_END: mission entities released,
+// controls and camera given back, the player free). No pass and no reward, and the contact can start it again. gta-reversed's
+// debug menu does the same ("fail current mission"). A running cutscene is ended first. Only the host runs the scripts: a
+// guest's click sends a request (RL_MISSION_STOP). Two clicks within 6 s: a stray click must not throw a mission away.
+static void HostStopMission(const char *by)
+{
+    bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    uint32_t *om = OnMissionVar();
+    if (!om || *om == 0) {
+        Log("mission: stop requested by %s, but no mission is running", by);
+        HudToast(fr ? "Aucune mission en cours" : "No mission is running", 3000);
+        return;
+    }
+    if (CutsceneRunning()) ForceCutsceneEnd("stop mission");
+    *(int8_t *)0xA444B0 = 2;   // CTheScripts::FailCurrentMission
+    Log("mission: stopped by %s (FailCurrentMission = 2): the mission script runs its clean-up", by);
+    HudToast(fr ? "Mission arretee" : "Mission stopped", 3500);
+}
+
+void MissionStopRequest()
+{
+    static uint32_t armed;
+    bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    uint32_t now = GetTickCount();
+    if (!armed || now - armed > 6000) {
+        armed = now | 1;
+        HudToast(fr ? "Cliquez encore (6 s) pour arreter la mission" : "Click again within 6 s to stop the mission", 4000);
+        return;
+    }
+    armed = 0;
+    if (g_cfg.host) { HostStopMission("the host"); return; }
+    uint8_t m = RL_MISSION_STOP;
+    NetSendReliable(&m, 1);
+    Log("mission: stop requested from this guest, sent to the host");
+    HudToast(fr ? "Demande envoyee a l'hote" : "Request sent to the host", 3000);
 }
 
 // Guest, cutscene: the skip (Enter, Space, click, the pad's cross: the game's own CCutsceneMgr::SkipCutscene) only brings the

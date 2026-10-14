@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 23, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 24, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -26,6 +26,8 @@ enum MsgType : uint8_t {
     MSG_OBJECT,      // objet du decor deplace (objects.cpp), par le joueur le plus proche ; relaye par l'hote
     MSG_RADIO,       // host -> guests: what the host's radio is playing (radio.cpp), twice a second and on every change
     MSG_TRAIN,       // a train's place on its track, by its owner (trains.cpp); relayed by the host
+    MSG_VEHMOD,      // a vehicle's colours, paintjob and upgrades, by its owner (vehicles.cpp); relayed by the host
+    MSG_HUD,         // host -> guests: the on-screen mission timer and counters (msnhud.cpp), 4 times a second
 };
 
 #pragma pack(push, 1)
@@ -164,6 +166,35 @@ struct MsgTrain {
     uint32_t time;       // GetTickCount of the send (interpolation, interp.cpp)
 };
 enum { TRF_CLOCKWISE = 1, TRF_MISSION = 2, TRF_STOPPED = 4, TRF_DERAILED = 8, TRF_RELEASE = 16 /* its driver got out: the host owns it again */, TRF_GONE = 32 /* it does not exist any more */ };
+// What a vehicle wears, by its owner: the four body colours (CVehicle +0x434), the paintjob (index of CVehicle::GetRemapIndex,
+// -1 = none) and the upgrade models (CVehicle::m_anUpgrades, +0x43A, -1 = empty). Sent when it changes (Pay'n'Spray, a
+// workshop) and every few seconds, so a copy made later still gets it.
+struct MsgVehMod {
+    uint8_t type, owner;
+    uint32_t id;         // same id as MsgVehicle
+    uint16_t model;
+    uint8_t colors[4];
+    int8_t paint;
+    int16_t ups[15];
+};
+// The mission HUD of the host (COnscreenTimer 0xBA1788: one clock and four counters, which the mission scripts fill with
+// Ryder's health, the crates left, the time left...). value: what the host's script variable holds right now.
+struct HudCounter {
+    uint8_t on, type;    // type: 0 number, 1 bar, 2 "x / max"
+    uint8_t flash, pad;
+    uint32_t color;      // eHudColours
+    uint32_t max;
+    int32_t value;
+    char key[10];        // GXT key of the label
+};
+struct MsgHud {
+    uint8_t type, paused;
+    uint8_t clockOn, clockDir;   // clockDir: 0 counts up, 1 down
+    int32_t clockValue;          // milliseconds
+    uint32_t clockBeep;
+    char clockKey[10];
+    HudCounter c[4];
+};
 #pragma pack(pop)
 
 struct NetPlayer {
@@ -205,4 +236,6 @@ extern void (*g_onPed)(const MsgPed &p);           // invite : personnage de mis
 extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite sur un personnage de mission
 extern void (*g_onMarker)(const MsgMarker &m);     // invite : marqueur de zone de l'hote
 extern void (*g_onTrain)(const MsgTrain &t);       // a train of another player (or of the host)
+extern void (*g_onVehMod)(const MsgVehMod &m);     // what a vehicle of another player wears (colours, paintjob, upgrades)
+extern void (*g_onHud)(const MsgHud &h);           // guest: the host's mission timer and counters
 

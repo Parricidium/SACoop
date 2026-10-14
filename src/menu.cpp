@@ -66,7 +66,7 @@ bool MenuWindowMessage(UINT msg, WPARAM wp)
         return true;
     }
     if (msg == WM_CHAR) {
-        bool ok = g_input == ACT_JOIN ? ((wp >= '0' && wp <= '9') || wp == '.' || (wp >= 'a' && wp <= 'z') || (wp >= 'A' && wp <= 'Z') || wp == '-')
+        bool ok = g_input == ACT_JOIN ? ((wp >= '0' && wp <= '9') || wp == '.' || wp == ':' || (wp >= 'a' && wp <= 'z') || (wp >= 'A' && wp <= 'Z') || wp == '-')
                                       : (wp >= 32 && wp < 127);
         int max = g_input == ACT_NAME ? 20 : 60;
         if (ok && g_len < max) { g_buf[g_len++] = (char)wp; g_buf[g_len] = 0; }

@@ -4,6 +4,10 @@
 #include <stdint.h>
 
 void LogInit(const char *path);
+// Millisecond clock that is not rounded to the system tick: GetTickCount only moves in steps of 15.6 ms (the log
+// stamps show it), which cut the 30 per second state messages to 15 and made the interpolation of the other
+// player's vehicles and steps jerky (report of 14/10). Differences only: its zero is arbitrary (QueryPerformanceCounter).
+uint32_t NowMs();
 void Log(const char *fmt, ...);
 
 // Ecrit n octets a l'adresse donnee (retire la protection le temps de l'ecriture).

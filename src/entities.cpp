@@ -57,8 +57,8 @@ uint32_t MissionPedId(void *ped)
 static void HostSend()
 {
     static uint32_t last;
-    uint32_t now = GetTickCount();
-    if (now - last < 66) return;
+    uint32_t now = NowMs();   // (stamps and pace: not GetTickCount, rounded to 15.6 ms)
+    if (now - last < 60) return;
     last = now;
     HostRegisterMissionVehicles();
     static int cycle;

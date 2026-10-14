@@ -6,6 +6,92 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.8-vcport (untested, network version 24: two new messages, so 0.54.7 and older cannot join a 0.54.8 game)
+
+Written from the host and client logs of the 0.54.7 test (Robbing Uncle Sam) and the player's list.
+
+- **Crash of the guest when a box thrown by Ryder hit a car and exploded (Robbing Uncle Sam).** The guest's log ends in
+  `CTaskSimpleCarFallOut` (the animation "fall out of the car"): the explosion makes the car's occupants fall out, the mod's
+  mission-character copies get their event responses cleared every few frames (`ClearEventResponses`), which deletes the
+  task in the middle of its animation, and the animation's finish callback (`FinishAnimFallOutCB`, `0x648EE0`) was left
+  pointing at the freed task. `InstallTaskFixes` (game.cpp) patches that task's destructor (vtable `0x86EFD0`, slot 0): before
+  the task dies it clears the callback of its animation if the callback still points at it. The patch checks the vtable
+  and logs `correctif : CTaskSimpleCarFallOut ne laisse plus sa fin d'animation pointer sur elle`; if the game's code is not
+  what it expects, nothing is patched.
+- **Mission HUD for the guest (new file `msnhud.cpp`, `MSG_HUD`).** The timer and counters of a mission (Ryder's health bar,
+  the crates left, the time left...) are filled in by the host's mission script, which the guest never runs, so he saw
+  none. The host sends the game's `COnscreenTimer` (one clock, four counters: type, label key, colour, maximum and the value of
+  the script variable each one points at) 4 times a second; the guest puts the same slots on his own timer, each pointing at a
+  small buffer of the mod (a variable id is only an offset from `ScriptSpace`), so the game draws and ticks them itself.
+  Slots his own game uses are left alone; they are emptied when the host's go off or after 1.5 s of silence. The label is
+  the host's GXT key, shown when the guest's mission text has it.
+- **Colours, paintjobs and upgrades follow the owner (new `MSG_VEHMOD`).** The colours were copied once, when a copy was
+  made, so a car sprayed at Pay'n'Spray kept its old colour for the other player, and upgrades or paintjobs never travelled.
+  The owner of a vehicle now sends its four colours, paintjob (`GetRemapIndex`) and upgrades (`m_anUpgrades`) when they
+  change and every 3 s (6 s when idle, only when another player is within 350 m); a copy applies them one change a turn
+  (`SetRemap`, `AddVehicleUpgrade`, `RemoveVehicleUpgrade`, loading the upgrade model first). A state the game refuses is
+  not retried until the owner says something different. Log lines: `vehicle ...: colours / paintjob / upgrades changed`,
+  `upgrade N added`.
+- **F10 > Tools > STOP MISSION.** For a mission that is hopelessly stuck. Two clicks within 6 s (a guest's click asks the
+  host). It does what the game's own `FAIL_CURRENT_MISSION` does: `CTheScripts::FailCurrentMission = 2`, which throws the
+  mission script back to its own clean-up (`MISSION_HAS_FINISHED` / `MISSION_END`: mission entities released, controls and
+  camera back); a running cutscene is ended first. No pass, no reward, the contact can start it again. Nothing happens
+  (and a toast says so) when no mission is running.
+- Not changed: "objects and characters are like brick walls for the guest". The host's mission characters and vehicles are
+  copies placed from the host's state every frame, so the guest's own collisions cannot move them; making a hit move them
+  needs the guest to take them over for a moment (as a vehicle already does when a player drives it). That is a larger change
+  that cannot be tested without two players; to aim it, the exact case is needed (which object or character, what the
+  guest did, what he expected).
+- `SACoop\version.txt` of each PC is what the launcher shows (an old copy says `0.48.4-prealpha`, the original's last
+  release); the first line of `sacoop.log` is the dll's real version.
+
+## 0.54.7-vcport (untested, network version 23, same protocol as 0.54.0)
+
+Written from the host and guest logs of the 0.54.6 test (Home Invasion, Sweet's Girl) and the player's report.
+
+- **Crash in `CVehicleModelInfo::PreprocessHierarchy` (Sweet's Girl, "for either player").** Every loaded vehicle model
+  takes one of the 50 `CVehicleStructure` of the game's pool; the 51st gets a null structure and the game dies (address
+  `004C8F24`, access `00000030`, in the guest's log). The mod asked for each vehicle model with the "game required" flag, which
+  keeps it in memory for good, and mirrored the host's traffic and mission cars, one copy per vehicle: the guest had 48
+  different models loaded when it crashed. `RequestModel` now remembers the vehicle models it asked for; `VehiclesFrame`
+  lets them go again (`CStreaming::SetModelIsDeletable`) 3 s after the request, when the copy exists (a model in use is
+  never unloaded). A model that is not loaded yet waits (`VehicleModelRoom`) when 42 or more are, after asking the game to
+  drop an unused one; the F10 spawner says so in a toast. A host crash in a cutscene that was not skipped may have had the
+  same cause (cutscenes load vehicles too).
+- **A vehicle spawned with F10 could not be removed once another player had got in.** The one who takes the wheel becomes
+  the owner and goes on sending the vehicle; the spawner's "gone" notice was ignored by the owner, and the spawner's copy
+  came back from the owner's next state message. A "gone" notice from the player who created the id (first byte of the id)
+  is now obeyed by the owner too, and removed ids are remembered for 8 s so late state messages do not raise them again.
+- **Death at the end of Home Invasion.** The guest was a passenger in the host's van; the host's clean-up of the garage
+  forecourt removed the van, the guest's copy had no news for 3 s and was deleted with the guest inside (log: ten copies
+  retired in the same millisecond, the player dead 15 ms later). The local player is now put out of a copy before it is
+  deleted, and the cars cleared from a copy's spot never take the local player or a puppet with them as passengers.
+- **Jerky driving, both ways (host driving seen by the guest, and the other way round).** The game's `GetTickCount` moves in
+  steps of 15.6 ms (the log stamps are multiples of 15.625). The 33 ms send pace of the player and of vehicles therefore
+  became every second frame at 30 images/s (15 per second, 20 at 60), and the timestamps used to interpolate were rounded
+  to the same step. `NowMs()` (QueryPerformanceCounter) now stamps and paces the player, vehicle, mission character and
+  train messages and drives the interpolation clock; the pace is 30 ms so that a frame at 30 or 60 images/s always passes.
+- The black screen a guest may be left with after a cutscene (the host already sees clear) is undone after 1 s, not 2.
+- Not changed: Sweet's Greenwood outside his house. The game's parked-car generators only re-create a car when the player is
+  140 m or more away (except for 20 frames after a cutscene), and the mission scripts clear that yard (the guest's log shows
+  the host's `CLEAR_AREA` on it); no coop code removes it. If it is still missing after a cutscene, the two logs are needed.
+
+## 0.54.6-vcport (untested, network version 23, same protocol as 0.54.0)
+
+Written from the log of the first 0.54.5 test on the brother's PC (internet join, host's public address).
+
+- **`address:port` as the host address.** The launcher's lobby accepts `ip:port` and uses the port for its own connection,
+  but starts the game with the text as typed (`-sacoop invite 61.245.130.116:7800`); the game gave it whole to
+  `getaddrinfo`, which cannot resolve it: `reseau : adresse '61.245.130.116:7800' introuvable`. The guest's game then sat
+  at the main menu (nothing connected, nothing said); "Start game" made a solo game started as a guest (the host's story is
+  not run on a guest) and a black screen. `NetStart` now splits one `:port` off the address (the port after the colon wins
+  over `Port` of the settings), the log line says the real name and port, and the error code is logged.
+- An address that cannot be found now shows a message box (own thread, the game goes on) saying so and not to press "Start
+  game"; the toast used for other network errors cannot show in the main menu.
+- The in-game main-menu "join" box accepts `:` too.
+- `SACoop\version.txt` is what the launcher shows and what the lobby compares between host and guest (not the dll's own
+  version); the first line of `sacoop.log` is the real version of the dll.
+
 ## 0.54.5-vcport (untested, network version 23, same protocol as 0.54.0)
 
 Written from the client log of the first 0.54.4 test, a new game (client joins while the host loads a new save: the client

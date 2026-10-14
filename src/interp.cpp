@@ -21,7 +21,7 @@ static uint32_t g_relaxAt[MAX_PLAYERS];
 void ClockSample(int src, uint32_t senderTime)
 {
     if (src < 0 || src >= MAX_PLAYERS) return;
-    uint32_t now = GetTickCount(), off = now - senderTime;
+    uint32_t now = NowMs(), off = now - senderTime;   // (NowMs, not GetTickCount: rounded to 15.6 ms)
     if (!g_haveOffset[src] || (int32_t)(off - g_offset[src]) < 0 || (int32_t)(off - g_offset[src]) > 2000) {
         g_offset[src] = off;
         g_haveOffset[src] = true;
@@ -66,7 +66,7 @@ static float LerpAngle(float a, float b, float u)
 bool TrackSample(const Track &tr, int src, Snap &o, bool linear)
 {
     if (!tr.count) return false;
-    uint32_t rt = GetTickCount() - (src >= 0 && src < MAX_PLAYERS ? g_offset[src] : 0) - (uint32_t)g_cfg.interpDelay;
+    uint32_t rt = NowMs() - (src >= 0 && src < MAX_PLAYERS ? g_offset[src] : 0) - (uint32_t)g_cfg.interpDelay;
     const Snap &newest = tr.s[tr.count - 1];
     if ((int32_t)(rt - newest.t) >= 0) {
         // Nothing recent: carry on with the velocity.

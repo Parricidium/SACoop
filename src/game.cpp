@@ -135,8 +135,42 @@ static uint8_t *__cdecl h_AsciiToGxtChar(const char *src, uint8_t *dst)
     return dst;
 }
 
+// CTaskSimpleCarFallOut (the fall of an occupant out of a car that blows up) leaves its animation's finish callback pointing at
+// the task when the task is deleted before the animation ends (the original game forgot to take it off: gta-reversed's
+// FIX_BUGS does). The guest's copies of characters and the puppets have their event responses (task slots 1 and 2) cleared
+// every frame, which deletes that task at once; 0.6 s later the animation ended and called a freed task: crash in
+// FinishAnimFallOutCB (0x648EE0), client log of the Uncle Sam robbery, a crate exploding next to a car (14/10). The
+// destructor (vtable 0x86EFD0, slot 0) takes the callback off first. CTask: +8 m_HasFinished, +0xC m_Anim. CAnimBlendAssociation:
+// +0x30 callback type (0 none), +0x34 function, +0x38 data.
+typedef void *(__thiscall *FallOutDtor_t)(void *, unsigned);
+static FallOutDtor_t o_FallOutDtor;
+static void *__fastcall h_FallOutDtor(void *self, void *, unsigned flags)
+{
+    uint8_t *anim = *(uint8_t **)((uint8_t *)self + 0xC);
+    if (anim && !IsBadReadPtr(anim, 0x3C) && *(uint32_t *)(anim + 0x34) == 0x648EE0 && *(void **)(anim + 0x38) == self) {
+        *(uint32_t *)(anim + 0x30) = 0;
+        *(uint32_t *)(anim + 0x34) = 0;
+        *(uint32_t *)(anim + 0x38) = 0;
+    }
+    return o_FallOutDtor(self, flags);
+}
+
+static void InstallTaskFixes()
+{
+    void **vt = (void **)0x86EFD0;
+    bool getType = false, abortable = false;
+    for (int k = 0; k < 9; k++) {
+        if ((uintptr_t)vt[k] == 0x648DD0) getType = true;   // GetTaskType
+        if ((uintptr_t)vt[k] == 0x64CC60) abortable = true;   // MakeAbortable
+    }
+    if (!getType || !abortable || (uintptr_t)vt[0] < 0x401000 || (uintptr_t)vt[0] > 0x857000) { Log("correctif : table de CTaskSimpleCarFallOut introuvable"); return; }
+    o_FallOutDtor = (FallOutDtor_t)PatchPointer(&vt[0], (void *)h_FallOutDtor);
+    Log("correctif : CTaskSimpleCarFallOut ne laisse plus sa fin d'animation pointer sur elle");
+}
+
 void InstallGamePatches()
 {
+    InstallTaskFixes();
     // Au second plan, WinMain ne fait plus que Sleep(100) (cmp ForegroundApp, 0 / jz en 0x748A8D) : une partie coop
     // ne doit pas s'arreter quand on change de fenetre, et les instances de test n'ont jamais le premier plan.
     static const uint8_t jzSleep[] = { 0x0F, 0x84, 0x20, 0x03, 0x00, 0x00 };

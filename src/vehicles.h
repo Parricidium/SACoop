@@ -10,6 +10,7 @@ void HostRegisterAmbientVehicles();              // hote : vehicules ordinaires 
 void VehicleSpawnedHere(void *veh);              // vehicule pose par le joueur local (menu, triche) : partage tant qu'il existe
 int VehiclesRemoveSpawned(bool all);              // F10: remove the vehicle the player spawned last (all = false) or all of them; the others lose their copies at once
 bool IsNetVehicle(void *veh);
+bool VehicleModelRoom(int model);   // is there a free vehicle structure for this model (or is it loaded already) ? Makes room when short.
 bool IsRemoteVehicle(void *veh);   // copie du vehicule d'un autre joueur
 uint32_t LocalVehicleId(void *veh, bool driver); // identifiant reseau du vehicule occupe par le joueur local
 void *NetVehicleByOwnerRef(int owner, int ref);  // copie d'un vehicule par son handle de script chez owner

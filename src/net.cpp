@@ -32,6 +32,8 @@ void (*g_onObject)(const MsgObject &o);
 void (*g_onPedHit)(const MsgPedHit &h);
 void (*g_onMarker)(const MsgMarker &m);
 void (*g_onTrain)(const MsgTrain &t);
+void (*g_onVehMod)(const MsgVehMod &m);
+void (*g_onHud)(const MsgHud &h);
 
 static SOCKET g_sock = INVALID_SOCKET;
 static sockaddr_in g_hostAddr;               // invite : adresse de l'hote
@@ -311,6 +313,29 @@ void NetSendReliable(const void *data, int len)
     }
 }
 
+// A guest whose host address cannot be found: the game would sit at the main menu with nothing said (the toast cannot show
+// there), and "Start game" gives a solo game and a black screen. A message box, in its own thread (the game goes on).
+static DWORD WINAPI AddressMessageThread(void *p)
+{
+    char *text = (char *)p;
+    MessageBoxA(NULL, text, "SACoop", MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+    free(text);
+    return 0;
+}
+
+static void NetAddressFailed(const char *address)
+{
+    bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    char *text = (char *)malloc(300);
+    if (!text) return;
+    wsprintfA(text, fr ? "Adresse de l'hote introuvable : \"%.80s\".\n\nVerifie-la dans le lanceur (adresse ou adresse:port), puis relance. "
+                         "Ne lance pas \"Start game\" : sans l'hote, la partie serait solo."
+                       : "Cannot find the host address: \"%.80s\".\n\nCheck it in the launcher (address or address:port) and start again. "
+                         "Do not press \"Start game\": without the host it would be a solo game.", address);
+    HANDLE t = CreateThread(NULL, 0, AddressMessageThread, text, 0, NULL);
+    if (t) CloseHandle(t); else free(text);
+}
+
 bool NetStart()
 {
     WSADATA wsa;
@@ -340,17 +365,37 @@ bool NetStart()
         g_players[0].connected = true;
         Log("reseau : hote sur le port UDP %d", g_cfg.port);
     } else {
+        // "adresse:port" is accepted (the launcher's lobby takes it, and passes the text on as it was typed; 0.54.5 brother's
+        // log: '61.245.130.116:7800' introuvable, the game stayed at the main menu): the port after the colon replaces
+        // the one of the settings.
+        char hostName[64];
+        int port = g_cfg.port;
+        lstrcpynA(hostName, g_cfg.address, sizeof(hostName));
+        {
+            char *a = hostName;
+            while (*a == ' ') a++;
+            if (a != hostName) memmove(hostName, a, strlen(a) + 1);
+            for (char *e = hostName + strlen(hostName); e > hostName && e[-1] == ' '; ) *--e = 0;
+            char *colon = strchr(hostName, ':');
+            if (colon && !strchr(colon + 1, ':')) {   // (one colon only: an IPv4 address or a name, then the port)
+                int p = atoi(colon + 1);
+                *colon = 0;
+                if (p > 0 && p < 65536) port = p;
+            }
+        }
         addrinfo hints = {}, *res = NULL;
         hints.ai_family = AF_INET;
         hints.ai_socktype = SOCK_DGRAM;
-        if (getaddrinfo(g_cfg.address, NULL, &hints, &res) != 0 || !res) {
-            Log("reseau : adresse '%s' introuvable", g_cfg.address);
+        int gai = getaddrinfo(hostName, NULL, &hints, &res);
+        if (gai != 0 || !res) {
+            Log("reseau : adresse '%s' introuvable (erreur %d)", g_cfg.address, gai);
+            NetAddressFailed(g_cfg.address);
             return false;
         }
         g_hostAddr = *(sockaddr_in *)res->ai_addr;
-        g_hostAddr.sin_port = htons((u_short)g_cfg.port);
+        g_hostAddr.sin_port = htons((u_short)port);
         freeaddrinfo(res);
-        Log("reseau : invite, connexion a %s:%d", g_cfg.address, g_cfg.port);
+        Log("reseau : invite, connexion a %s:%d", hostName, port);
     }
     RxStart();
     return true;
@@ -466,6 +511,12 @@ static void HostReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         if (g_onTrain) g_onTrain(t);
         for (int i = 1; i < MAX_PLAYERS; i++)   // relay to the other guests
             if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &t, sizeof(t));
+    } else if (buf[0] == MSG_VEHMOD && len >= (int)sizeof(MsgVehMod)) {
+        MsgVehMod vm = *(const MsgVehMod *)buf;
+        vm.owner = (uint8_t)id;
+        if (g_onVehMod) g_onVehMod(vm);
+        for (int i = 1; i < MAX_PLAYERS; i++)   // relay to the other guests
+            if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &vm, sizeof(vm));
     } else if (buf[0] == MSG_OBJECT && len >= (int)sizeof(MsgObject)) {
         MsgObject o = *(const MsgObject *)buf;
         o.from = (uint8_t)id;
@@ -559,6 +610,12 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         break;
     case MSG_TRAIN:
         if (len >= (int)sizeof(MsgTrain) && g_onTrain) g_onTrain(*(const MsgTrain *)buf);
+        break;
+    case MSG_VEHMOD:
+        if (len >= (int)sizeof(MsgVehMod) && g_onVehMod) g_onVehMod(*(const MsgVehMod *)buf);
+        break;
+    case MSG_HUD:
+        if (len >= (int)sizeof(MsgHud) && g_onHud) g_onHud(*(const MsgHud *)buf);
         break;
     case MSG_RADIO:
         if (len >= (int)sizeof(MsgRadio)) { g_radio = *(const MsgRadio *)buf; g_radioAt = GetTickCount() | 1; }

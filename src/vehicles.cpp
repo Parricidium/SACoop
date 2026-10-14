@@ -27,7 +27,7 @@ struct NetVeh {
     int ref;             // reference de pool (le vehicule existe-t-il encore ?)
     uint8_t owner;       // joueur proprietaire
     uint32_t lastRecv;   // GetTickCount de la derniere reception (copies)
-    uint32_t lastSend;   // GetTickCount du dernier envoi (vehicules a nous)
+    uint32_t lastSend;   // NowMs du dernier envoi (vehicules a nous)
     uint32_t lastDriven; // GetTickCount de la derniere image ou un joueur local l'occupait
     MsgVehicle last;     // dernier etat recu (copies)
     bool damaged;        // le dernier etat recu portait des degats (une remise a neuf = reparation)
@@ -41,6 +41,10 @@ struct NetVeh {
     uint32_t nearSince;    // (copies) depuis quand le joueur local est a moins de 4 m de l'emplacement de la copie
     uint8_t waitLogged;    // (copies) raisons d'attente deja journalisees (1 : joueur trop pres, 2 : place occupee)
     Track track;         // (copies) etats recus horodates : interpolation apres la physique (interp.cpp)
+    uint32_t modHash;    // (ours) hash of what the vehicle wears at the last MsgVehMod; (copies) of the one that could not be applied
+    uint32_t modSentAt;  // (ours) NowMs-less GetTickCount of the last MsgVehMod
+    MsgVehMod mod;       // (copies) what the owner says the vehicle wears
+    bool modNew;         // (copies) a MsgVehMod is waiting to be applied
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -273,6 +277,47 @@ static void RemoveVehicleNow(void *veh)
     RunScriptCommand(0x00A6, 1, &ref);
 }
 
+// Vehicle models asked for with "game required" (RequestModel flag 2) stay in memory for good, and every loaded vehicle
+// model takes one of the 50 CVehicleStructure of the pool: the guest loaded 48 different models during Sweet's Girl
+// (the host's traffic and mission cars, one copy each) and the game crashed in CVehicleModelInfo::PreprocessHierarchy
+// (null structure) as soon as the 51st was loaded (14/10, both players). The models the mod asked for are let go of again
+// a few seconds after the request (the copy exists by then: a model in use is never unloaded), and when the pool is nearly
+// full the game's own "remove one unused vehicle model" runs before another model is asked for.
+static int LoadedVehicleModels()
+{
+    int c = 0;
+    for (int m = 400; m < 612; m++) if (ModelLoaded(m)) c++;
+    return c;
+}
+
+// all = every model asked for, now (pressure) ; otherwise only the ones asked for 3 s ago (half-second ticks)
+static void ReleaseVehicleModels(bool all)
+{
+    uint8_t *asks = VehicleModelAsks();
+    for (int i = 0; i < 212; i++) {
+        if (!asks[i]) continue;
+        bool loaded = ModelLoaded(400 + i);
+        if (all ? loaded : (loaded ? asks[i] >= 6 : asks[i] >= 40)) { ModelDeletable(400 + i); asks[i] = 0; }
+        else if (!all && asks[i] < 255) asks[i]++;
+    }
+}
+
+bool VehicleModelRoom(int model)
+{
+    if (model < 400 || model >= 612 || ModelLoaded(model)) return true;
+    int c = LoadedVehicleModels();
+    if (c < 42) return true;
+    ReleaseVehicleModels(true);
+    for (int k = 0; k < 8 && c >= 42; k++) {
+        if (!((bool(__cdecl *)())0x40C020)()) break;   // CStreaming::RemoveLoadedVehicle : an unused vehicle model goes
+        c = LoadedVehicleModels();
+    }
+    if (c < 48) return true;
+    static uint32_t said;
+    if (GetTickCount() - said > 5000) { said = GetTickCount(); Log("vehicules : %d modeles de vehicule en memoire sur 50, le %d attend", c, model); }
+    return false;
+}
+
 // Gone notices go out four times (the network is not reliable): 0 = free.
 struct GoneNote { uint32_t id; uint8_t left; uint32_t next; };
 static GoneNote g_gone[8];
@@ -293,6 +338,30 @@ static void SendGoneNotices()
     }
 }
 
+// Ids removed lately (F10): the vehicle's owner may still have state messages on the way, and another player's copy
+// would raise it again out of them. Reported 14/10: a vehicle the host had spawned, removed with F10 after the guest
+// had taken the wheel, came straight back (the guest, now its owner, went on sending it).
+struct Tomb { uint32_t id; uint32_t until; };
+static Tomb g_tomb[16];
+static void Bury(uint32_t id)
+{
+    uint32_t now = GetTickCount();
+    Tomb *t = &g_tomb[0];
+    for (auto &x : g_tomb) {
+        if (x.id == id) { t = &x; break; }
+        if ((int)(now - x.until) >= 0) t = &x;   // expired : free
+        else if (t->id && (int)(t->until - x.until) > 0) t = &x;   // else the oldest
+    }
+    t->id = id;
+    t->until = now + 8000;
+}
+static bool Buried(uint32_t id)
+{
+    uint32_t now = GetTickCount();
+    for (auto &x : g_tomb) if (x.id == id && (int)(now - x.until) < 0) return true;
+    return false;
+}
+
 // The F10 buttons: removes the vehicle this player spawned last (all = false) or every one of them. The player is put
 // out of it first; a vehicle shared with the others disappears on their side at once. Returns how many were removed.
 int VehiclesRemoveSpawned(bool all)
@@ -308,8 +377,10 @@ int VehiclesRemoveSpawned(bool all)
         EjectLocalPlayer(v);
         NetVeh *n = FindByVeh(v);
         uint32_t id = n ? n->id : s.id;
-        if (id)
+        if (id) {
             for (auto &g : g_gone) if (!g.id) { g.id = id; g.left = 4; g.next = 0; break; }
+            Bury(id);
+        }
         RemoveVehicleNow(v);
         if (n) memset(n, 0, sizeof(*n));
         removed++;
@@ -355,6 +426,7 @@ static void ShareSpawnedVehicles()
 static void SendOwned()
 {
     uint32_t now = GetTickCount();
+    uint32_t fine = NowMs();   // (stamps and send pace: GetTickCount only moves every 15.6 ms, 30 per second became 15 at 30 fps)
     for (auto &n : g_veh) {
         if (!n.id || n.owner != g_localId || !Alive(n)) continue;
         bool driving = now - n.lastDriven < 200;
@@ -362,7 +434,7 @@ static void SendOwned()
         const float *spd = (const float *)(v0 + 0x44);
         bool moving = spd[0] * spd[0] + spd[1] * spd[1] + spd[2] * spd[2] > 0.0001f;
         bool hosted = n.mission || n.ambient;
-        uint32_t every = driving ? 33 : hosted && moving ? 66 : 500;
+        uint32_t every = driving ? 30 : hosted && moving ? 60 : 500;   // (ms ; 30 : one frame at 30 or 60 images/s, with a margin)
         // circulation de l'hote loin de tout invite (80 m) : 5 fois par seconde suffisent
         if (n.ambient && !driving && g_cfg.host && every < 200 && !NearSharedGuestAnywhere(EntityPos(n.veh), 80.0f)) every = 200;
         // Gare depuis plus de 10 s : l'etat est quand meme renvoye (une fois par seconde) tant qu'un autre joueur est a
@@ -372,14 +444,14 @@ static void SendOwned()
             if (!OtherPlayerNear(EntityPos(n.veh), 350.0f)) continue;
             if (every < 1000) every = 1000;
         }
-        if (now - n.lastSend < every) continue;
-        n.lastSend = now;
+        if (fine - n.lastSend < every) continue;
+        n.lastSend = fine;
         uint8_t *v = (uint8_t *)n.veh;
         MsgVehicle m = {};
         m.type = MSG_VEHICLE;
         m.owner = (uint8_t)g_localId;
         m.id = n.id;
-        m.time = now;
+        m.time = fine;
         m.model = (uint16_t)*(int16_t *)(v + 0x22);
         m.color1 = v[0x434];
         m.color2 = v[0x435];
@@ -389,14 +461,14 @@ static void SendOwned()
         // Vitesse reelle d'apres le deplacement depuis le dernier envoi (en m par 1/50 s, comme le jeu) quand celle du
         // jeu est bien plus faible : un vehicule sur un trajet enregistre par le script (la Voodoo de la mission des
         // velos) avance sans vitesse physique ; sa copie restait sur place et sautait a chaque message (02/10).
-        float sdt = (now - n.sentAt) / 1000.0f;
+        float sdt = (fine - n.sentAt) / 1000.0f;
         if (n.sentAt && sdt > 0.02f && sdt < 0.6f) {
             float cs[3], c2 = 0, s2 = 0;
             for (int k = 0; k < 3; k++) { cs[k] = (m.pos[k] - n.sentPos[k]) / sdt / 50.0f; c2 += cs[k] * cs[k]; s2 += m.speed[k] * m.speed[k]; }
             if (c2 > 0.0004f && s2 < c2 * 0.25f && c2 < 4.0f) memcpy(m.speed, cs, 12);
         }
         memcpy(n.sentPos, m.pos, 12);
-        n.sentAt = now;
+        n.sentAt = fine;
         memcpy(m.turn, v + 0x50, 12);
         m.driven = driving;
         m.ownerRef = n.ref;
@@ -428,23 +500,129 @@ static void SendOwned()
     }
 }
 
+// --- Colours, paintjob, upgrades (Pay'n'Spray, workshops) ---
+// CVehicle: colours +0x434 (4 bytes), upgrades +0x43A (15 x int16, -1 = empty), GetRemapIndex 0x6D0B70 (paintjob, -1 none),
+// SetRemap 0x6D0C00, AddVehicleUpgrade 0x6E3290, RemoveVehicleUpgrade 0x6DF930. Until 0.54.7 the colours were copied once,
+// when the copy was made: a car sprayed by its owner stayed the old colour for everybody else, and upgrades never travelled.
+static uint32_t ModHash(const uint8_t *colors, int paint, const int16_t *ups)
+{
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < 4; i++) h = (h ^ colors[i]) * 16777619u;
+    h = (h ^ (uint8_t)paint) * 16777619u;
+    for (int i = 0; i < 15; i++) { h = (h ^ (uint16_t)ups[i]) * 16777619u; h = (h ^ ((uint16_t)ups[i] >> 8)) * 16777619u; }
+    return h ? h : 1;
+}
+static bool UpgradeModel(int id) { return id >= 1000 && id <= 1193; }
+
+static void SendMods()
+{
+    uint32_t now = GetTickCount();
+    for (auto &n : g_veh) {
+        if (!n.id || n.owner != g_localId || !Alive(n)) continue;
+        uint8_t *v = (uint8_t *)n.veh;
+        if (*(const int *)(v + VEH_TYPE) == 6) continue;   // trains: trains.cpp
+        bool recent = now - n.lastDriven < 10000 || n.mission || n.ambient;
+        uint32_t period = recent ? 3000 : 6000;
+        MsgVehMod m = {};
+        m.type = MSG_VEHMOD;
+        m.owner = (uint8_t)g_localId;
+        m.id = n.id;
+        m.model = (uint16_t)*(int16_t *)(v + 0x22);
+        memcpy(m.colors, v + 0x434, 4);
+        m.paint = (int8_t)((int(__thiscall *)(void *))0x6D0B70)(v);
+        memcpy(m.ups, v + 0x43A, sizeof(m.ups));
+        uint32_t h = ModHash(m.colors, m.paint, m.ups);
+        bool changed = h != n.modHash;
+        if (!changed && now - n.modSentAt < period) continue;
+        if (!changed && !recent && !OtherPlayerNear(EntityPos(v), 350.0f)) continue;
+        if (changed && n.modHash) Log("vehicle %08X: colours / paintjob / upgrades changed, sent", n.id);
+        n.modHash = h;
+        n.modSentAt = now;
+        NetSendToAll(&m, sizeof(m));
+    }
+}
+
+static void OnVehMod(const MsgVehMod &m)
+{
+    if (m.owner == g_localId) return;
+    NetVeh *n = FindById(m.id);
+    if (!n || n->owner == g_localId) return;   // (unknown vehicle: the next copy of the message, a few seconds later, finds it)
+    n->mod = m;
+    n->modNew = true;
+}
+
+// One change per turn (a model that is not loaded yet is asked for, then we try again). Gives up on a state the game
+// refuses (an upgrade this model cannot wear) until the owner says something different.
+static void ApplyMods(NetVeh &n)
+{
+    uint8_t *v = (uint8_t *)n.veh;
+    const MsgVehMod &m = n.mod;
+    if (*(int16_t *)(v + 0x22) != (int16_t)m.model) { n.modNew = false; return; }
+    uint32_t h = ModHash(m.colors, m.paint, m.ups);
+    if (h == n.modHash) { n.modNew = false; return; }   // (already tried, the game did not take it)
+    memcpy(v + 0x434, m.colors, 4);
+    int have = (int8_t)((int(__thiscall *)(void *))0x6D0B70)(v);
+    if (m.paint != have && m.paint >= -1 && m.paint < 4) {
+        ((void(__thiscall *)(void *, int))0x6D0C00)(v, m.paint);   // CVehicle::SetRemap
+        int16_t txd = *(int16_t *)(v + 0x59A);                      // m_nRemapTxd: the texture dictionary to show
+        if (m.paint >= 0 && txd >= 0 && txd < 6000 && !ModelLoaded(20000 + txd)) {
+            ((void(__cdecl *)(int, int))0x4087E0)(20000 + txd, 2);
+            LoadAllRequestedModels(false);
+        }
+        Log("vehicle %08X: paintjob %d", n.id, m.paint);
+    }
+    int16_t *mine = (int16_t *)(v + 0x43A);
+    for (int k = 0; k < 15; k++) {   // what the owner has and we do not
+        int want = m.ups[k];
+        if (want == -1 || !UpgradeModel(want)) continue;
+        bool have2 = false;
+        for (int j = 0; j < 15; j++) if (mine[j] == want) have2 = true;
+        if (have2) continue;
+        if (!ModelLoaded(want)) {
+            RequestModel(want, 2);
+            LoadAllRequestedModels(false);
+            if (!ModelLoaded(want)) return;   // next turn
+        }
+        ((void(__thiscall *)(void *, int))0x6E3290)(v, want);   // CVehicle::AddVehicleUpgrade
+        Log("vehicle %08X: upgrade %d added", n.id, want);
+        bool took = false;
+        for (int j = 0; j < 15; j++) if (mine[j] == want) took = true;
+        if (!took) { n.modHash = h; n.modNew = false; Log("vehicle %08X: the game did not take upgrade %d", n.id, want); }
+        return;
+    }
+    for (int k = 0; k < 15; k++) {   // what we have and the owner does not (a workshop sold it back)
+        int have3 = mine[k];
+        if (have3 == -1 || !UpgradeModel(have3)) continue;
+        bool wanted = false;
+        for (int j = 0; j < 15; j++) if (m.ups[j] == have3) wanted = true;
+        if (wanted) continue;
+        ((void(__thiscall *)(void *, int))0x6DF930)(v, have3);   // CVehicle::RemoveVehicleUpgrade
+        Log("vehicle %08X: upgrade %d removed", n.id, have3);
+        return;
+    }
+    n.modNew = false;
+}
+
 // --- Reception ---
 static void OnVehicle(const MsgVehicle &m)
 {
     if (m.owner == g_localId) return;
     NetVeh *n = FindById(m.id);
-    if (m.flags & VF_GONE) {   // the owner removed it (F10 menu): the copy goes at once, whoever sits in it gets out first
-        if (n && n->owner != g_localId) {
+    if (m.flags & VF_GONE) {   // its owner (or the player who spawned it: the first number of its id) removed it (F10 menu): the copy goes at once, whoever sits in it gets out first
+        Bury(m.id);
+        bool spawner = (m.id >> 24) == m.owner;   // the spawner may remove it even after another player took the wheel (and became its owner)
+        if (n && (n->owner != g_localId || spawner)) {
             if (Alive(*n)) {
                 void *me = FindPlayerPed();
                 if (me && PedVehicle(me) == n->veh) EjectLocalPlayer(n->veh);
                 RemoveVehicleNow(n->veh);
             }
-            Log("vehicle %08X removed by its owner", m.id);
+            Log("vehicle %08X removed by %s", m.id, spawner ? "the player who spawned it" : "its owner");
             memset(n, 0, sizeof(*n));
         }
         return;
     }
+    if (Buried(m.id)) return;   // (state messages that were already on the way)
     if (n && n->owner == g_localId && Alive(*n)) {
         // Un autre joueur a pris le volant de notre vehicule : il devient une copie chez nous.
         Log("vehicule %08X : le joueur %d en prend la propriete", m.id, m.owner);
@@ -494,6 +672,10 @@ static bool ClearSpotForCopy(NetVeh &n)
         if (dx * dx + dy * dy > 6.0f * 6.0f || fabsf(dz) > 3.0f) continue;
         void *drv = Field<void *>(v, VEH_DRIVER);
         bool ordinary = (v[0x4A4] == 1 || v[0x4A4] == 3) && !IsTrain(v) && !FindByVeh(v) && (!drv || (drv != FindPlayerPed() && PuppetIndex(drv) < 0));
+        for (int k = 0; k < 8 && ordinary; k++) {   // (never the local player or a puppet as a passenger: they are not ours to delete)
+            void *ps = Field<void *>(v, VEH_PASSENGERS + k * 4);
+            if (ps && (ps == FindPlayerPed() || PuppetIndex(ps) >= 0)) ordinary = false;
+        }
         if (ordinary) {
             for (int k = 0; k < 8; k++) if (void *ps = Field<void *>(v, VEH_PASSENGERS + k * 4)) { int r = PedRef(ps); RunScriptCommand(0x009B, 1, &r); }
             if (drv) { int r = PedRef(drv); RunScriptCommand(0x009B, 1, &r); }
@@ -544,6 +726,7 @@ static void CreateCopy(NetVeh &n)
         } else n.nearSince = 0;
     }
     if (!ModelLoaded(model)) {
+        if (!VehicleModelRoom(model)) return;   // (the pool of vehicle structures is full: the copy waits)
         RequestModel(model, 2);
         LoadAllRequestedModels(false);
         if (!ModelLoaded(model)) return;
@@ -570,6 +753,10 @@ static void CreateCopy(NetVeh &n)
 static void DestroyCopy(NetVeh &n, bool forget = true)
 {
     if (Alive(n)) {
+        // The local player inside (passenger of the host's van at the end of Home Invasion, whose copy the host's
+        // clean-up had stopped feeding 3 s before): out first, next to it. A vehicle deleted under the player left him
+        // in a driving state with no vehicle, and he died on the spot (14/10).
+        EjectLocalPlayer(n.veh);
         WorldRemove(n.veh);
         RemoveReferencesToDeletedObject(n.veh);
         DeleteEntity(n.veh);
@@ -739,7 +926,7 @@ static void GuestMissionVehicle()
     bool freeSeat = seat <= hv[VEH_MAXPASS] && !Field<void *>(hv, VEH_PASSENGERS + (seat - 1) * 4);
     if (freeSeat) { HudToast(g_fr ? "G : monter avec l'hote" : "G: ride with the host", 5000); Log("vehicule de mission de l'hote : place passager libre (G)"); return; }
     int model = n->last.model;
-    if (!ModelLoaded(model)) { RequestModel(model, 2); LoadAllRequestedModels(false); }
+    if (!ModelLoaded(model)) { if (!VehicleModelRoom(model)) return; RequestModel(model, 2); LoadAllRequestedModels(false); }
     if (!ModelLoaded(model)) return;
     float h0 = Field<float>(me, PED_ROTATION);
     float side = PedVehicle(me) ? 4.5f : 3.0f;   // a cote de lui (de sa voiture)
@@ -873,6 +1060,7 @@ void VehiclesFrame()
     static bool aiHooked;
     if (!aiHooked) { aiHooked = true; HookAI<0>(); HookAI<1>(); HookAI<2>(); HookAI<3>(); HookAI<4>(); HookAI<5>(); Log("vehicules : IA des copies remplacee par les commandes de leur conducteur"); }
     g_onVehicle = OnVehicle;
+    g_onVehMod = OnVehMod;
     if (GameState() != 9 || !FindPlayerPed()) return;
     if (g_cfg.host) HostTrafficGuard();
     uint32_t now = GetTickCount();
@@ -883,10 +1071,14 @@ void VehiclesFrame()
         if (now - n.lastRecv > timeout && !PuppetInVehicle(n.veh)) { DestroyCopy(n, true); continue; }
         if (!n.veh) CreateCopy(n);
         if (n.veh) CutsceneHide(n.veh, g_cfg.hideCut && CutsceneNow(), n.cutHidden);
-        if (n.veh && now - n.lastRecv < 1500) { if (!g_cfg.placeVeh) UpdateCopy(n); ApplyBody(n); }   // (placeVeh : la pose vient de VehiclesAfterProcess)
+        if (n.veh && now - n.lastRecv < 1500) { if (!g_cfg.placeVeh) UpdateCopy(n); ApplyBody(n); }
+        if (n.veh && n.modNew) ApplyMods(n);   // (placeVeh : la pose vient de VehiclesAfterProcess)
     }
     GuestMissionVehicle();
     ShareSpawnedVehicles();
     SendOwned();
+    SendMods();
     SendGoneNotices();
+    static uint32_t lastRelease;
+    if (now - lastRelease >= 500) { lastRelease = now; ReleaseVehicleModels(false); }
 }

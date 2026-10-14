@@ -89,6 +89,15 @@ static void OpenKeptLog()
     g_logKept = fopen(path, "w");
 }
 
+uint32_t NowMs()
+{
+    static LARGE_INTEGER freq;
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    return (uint32_t)(c.QuadPart / freq.QuadPart * 1000 + c.QuadPart % freq.QuadPart * 1000 / freq.QuadPart);
+}
+
 void LogInit(const char *path)
 {
     InitializeCriticalSection(&g_logLock);
