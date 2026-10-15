@@ -123,7 +123,7 @@ The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was adde
 
 > [!NOTE]
 > **New in 0.54.9 to 0.54.29** is marked with 🆕. Most of it has been tried by two players; the newest items
-> (helper-script dialogue, the cutscene loading wait) still need a real test.
+> (mission objects, weapon pickups for each player, the van crash fix) still need a real test.
 
 ### 🎬 Missions and cutscenes
 
