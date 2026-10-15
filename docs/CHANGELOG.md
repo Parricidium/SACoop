@@ -6,6 +6,28 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.25-vcport (network version 27 unchanged; both players need it)
+
+From the host and client logs of the 15/10 test (0.54.24, Robbing Uncle Sam). The 0.54.23 switch fix works: one bullet
+from the guest moves the mission on (the guest's copy of the switch does not break, cosmetic).
+
+- **Firing seen by the other player** (combat.cpp, anims.cpp `AimFire`). The other player was seen aiming, but no shot, no
+  recoil, no flash: the replayed shot (`CWeapon::Fire`) only makes the bullet. Now, on a replayed shot of an on-foot puppet
+  that is aiming (pistols to rifles, 22-34), its gun task (`CTaskSimpleUseGun`, given by `AimMirror`) gets the FIRE command
+  for that frame (`ControlGun` 0x61E040, command 2; the per-frame AIM refresh of `AimMirror` leaves that frame alone): the
+  game plays the shot, the recoil and the muzzle flash. The bullet the task fires itself is dropped (`h_Fire`: a puppet's
+  shot outside a replay); the bullet is the replayed one, to the exact point its player hit (0.54.23).
+- **Guest's cutscene not cut short** (mirror.cpp, `RL_CUT_END`). The 0.54.24 logs: the host skipped at 4.6 s (2 of 14
+  subtitles shown), the guest's cutscene, started 0.3 s later, was ended with it at 4.3 s, before its first subtitle. The
+  host now says whether he skipped (`CCutsceneMgr` 0xB5F854) just before his `CLEAR_CUTSCENE`; if he did not, the guest's
+  cutscene is left to end by itself (6 s at most) instead of being skipped.
+- **Guest inside an interior** (mirror.cpp): an outdoor mission cutscene showed nothing on a guest standing in an interior.
+  At the host's `LOAD_CUTSCENE`, with no area chosen by the host's script just before, the guest's visible area now
+  takes the host's area for the cutscene (given back at its end, 0.54.11).
+- **Diagnostic**: every big on-screen message (`CMessages::AddBigMessage` 0x69F2B0) is logged with its style, text and
+  caller (`message en grand : ...`, 40 at most), on both PCs: the mission title is not a script text (0.54.24: the mission
+  script uses no `PRINT_BIG` in its first 30 s), this shows what puts it on the host's screen.
+
 ## 0.54.24-vcport (diagnostics, network version 27 unchanged)
 
 The guest sees neither the mission title nor the cutscene subtitles; the host sees both. Checked in gta_sa.exe 1.0 US:

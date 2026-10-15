@@ -13,6 +13,7 @@
 #include "game.h"
 #include "combat.h"
 #include "entities.h"
+#include "anims.h"
 #include <math.h>
 #include <string.h>
 
@@ -49,6 +50,9 @@ void CombatNpcShots(void *ped, uint8_t &shots, float *aim)
 
 static char __fastcall h_Fire(int *weapon, void *edx, void *owner, float *origin, float *muzzle, void *targetEnt, float *target, void *driveBy)
 {
+    // A puppet's own gun task fired (the fire command given in ReplayShots, for the animation and the flash): no bullet of
+    // its own, the replayed shot (to the exact point its player hit) is the bullet.
+    if (!g_replaying && owner && PuppetIndex(owner) >= 0) return 1;
     char r = o_Fire(weapon, edx, owner, origin, muzzle, targetEnt, target, driveBy);
     if (r && !g_replaying && owner && g_cfg.host && owner != FindPlayerPed() && (*((uint8_t *)owner + 0x36) & 7) == 3 && PuppetIndex(owner) < 0) {
         int i = PedSlot(owner);
@@ -154,6 +158,11 @@ static void ReplayShots(void *ped, int weaponId, int n, const float *aimIn)
         Field<float>(ped, PED_AIMROT) = h;
     }
     if (weaponId >= 16 && weaponId <= 18) { static int said; if (said < 10) { said++; Log("lancer rejoue (arme %d) par %p", weaponId, ped); } }
+    // The firing itself, as the other players see it (test of 15/10: "they see them aiming but no shot, no animation"): the
+    // puppet's gun task (CTaskSimpleUseGun, secondary slot, given by AimMirror) gets the FIRE command for this frame
+    // (CTaskSimpleUseGun::ControlGun 0x61E040, command 2; AimMirror puts AIM back next frame): the game plays the shot,
+    // the recoil and the muzzle flash. Its own bullet is dropped in h_Fire.
+    if (!PedVehicle(ped) && weaponId >= 22 && weaponId <= 34 && PuppetIndex(ped) >= 0) AimFire(ped);
     g_replaying = true;
     for (int k = 0; k < n; k++) {
         weapon[1] = 0;        // pret

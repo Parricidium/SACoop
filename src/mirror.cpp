@@ -35,11 +35,12 @@
 #include "conditions.h"
 #include "menu.h"
 #include <string.h>
+#include <intrin.h>
 #include <math.h>
 
 using namespace game;
 
-enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */, RL_OBJECT_DAMAGED = 9 /* guest -> host: a mission object damaged by the guest (host handle) */ };
+enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */, RL_OBJECT_DAMAGED = 9 /* guest -> host: a mission object damaged by the guest (host handle) */, RL_CUT_END = 10 /* host -> guests: his cutscene ends, skipped or not */ };
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
 // q/Q sphere (entree/sortie), o/O objet (entree/sortie), k/K pickup, r/R feu de script. (A l'envoi, un P qui designe le joueur de l'hote devient H :
@@ -558,6 +559,10 @@ void MirrorBefore(void *script, int op)
         static int said;
         if (said < 12) { said++; Log("telephone : l'hote est au telephone, commande %04X du script %.8s (hors mission) envoyee aux invites", op, ScriptName(script)); }
     }
+    if (op == 0x02EA && mission) {   // (before CLEAR_CUTSCENE: did the host skip his cutscene, or let it end?)
+        uint8_t m[2] = { RL_CUT_END, *(uint8_t *)0xB5F854 };
+        NetSendReliable(m, 2);
+    }
     if (op == 0x00D8) {   // MISSION_HAS_FINISHED
         if (!mission) return;
         if (g_snapValid) Log("miroir : %d variables de l'histoire changees envoyees", SendGlobals(-1, false));
@@ -661,6 +666,7 @@ static Pending g_queue[QUEUE];
 static int g_qHead, g_qTail;
 
 static void HostStopMission(int who);
+static bool g_hostCutSkipped = true;   // guest: the host skipped his last cutscene (RL_CUT_END; true: old hosts)
 static void MissionCancelledToast(const char *name);
 static void *ObjectAt(int handle);
 static void OnReliable(int from, const uint8_t *data, int len)
@@ -688,6 +694,7 @@ static void OnReliable(int from, const uint8_t *data, int len)
         return;
     }
     if (g_cfg.host && len >= 1 && data[0] == RL_MISSION_STOP) { HostStopMission(from > 0 && from < MAX_PLAYERS ? from : 1); return; }
+    if (!g_cfg.host && len >= 2 && data[0] == RL_CUT_END) { g_hostCutSkipped = data[1] != 0; return; }
     if (!g_cfg.host && len >= 2 && data[0] == RL_MISSION_STOPPED) {
         char name[24] = {};
         memcpy(name, data + 1, len - 1 < 23 ? len - 1 : 23);
@@ -747,6 +754,27 @@ static void GuestObjectDamageWatch()
 // While a guest is within 80 m of such an object, the flag is lifted: his replayed shots damage it like the host's.
 // Host: the same end-of-cutscene line as the guests', to compare (cutscene subtitles: CCutsceneMgr text count 0xBC3FEC,
 // next one to show 0xBC3FF0, shown by CCutsceneMgr::Update at 0x5B1843 when its clock passes their start time).
+// Host: every big on-screen message (CMessages::AddBigMessage 0x69F2B0, cdecl text, time, style; checked in gta_sa.exe 1.0
+// US) with who asked for it, to find how the mission title reaches the host's screen and not the guests' (log only).
+typedef void(__cdecl *AddBig_t)(const char *text, uint32_t time, uint16_t style);
+static AddBig_t o_AddBig;
+static void __cdecl h_AddBig(const char *text, uint32_t time, uint16_t style)
+{
+    static int said;
+    if (said < 40) {
+        said++;
+        char t[48] = {};
+        for (int i = 0; text && i < 40 && text[i]; i++) t[i] = text[i] >= 32 && text[i] < 127 ? text[i] : '?';
+        Log("message en grand : style %d, %u ms, \"%s\" (appele de %08X)", style, time, t, (unsigned)(uintptr_t)_ReturnAddress());
+    }
+    o_AddBig(text, time, style);
+}
+void InstallBigMessageLog()
+{
+    static const uint8_t pro[] = { 0x81, 0xEC, 0x20, 0x03, 0x00, 0x00 };
+    o_AddBig = (AddBig_t)MakeDetour(0x69F2B0, pro, sizeof(pro), (void *)h_AddBig);
+}
+
 static void HostCutsceneLog()
 {
     static bool was;
@@ -1185,6 +1213,15 @@ static bool Replay(const uint8_t *d, int len)
         g_cutAreaWatch = true;
         g_cutAreaAt = GetTickCount();
         if (g_areaOp.at && GetTickCount() - g_areaOp.at < 15000) CutsceneVisibleArea(g_areaOp.area, "zone choisie par le script de l'hote avant LOAD_CUTSCENE");
+        else if (g_players[0].state.inGame) CutsceneVisibleArea(g_players[0].state.area, "zone de l'hote (l'invite etait ailleurs, dans un interieur)");
+    }
+    static uint32_t cutEndWait;
+    if (op != 0x02EA) cutEndWait = 0;
+    if (op == 0x02EA && CutsceneRunning() && !CutsceneFinished() && !g_hostCutSkipped) {
+        // The host watched his cutscene to its end: the guest's, started a moment later, is not cut short (0.54.24 test:
+        // ended at 4.3 s with 0 of its 14 subtitles shown); it ends by itself, 6 s at most, then as below.
+        if (!cutEndWait) cutEndWait = GetTickCount();
+        if (GetTickCount() - cutEndWait < 6000) return false;
     }
     if (op == 0x02EA && CutsceneRunning() && !CutsceneFinished()) {
         // L'hote a fini (ou passe) sa cinematique : on passe celle de l'invite, comme un appui sur Croix

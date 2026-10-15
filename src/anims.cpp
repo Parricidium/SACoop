@@ -168,6 +168,22 @@ void AnimsApply(void *ped, const NetAnim *in, int n, AnimMirror &m)
 
 // Visee : la tache CTaskSimpleUseGun (ordre AIM) en tache secondaire 0 tant que "want", point vise a jour a chaque image
 // (ctor 0x61DE60, point +0x20, SetTaskSecondary 0x681B60, ControlGun 0x61E040 : sans ordre a chaque image elle retombe).
+// One shot of the aiming ped's gun task (CTaskSimpleUseGun::ControlGun 0x61E040, command 2 FIRE) for the animation and the
+// muzzle flash (combat.cpp, replayed shots of a puppet). AimMirror leaves that frame alone (its AIM would replace the FIRE
+// before the task reads it), and puts AIM back on the next one.
+static void *g_firePed;
+static uint32_t g_fireFrame;
+void AimFire(void *ped)
+{
+    void *sec = PrimaryTasks(ped)[5];
+    if (!sec || ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) != 1017) return;
+    ((bool(__thiscall *)(void *, void *, void *, int))0x61E040)(sec, ped, nullptr, 2);
+    g_firePed = ped;
+    g_fireFrame = *(uint32_t *)0xB7CB4C;   // CTimer::m_FrameCounter
+    static int said;
+    if (said < 10) { said++; Log("tir rejoue avec l'animation de la tache d'arme sur %p", ped); }
+}
+
 void AimMirror(void *ped, bool want, const float *aim)
 {
     void **tm = PrimaryTasks(ped);
@@ -182,7 +198,8 @@ void AimMirror(void *ped, bool want, const float *aim)
         }
     } else if (want && has) {
         memcpy((uint8_t *)sec + 0x20, aim, 12);
-        ((bool(__thiscall *)(void *, void *, void *, int))0x61E040)(sec, ped, nullptr, 1);
+        if (!(ped == g_firePed && g_fireFrame == *(uint32_t *)0xB7CB4C))   // (a shot was just commanded this frame)
+            ((bool(__thiscall *)(void *, void *, void *, int))0x61E040)(sec, ped, nullptr, 1);
     } else if (!want && has) {
         ((void(__thiscall *)(void *, void *, int))0x681B60)(tm, nullptr, 0);
     }

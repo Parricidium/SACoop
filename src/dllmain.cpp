@@ -18,6 +18,7 @@
 #include "interp.h"
 #include "trains.h"
 #include "speech.h"
+#include "mirror.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -378,5 +379,6 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID lp)
     InstallWeatherGuard();
     InstallTrainHook();
     InstallSpeech();
+    InstallBigMessageLog();
     return TRUE;
 }
