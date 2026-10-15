@@ -161,7 +161,7 @@ void GuestApply()
             t[4 + 9] = 0;
             t[0x39] = m.clockDir;
             *(uint32_t *)(t + 0x3C) = m.clockBeep;
-            t[0x151] = m.paused;
+            t[0x151] = 0;   // (never the host's: copied 4 times a second it made the guest's HUD blink, test of 15/10)
         }
     } else if (cur == mineClock) ClearClock();
     for (int i = 0; i < COUNTERS; i++) {
@@ -179,7 +179,11 @@ void GuestApply()
             s[8 + 9] = 0;
             *(uint16_t *)(s + 0x12) = c.type;
             *(uint32_t *)(s + 0x40) = c.color;
-            if (!mine) { s[0x3F] = c.flash; Log("mission HUD: counter %d (%s) type %d, value %d", i, c.key, c.type, (int)c.value); }
+            s[0x3F] = 0;   // steady: no "flash when first displayed" on the guest (it blinked at the update rate, test of 15/10)
+            if (!mine) {
+                static int claims;
+                if (++claims <= 20) Log("mission HUD: counter %d (%s) type %d, value %d (claim %d)", i, c.key, c.type, (int)c.value, claims);
+            }
         } else if (mine) ClearSlot(s);
     }
 }

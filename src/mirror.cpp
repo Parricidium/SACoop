@@ -38,7 +38,7 @@
 
 using namespace game;
 
-enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */ };
+enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */, RL_OBJECT_DAMAGED = 9 /* guest -> host: a mission object damaged by the guest (host handle) */ };
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
 // q/Q sphere (entree/sortie), o/O objet (entree/sortie), k/K pickup, r/R feu de script. (A l'envoi, un P qui designe le joueur de l'hote devient H :
@@ -642,6 +642,7 @@ static int g_qHead, g_qTail;
 
 static void HostStopMission(int who);
 static void MissionCancelledToast(const char *name);
+static void *ObjectAt(int handle);
 static void OnReliable(int from, const uint8_t *data, int len)
 {
     (void)from;
@@ -656,6 +657,14 @@ static void OnReliable(int from, const uint8_t *data, int len)
         wsprintfA(path, "%s%i.b", (const char *)0xC16F18, slot + 1);
         if (slot >= 0 && GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) slot = -1;   // pas cette sauvegarde
         if (RequestGameStart(slot)) Log("miroir : partie de l'hote suivie (%s)", slot >= 0 ? path : "nouvelle partie");
+        return;
+    }
+    if (g_cfg.host && len >= 5 && data[0] == RL_OBJECT_DAMAGED) {
+        int h;
+        memcpy(&h, data + 1, 4);
+        void *o = ObjectAt(h);
+        if (o) { *(uint32_t *)((uint8_t *)o + 0x1C) |= 0x200; Log("objet de mission %d endommage par le joueur %d (marque chez l'hote)", h, from); }
+        else Log("objet de mission %d endommage par le joueur %d : plus la chez l'hote", h, from);
         return;
     }
     if (g_cfg.host && len >= 1 && data[0] == RL_MISSION_STOP) { HostStopMission(from > 0 && from < MAX_PLAYERS ? from : 1); return; }
@@ -677,6 +686,30 @@ static void OnReliable(int from, const uint8_t *data, int len)
 
 alignas(16) static uint8_t g_script[0x200];   // CRunningScript fantome de l'invite
 static uint8_t g_code[300];
+
+// Mission objects damaged by a guest (test of 15/10, Robbing Uncle Sam: the guest could not shoot the control panel, the host
+// had to). The mission runs on the host and asks HAS_OBJECT_BEEN_DAMAGED (0366) about its own object; the guest's shots hit
+// his copy. Checked in gta_sa.exe 1.0 US: 0366 (case at 0x4831F8) asks 0x46A2F0, true when the object's CEntity flags (+0x1C)
+// have bit 0x200 (damaged) or bit 0x80 (visible) clear. Guest: each mirrored mission object is watched; when his copy turns
+// damaged, the host's handle is sent (RL_OBJECT_DAMAGED). Host: the same bit is set on its object, the script sees it.
+static void *ObjectAt(int handle) { return handle ? ((void *(__thiscall *)(void *, int))0x465040)(*(void **)0xB7449C, handle) : nullptr; }
+static bool ObjectDamaged(void *o) { uint32_t f = *(uint32_t *)((uint8_t *)o + 0x1C); return (f & 0x200) || !(f & 0x80); }
+static void GuestObjectDamageWatch()
+{
+    static int reported[MAX_MAP];
+    for (int i = 0; i < MAX_MAP; i++) {
+        HandleMap &m = g_objects[i];
+        if (!m.host || !m.guest) { reported[i] = 0; continue; }
+        if (reported[i] == m.host) continue;
+        void *o = ObjectAt(m.guest);
+        if (!o || !(*(uint32_t *)((uint8_t *)o + 0x1C) & 0x200)) continue;   // (damaged by a hit; not merely hidden)
+        reported[i] = m.host;
+        uint8_t msg[5] = { RL_OBJECT_DAMAGED };
+        memcpy(msg + 1, &m.host, 4);
+        NetSendReliable(msg, 5);
+        Log("objet de mission %d (hote %d) endommage chez l'invite : envoye a l'hote", m.guest, m.host);
+    }
+}
 
 static void ExecCommand(int op)
 {
@@ -1630,6 +1663,7 @@ void MirrorFrame()
     UnstickFade();
     CameraWatch();
     CutsceneDiagFrame(GetTickCount());
+    GuestObjectDamageWatch();
     memcpy(g_script + 8, "sacoop", 7);
     uint32_t now = GetTickCount();
     for (int budget = 0; budget < 64 && g_qHead != g_qTail; budget++) {

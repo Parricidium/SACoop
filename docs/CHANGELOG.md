@@ -6,6 +6,21 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.19-vcport (network version 27 unchanged: plays with 0.54.18, both need it for the object fix)
+
+From the players' test of 15/10.
+
+- **Mission objects damaged by a guest** (mirror.cpp, `GuestObjectDamageWatch`, `RL_OBJECT_DAMAGED`). Robbing Uncle Sam:
+  the guest could not shoot the control panel, the host had to. The mission runs on the host and asks
+  `HAS_OBJECT_BEEN_DAMAGED` (0366) about its own object; checked in gta_sa.exe 1.0 US, the case at 0x4831F8 calls 0x46A2F0,
+  true when the object's CEntity flags (+0x1C) have bit 0x200 (damaged) or have lost bit 0x80 (visible). The guest now
+  watches his copies of the host's mission objects; the first time one gets the damaged bit, the host's handle is sent,
+  and the host sets the same bit on its object: the script goes on as if the host had shot it. Log: `objet de mission`.
+- **Guest's mission HUD blinking** (msnhud.cpp). The counters and the timer blinked on the guest at the update rate. The
+  guest no longer copies the host's "flash when first displayed" byte (+0x3F of each counter) nor the timer's +0x151
+  byte; the counters are drawn steady and only their values change. Each time a counter has to be put back on the guest
+  is now logged (`mission HUD: counter ... (claim n)`, 20 at most): if it still blinks, these lines show what resets it.
+
 ## 0.54.18-vcport (network version 27: new garage message, the vehicle message grew)
 
 Asked by the players on 15/10. Addresses checked in gta_sa.exe 1.0 US.
