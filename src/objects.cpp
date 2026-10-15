@@ -276,7 +276,11 @@ static void OnMObjPush(int from, const MsgMObject &m)
     if (!o || !IsMissionObject(o) || *(void **)(o + 0xFC)) return;
     uint8_t *mat = *(uint8_t **)(o + 0x14);
     if (!mat) return;
-    if (Dist2(EntityPos(o), m.pos) > 30.0f * 30.0f) return;
+    float d2 = Dist2(EntityPos(o), m.pos);
+    if (d2 > 30.0f * 30.0f) return;
+    if (*(float *)(o + 0x8C) >= 5000.0f) return;   // (fixed object: never moved for a guest)
+    bool spd = m.speed[0] * m.speed[0] + m.speed[1] * m.speed[1] + m.speed[2] * m.speed[2] > 1e-6f;
+    if (d2 < 0.02f * 0.02f && !spd) return;   // (not moved)
     WorldRemove(o);
     float *r = (float *)mat, *f = (float *)(mat + 0x10), *u = (float *)(mat + 0x20);
     memcpy(r, m.right, 12);
@@ -314,10 +318,13 @@ static void GuestFollowObjects()
         if (*(void **)(o + 0xFC)) continue;
         // Moved by us (0.54.31: the guest's forklift loading boxes fought the copies held at the host's place, and shook the
         // van): while our player or his vehicle touches it, our physics moves it and its pose goes to the host.
-        if (!f.m.attached && TouchedByUs(o)) f.pushUntil = now + 800;
+        // (Only something that moves: a fixed mission object - gate, ramp, barrier, mass 99999 - is never taken over.)
+        if (!f.m.attached && *(float *)(o + 0x8C) < 5000.0f && TouchedByUs(o)) f.pushUntil = now + 800;
         if ((int)(f.pushUntil - now) > 0) {
             *(uint32_t *)(o + 0x40) &= ~0x2000u;
-            if (now - f.pushSent >= 100) {
+            const float *sp = MoveSpeed(o);
+            bool moving = Dist2(EntityPos(o), f.m.pos) > 0.02f * 0.02f || sp[0] * sp[0] + sp[1] * sp[1] + sp[2] * sp[2] > 1e-6f;
+            if (moving && now - f.pushSent >= 100) {
                 f.pushSent = now;
                 MsgMObject pm = f.m;
                 pm.type = MSG_MOBJPUSH;

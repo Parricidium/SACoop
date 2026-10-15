@@ -6,6 +6,18 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.34-vcport (network version 31 unchanged, untested)
+
+Review of the 0.54.28 to 0.54.33 changes for anything that could get in the way of play.
+
+- An attached mission character's state (Ryder in the van) no longer goes into his copy's movement track: it carries the
+  attach offset where the speed usually is, and the copy could be thrown for a frame when the mission let him go.
+- Boxes moved by the guest: only light objects that really moved are sent to the host (a fixed mission object - gate,
+  ramp, barrier - brushed by the guest could be made movable on the host).
+- Vehicle pushes: a car another player drives and the host's mission vehicles are no longer taken over (the first would
+  bounce and snap back; the mission may freeze the second or drive it on a recorded path). The owner's push handler is
+  set even when the after-physics hook is off.
+
 ## 0.54.33-vcport (network version 31 unchanged, untested)
 
 From the logs of the 15/10 test (0.54.32, Big Smoke's mission: the guest crashed twice at the same place).

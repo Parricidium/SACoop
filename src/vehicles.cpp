@@ -1172,12 +1172,14 @@ void VehiclesAfterProcess()
     }
 }
 
+static void OnVehPush(const MsgVehPush &m);
 void VehiclesFrame()
 {
     static bool aiHooked;
     if (!aiHooked) { aiHooked = true; HookAI<0>(); HookAI<1>(); HookAI<2>(); HookAI<3>(); HookAI<4>(); HookAI<5>(); Log("vehicules : IA des copies remplacee par les commandes de leur conducteur"); }
     g_onVehicle = OnVehicle;
     g_onVehMod = OnVehMod;
+    g_onVehPush = OnVehPush;   // (also set here: VehiclePushProbe runs only with the after-physics hook)
     if (GameState() != 9 || !FindPlayerPed()) return;
     if (g_cfg.host) HostTrafficGuard();
     uint32_t now = GetTickCount();
@@ -1238,6 +1240,7 @@ static void OnVehPush(const MsgVehPush &m)
     uint8_t *v = (uint8_t *)n->veh;
     void *drv = Field<void *>(v, VEH_DRIVER);
     if (drv && (drv == FindPlayerPed() || PuppetIndex(drv) >= 0)) return;   // a player drives it: his car, not pushed
+    if (v[0x4A4] == 2 || n->mission) return;   // a mission vehicle: the mission decides where it is
     uint8_t *mat = *(uint8_t **)(v + 0x14);
     if (!mat) return;
     float *pos = EntityPos(v);
@@ -1276,6 +1279,10 @@ void VehiclePushProbe()
             if (!e || (((uint8_t *)e)[0x36] & 7) != 2) continue;
             NetVeh *n = FindByVeh(e);
             if (!n || n->owner == g_localId) continue;
+            // Not taken over: a vehicle another player drives (his car goes where he drives it; ours would bounce off and
+            // snap back) or one of the host's mission vehicles (the mission may freeze it or drive it on a recorded path).
+            if (n->last.flags & (VF_MISSION | VF_SCRIPT)) continue;
+            if (void *d = Field<void *>(e, VEH_DRIVER)) if (PuppetIndex(d) >= 0) continue;
             const float *cs = MoveSpeed(e);
             float rx = ms[0] - cs[0], ry = ms[1] - cs[1], rz = ms[2] - cs[2];
             if (rx * rx + ry * ry + rz * rz < 0.05f * 0.05f) continue;   // (about 9 km/h between them: a touch, not a hit)

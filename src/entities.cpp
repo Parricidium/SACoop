@@ -215,6 +215,9 @@ static void OnPed(const MsgPed &m)
     c->last = m;
     c->lastRecv = GetTickCount();
     ClockSample(0, m.time);   // (les personnages de mission ne viennent que de l'hote)
+    // Attached to a vehicle: speed[] holds the attach offset and heading the turn limit, not a motion; nothing to follow
+    // (the copy rides attached). The track starts afresh when he is let go.
+    if (m.flags & PF_ATTACHED) { c->track.Clear(); return; }
     Snap sn = {};
     sn.t = m.time;
     for (int k = 0; k < 3; k++) { sn.pos[k] = m.pos[k]; sn.vel[k] = m.speed[k]; }

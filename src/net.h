@@ -249,9 +249,9 @@ void NetFillPings(uint8_t *out);                    // host: MAX_PLAYERS pings f
 extern void (*g_onClothes)(const MsgClothes &c);   // vetements d'un autre joueur
 extern void (*g_onVehicle)(const MsgVehicle &v);   // etat d'un vehicule d'un autre joueur
 extern void (*g_onDamage)(const MsgDamage &d);     // coup porte par un joueur a un autre
-extern void (*g_onMObject)(const MsgMObject &o);
-extern void (*g_onVehPush)(const MsgVehPush &p);
-extern void (*g_onMObjPush)(int from, const MsgMObject &o);   // objects.cpp (host): a guest moved our mission object   // vehicles.cpp: our vehicle pushed by another player   // objects.cpp: a host's mission object
+extern void (*g_onMObject)(const MsgMObject &o);   // objects.cpp (guest): a host's mission object
+extern void (*g_onVehPush)(const MsgVehPush &p);   // vehicles.cpp: our vehicle pushed by another player
+extern void (*g_onMObjPush)(int from, const MsgMObject &o);   // objects.cpp (host): a guest moved our mission object
 extern void (*g_onObject)(const MsgObject &o);     // objet du decor deplace par un autre joueur
 extern void (*g_onPed)(const MsgPed &p);           // invite : personnage de mission de l'hote
 extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite sur un personnage de mission
