@@ -6,6 +6,23 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.20-vcport (network version 27 unchanged)
+
+From the host and client logs of the 15/10 night test (0.54.17, Robbing Uncle Sam).
+
+- **Mission HUD blinking, the cause** (msnhud.cpp). The client log has 550 "counter ... type 1, value 100" lines: the
+  counters were put back on the guest again and again, always at multiples of the 265 ms message interval. One message
+  from the host now and then says the counter is off (its script clears and shows it again), the guest dropped it at once
+  and the next message put it back. A counter (or the clock) is now dropped on the guest only after the host has said
+  "off" for 1 s. (0.54.19's steady flash byte stays.)
+- **"upgrade 1087 removed" 4700 times** (vehicles.cpp, `ApplyMods`). Hydraulics (1087), which the game fits by itself on
+  some models, are not in the owner's list; the copy removed them, the game kept them, and this was tried again every
+  frame. A removal the game refuses is now noted once and not retried (`upgrade ... stays (the game keeps it)`).
+- Checked in the same logs: the waypoint hold of 0.54.17 found the ground every time; the passenger followed the host's
+  car into the garage interior and back out (`passager : interieur 0 -> 2`, `2 -> 0`); the shared radio followed the
+  driver without fighting. The call's ring: the host's call script (`mob_la1`) uses no sound command before the answer
+  (its commands are in the host log), so the ring comes from elsewhere; still open.
+
 ## 0.54.19-vcport (network version 27 unchanged: plays with 0.54.18, both need it for the object fix)
 
 From the players' test of 15/10.

@@ -101,6 +101,7 @@ void HostSend()
 // --- Guest ---
 int32_t g_val[COUNTERS];   // what our slots point at
 int32_t g_clockVal;
+uint32_t g_offSince[COUNTERS], g_clockOffSince;   // the host's slot reported off since (a slot is only dropped after 1 s of that)
 MsgHud g_msg;
 uint32_t g_msgAt;
 bool g_have;
@@ -163,7 +164,11 @@ void GuestApply()
             *(uint32_t *)(t + 0x3C) = m.clockBeep;
             t[0x151] = 0;   // (never the host's: copied 4 times a second it made the guest's HUD blink, test of 15/10)
         }
-    } else if (cur == mineClock) ClearClock();
+    } else if (cur == mineClock) {
+        if (!g_clockOffSince) g_clockOffSince = now;
+        if (now - g_clockOffSince >= 1000) ClearClock();
+    }
+    if (m.clockOn) g_clockOffSince = 0;
     for (int i = 0; i < COUNTERS; i++) {
         uint8_t *s = Counter(i);
         const HudCounter &c = m.c[i];
@@ -184,7 +189,14 @@ void GuestApply()
                 static int claims;
                 if (++claims <= 20) Log("mission HUD: counter %d (%s) type %d, value %d (claim %d)", i, c.key, c.type, (int)c.value, claims);
             }
-        } else if (mine) ClearSlot(s);
+            g_offSince[i] = 0;
+        } else if (mine) {
+            // The host's script clears and shows its counters again from time to time: one message saying "off" made the
+            // guest drop the counter and the next one put it back, the HUD blinked at the update rate (client log of 15/10:
+            // 550 re-claims, all at multiples of the 265 ms message interval). Dropped only after 1 s of "off".
+            if (!g_offSince[i]) g_offSince[i] = now;
+            if (now - g_offSince[i] >= 1000) { ClearSlot(s); g_offSince[i] = 0; }
+        }
     }
 }
 

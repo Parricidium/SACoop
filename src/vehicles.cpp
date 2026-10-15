@@ -625,6 +625,16 @@ static void ApplyMods(NetVeh &n)
         for (int j = 0; j < 15; j++) if (m.ups[j] == have3) wanted = true;
         if (wanted) continue;
         ((void(__thiscall *)(void *, int))0x6DF930)(v, have3);   // CVehicle::RemoveVehicleUpgrade
+        bool gone = true;
+        for (int j = 0; j < 15; j++) if (mine[j] == have3) gone = false;
+        if (!gone) {
+            // The game keeps it (hydraulics 1087 that it fits by itself on some models): tried once, not every frame
+            // (client log of 15/10: "upgrade 1087 removed" 4700 times).
+            n.modHash = h;
+            n.modNew = false;
+            Log("vehicle %08X: upgrade %d stays (the game keeps it)", n.id, have3);
+            return;
+        }
         Log("vehicle %08X: upgrade %d removed", n.id, have3);
         return;
     }
