@@ -208,6 +208,7 @@ static void __cdecl h_GameProcess()
     if (playing) TrainsApply();   // trains: the owner's rail distance and speed, written before the game moves them (trains.cpp)
     ((void(__cdecl *)())0x53BEE0)();   // CGame::Process
     if (GameState() != 9 || !FindPlayerPed()) return;
+    VehiclePushProbe();  // a copy hit by our car moves (vehicles.cpp)
     VehicleHitProbe();   // what our car hit when it stops dead (log only)
     if (g_cfg.placeFoot) PuppetsAfterProcess();
     if (g_cfg.placeVeh) VehiclesAfterProcess();

@@ -6,6 +6,26 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.31-vcport (network version 31: both players need 0.54.31, untested)
+
+From the logs and screenshots of the 15/10 test (0.54.30, Robbing Uncle Sam).
+
+- **Ryder in the back of the van, on the guest:** 0.54.30 attached his copy at the van's centre with no weapon (the
+  attach offset of a ped is not where an object keeps it): he was out of sight and his empty arm stuck out. The host now
+  sends the ped's own attach data (offset, direction, turn limit, checked in `CPed::AttachPedToEntity`), and the copy is
+  attached again when the weapon arrives (the script hands it over after attaching him). No aim is replayed on top of
+  the game's own attached-ped aiming.
+- **Boxes the guest moves:** the guest's copies were held at the host's place, so the guest's forklift fought them and
+  shook the van, and the host never saw the guest's boxes move. While the guest (or his vehicle) touches a box, his
+  physics moves it and its place goes to the host, whose box follows: a box the guest loads counts for the mission.
+- **Hitting another player's vehicle (or the host's traffic and police):** the copy stood still like a wall and the
+  car stopped dead; the original was never touched (no wanted level for hitting a police bike). Now a copy hit by our car
+  is pushed by our physics for 0.7 s and its place and speed go to its owner, who moves the original there (unless a
+  player drives it).
+- **Mission vehicle offer:** 10 s to answer (with a countdown), then it is a no.
+- Log: what the game has when the guest rides as a passenger (vehicle model, weapon, drive-by permission), for the
+  Hotknife drive-by report.
+
 ## 0.54.30-vcport (network version 30: both players need 0.54.30, untested)
 
 From the host and client logs of the 15/10 test (0.54.29, Robbing Uncle Sam). The mission objects now reached the guest

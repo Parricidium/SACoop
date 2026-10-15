@@ -112,7 +112,11 @@ static void HostSend()
                     m.flags = (uint8_t)((m.flags | PF_ATTACHED) & ~(PF_AIR | PF_CLIMB));
                     m.vehicleId = vid;
                     m.seat = 0;
-                    memcpy(m.speed, (uint8_t *)ped + 0x100, 12);
+                    // CPed attach data (written by CPed::AttachPedToEntity 0x5E7CB0, checked 15/10): offset +0x76C,
+                    // direction +0x778 (16 bits), angle limit +0x77C. (0.54.30 read CPhysical +0x100: zero for a ped.)
+                    memcpy(m.speed, (uint8_t *)ped + 0x76C, 12);
+                    m.moveState = (uint8_t)Field<uint16_t>(ped, 0x778);
+                    m.heading = Field<float>(ped, 0x77C);
                     m.animCount = 0;
                 }
         if (m.model >= 290 && m.model <= 299) memcpy(m.special, g_special[m.model - 290], 8);
@@ -151,6 +155,7 @@ struct Copy {
     Track track;         // etats recus horodates (interpolation apres la physique, interp.cpp)
     bool follow;         // UpdateCopy l'a laissee suivre l'original a pied cette image : GhostsAfterProcess la place
     bool cutHidden;      // cachee par nous pendant une cinematique (CutsceneHide)
+    int attachWeapon;    // weapon it was attached with (PF_ATTACHED)
 };
 static Copy g_copies[MAX_COPIES];
 
@@ -288,16 +293,22 @@ static void UpdateCopy(Copy &c, uint32_t now)
     if (m.flags & PF_ATTACHED) {
         void *veh = NetVehicleById(m.vehicleId);
         if (inVeh) { WarpPuppetOut(ped, m.pos); c.moveState = 0; return; }
-        if (veh && attachedTo != veh) {
+        // Attached again when the vehicle, the offset or the weapon changes (the script gives the weapon after attaching him:
+        // attached with none, 0.54.30's copy held its empty hand out for good).
+        const float *ao = (const float *)((uint8_t *)ped + 0x76C);
+        bool same = attachedTo == veh && fabsf(ao[0] - m.speed[0]) < 0.05f && fabsf(ao[1] - m.speed[1]) < 0.05f && fabsf(ao[2] - m.speed[2]) < 0.05f
+                    && c.attachWeapon == m.weapon;
+        if (veh && !same) {
             if (attachedTo) ((void(__thiscall *)(void *))0x5E7EC0)(ped);   // CPed::DettachPedFromEntity
             // CPed::AttachPedToEntity (0x5E7CB0, checked in gta_sa.exe 1.0 US: entity, offset, direction, angle limit in
-            // radians, weapon; ret 0x1C): free to turn all round, with the weapon the host's ped holds.
-            ((void(__thiscall *)(void *, void *, float, float, float, uint16_t, float, int))0x5E7CB0)(ped, veh, m.speed[0], m.speed[1], m.speed[2], 0, 6.2831853f, m.weapon);
+            // radians, weapon; ret 0x1C): as on the host's ped (offset, direction, limit read there), with his weapon.
+            float limit = m.heading > 0.0f && m.heading <= 6.3f ? m.heading : 6.2831853f;
+            ((void(__thiscall *)(void *, void *, float, float, float, uint16_t, float, int))0x5E7CB0)(ped, veh, m.speed[0], m.speed[1], m.speed[2], m.moveState, limit, m.weapon);
+            c.attachWeapon = m.weapon;
             static int said;
-            if (said < 20) { said++; Log("copie %08X attachee au vehicule %08X (decalage %.1f %.1f %.1f, arme %d)", c.id, m.vehicleId, m.speed[0], m.speed[1], m.speed[2], m.weapon); }
+            if (said < 20) { said++; Log("copie %08X attachee au vehicule %08X (decalage %.2f %.2f %.2f, direction %d, limite %.2f, arme %d)", c.id, m.vehicleId, m.speed[0], m.speed[1], m.speed[2], m.moveState, limit, m.weapon); }
         }
-        AimMirror(ped, (m.flags & PF_AIMING) && m.weapon >= 22 && m.weapon <= 38, m.aim);
-        return;
+        return;   // (aimed and turned by the game's attached-ped code, as on the host: no aim replayed on top)
     }
     if (attachedTo && (((uint8_t *)attachedTo)[0x36] & 7) == 2) {   // no longer attached on the host
         ((void(__thiscall *)(void *))0x5E7EC0)(ped);

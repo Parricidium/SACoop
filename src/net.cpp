@@ -30,6 +30,8 @@ void (*g_onDamage)(const MsgDamage &d);
 void (*g_onPed)(const MsgPed &p);
 void (*g_onObject)(const MsgObject &o);
 void (*g_onMObject)(const MsgMObject &o);
+void (*g_onVehPush)(const MsgVehPush &p);
+void (*g_onMObjPush)(int from, const MsgMObject &o);
 void (*g_onPedHit)(const MsgPedHit &h);
 void (*g_onMarker)(const MsgMarker &m);
 void (*g_onTrain)(const MsgTrain &t);
@@ -533,6 +535,14 @@ static void HostReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         if (g_onGarage) g_onGarage(gm);
         for (int i = 1; i < MAX_PLAYERS; i++)   // relay to the other guests
             if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &gm, sizeof(gm));
+    } else if (buf[0] == MSG_MOBJPUSH && len >= (int)sizeof(MsgMObject)) {
+        if (g_onMObjPush) g_onMObjPush(id, *(const MsgMObject *)buf);
+    } else if (buf[0] == MSG_VEHPUSH && len >= (int)sizeof(MsgVehPush)) {
+        MsgVehPush vp = *(const MsgVehPush *)buf;
+        vp.from = (uint8_t)id;
+        if (g_onVehPush) g_onVehPush(vp);
+        for (int i = 1; i < MAX_PLAYERS; i++)   // relay to the other guests (the owner may be one of them)
+            if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &vp, sizeof(vp));
     } else if (buf[0] == MSG_OBJECT && len >= (int)sizeof(MsgObject)) {
         MsgObject o = *(const MsgObject *)buf;
         o.from = (uint8_t)id;
@@ -635,6 +645,9 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         break;
     case MSG_GARAGE:
         if (len >= (int)sizeof(MsgGarage) && g_onGarage) g_onGarage(*(const MsgGarage *)buf);
+        break;
+    case MSG_VEHPUSH:
+        if (len >= (int)sizeof(MsgVehPush) && g_onVehPush) g_onVehPush(*(const MsgVehPush *)buf);
         break;
     case MSG_MOBJECT:
         if (len >= (int)sizeof(MsgMObject) && g_onMObject) g_onMObject(*(const MsgMObject *)buf);

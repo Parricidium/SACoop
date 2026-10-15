@@ -196,7 +196,7 @@ static void HostMissionObjects()
 // guest) were thrown out by the van copy, which is moved by placement, not by physics (test of 15/10). Now the copy's
 // own physics is off while it is followed (CPhysical bDontApplySpeed +0x40 bit 13): it is put at the host's position,
 // carried along its speed for up to 0.3 s between messages; an object attached on the host has no collision here.
-struct Followed { int hostHandle, guest; MsgMObject m; uint32_t at; };
+struct Followed { int hostHandle, guest; MsgMObject m; uint32_t at, pushUntil, pushSent; };
 static Followed g_followed[128];
 
 static void PlaceObject(uint8_t *o, const MsgMObject &m, float ahead)
@@ -255,6 +255,49 @@ static void OnMObject(const MsgMObject &m)
     slot->at = GetTickCount();
 }
 
+// Does our player, or the vehicle he is in, touch this object (CPhysical +0xB9 count, +0xBC list, on either side)?
+static bool TouchedByUs(uint8_t *o)
+{
+    void *me = FindPlayerPed();
+    if (!me) return false;
+    void *veh = PedVehicle(me);
+    auto has = [](uint8_t *e, void *x) { for (int i = 0; i < e[0xB9] && i < 6; i++) if (((void **)(e + 0xBC))[i] == x) return true; return false; };
+    if (has(o, me) || (veh && has(o, veh))) return true;
+    if (has((uint8_t *)me, o) || (veh && has((uint8_t *)veh, o))) return true;
+    return false;
+}
+
+// Host: a guest moved our mission object (the boxes he loads with the forklift): ours goes there, at that speed, so the
+// mission sees it (a box in the van counts).
+static void OnMObjPush(int from, const MsgMObject &m)
+{
+    if (!g_cfg.host || !InGame()) return;
+    uint8_t *o = ObjFromRef(m.handle);
+    if (!o || !IsMissionObject(o) || *(void **)(o + 0xFC)) return;
+    uint8_t *mat = *(uint8_t **)(o + 0x14);
+    if (!mat) return;
+    if (Dist2(EntityPos(o), m.pos) > 30.0f * 30.0f) return;
+    WorldRemove(o);
+    float *r = (float *)mat, *f = (float *)(mat + 0x10), *u = (float *)(mat + 0x20);
+    memcpy(r, m.right, 12);
+    memcpy(f, m.fwd, 12);
+    u[0] = r[1] * f[2] - r[2] * f[1];
+    u[1] = r[2] * f[0] - r[0] * f[2];
+    u[2] = r[0] * f[1] - r[1] * f[0];
+    memcpy(EntityPos(o), m.pos, 12);
+    float sp[3];
+    for (int k = 0; k < 3; k++) sp[k] = fabsf(m.speed[k]) <= 2.0f ? m.speed[k] : 0.0f;
+    memcpy(MoveSpeed(o), sp, 12);
+    if (*(uint32_t *)(o + 0x1C) & 4) ((void(__thiscall *)(void *, bool))(*(void ***)o)[4])(o, false);   // SetIsStatic(false)
+    WorldAdd(o);
+    if (*(void **)(o + 0x18)) {
+        ((void(__thiscall *)(void *))0x446F90)(o);
+        ((void(__thiscall *)(void *))0x532B00)(o);
+    }
+    static int said;
+    if (said < 20) { said++; Log("objet de mission %d (modele %d) deplace par le joueur %d : mis a sa place chez nous", m.handle, m.model, from); }
+}
+
 static void GuestFollowObjects()
 {
     uint32_t now = GetTickCount();
@@ -269,6 +312,25 @@ static void GuestFollowObjects()
             continue;
         }
         if (*(void **)(o + 0xFC)) continue;
+        // Moved by us (0.54.31: the guest's forklift loading boxes fought the copies held at the host's place, and shook the
+        // van): while our player or his vehicle touches it, our physics moves it and its pose goes to the host.
+        if (!f.m.attached && TouchedByUs(o)) f.pushUntil = now + 800;
+        if ((int)(f.pushUntil - now) > 0) {
+            *(uint32_t *)(o + 0x40) &= ~0x2000u;
+            if (now - f.pushSent >= 100) {
+                f.pushSent = now;
+                MsgMObject pm = f.m;
+                pm.type = MSG_MOBJPUSH;
+                pm.handle = f.hostHandle;
+                memcpy(pm.pos, EntityPos(o), 12);
+                if (uint8_t *mat = *(uint8_t **)(o + 0x14)) { memcpy(pm.right, mat, 12); memcpy(pm.fwd, mat + 0x10, 12); }
+                memcpy(pm.speed, MoveSpeed(o), 12);
+                NetSendToAll(&pm, sizeof(pm));
+                static int said;
+                if (said < 20) { said++; Log("objet de mission %d (hote %d, modele %d) deplace par nous : envoye a l'hote", f.guest, f.hostHandle, f.m.model); }
+            }
+            continue;
+        }
         o[0x2F] = f.m.area;
         uint32_t &fl = *(uint32_t *)(o + 0x1C);
         fl = (fl & ~0x81u) | (f.m.flags & 0x80) | (f.m.attached ? 0 : (f.m.flags & 1));   // visible; collision unless attached
@@ -304,6 +366,7 @@ void ObjectsFrame()
 {
     g_onObject = OnObject;
     g_onMObject = OnMObject;
+    g_onMObjPush = OnMObjPush;
     if (!InGame() || !NetRunning()) return;
     SendFrame();
     if (g_cfg.host) HostMissionObjects(); else GuestFollowObjects();

@@ -2309,6 +2309,14 @@ static void PassengerDriveByFrame()
         before = flag;
         if (!flag) Log("passager : tir par la fenetre permis (il etait coupe par le script)");
     }
+    static void *loggedVeh;
+    if (passenger && veh != loggedVeh) {   // (Hotknife, 15/10: no drive-by as a passenger; what the game had then)
+        loggedVeh = veh;
+        int slot = Field<uint8_t>(me, PED_WEAPONSLOT);
+        Log("passager : vehicule modele %d, arme %d (emplacement %d), tir par la fenetre %d avant nous",
+            *(int16_t *)((uint8_t *)veh + 0x22), Field<int>(me, PED_WEAPONS + slot * 0x1C), slot, before);
+    }
+    if (!passenger) loggedVeh = nullptr;
     if (forced && passenger) flag = 1;
     if (forced && !passenger) { forced = false; flag = before; }
 }

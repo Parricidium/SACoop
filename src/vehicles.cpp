@@ -19,6 +19,7 @@
 #include "panel.h"
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
 
 using namespace game;
 
@@ -47,6 +48,7 @@ struct NetVeh {
     uint32_t modSentAt;  // (ours) NowMs-less GetTickCount of the last MsgVehMod
     MsgVehMod mod;       // (copies) what the owner says the vehicle wears
     bool modNew;         // (copies) a MsgVehMod is waiting to be applied
+    uint32_t pushUntil;  // (copies) pushed by our car: left to our physics until then, its place sent to the owner
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -981,7 +983,7 @@ static void GuestMissionVehicle()
     // or on another car. Now "Y: your own vehicle / N: no" for 30 s; it appears where the guest is when he presses Y (he
     // can walk to an open spot first).
     g_offerModel = n->last.model;
-    g_offerUntil = GetTickCount() + 30000;
+    g_offerUntil = GetTickCount() + 10000;   // (10 s, then no: request of 15/10; was 30 s)
     g_offerToastAt = 0;
     Log("vehicule de mission de l'hote (modele %d) : propose a l'invite (Y / N)", g_offerModel);
 }
@@ -1019,7 +1021,7 @@ static bool SpawnGuestMissionVehicle(int model)
     return true;
 }
 
-// The offer of a mission vehicle (above): Y spawns it where the guest is, N or 30 s without an answer drops it. Keys read
+// The offer of a mission vehicle (above): Y spawns it where the guest is, N or 10 s without an answer drops it. Keys read
 // only while the chat and the F10 menu are closed.
 static void GuestVehicleOffer()
 {
@@ -1030,11 +1032,20 @@ static void GuestVehicleOffer()
     yWas = y; nWas = nk;
     if (!g_offerModel) return;
     uint32_t now = GetTickCount();
-    if ((int)(g_offerUntil - now) <= 0) { Log("vehicule de mission propose : pas de reponse, abandonne"); g_offerModel = 0; HudPromptClear(); return; }
+    if ((int)(g_offerUntil - now) <= 0) {   // no answer in 10 s: no
+        Log("vehicule de mission propose : pas de reponse en 10 s, non");
+        g_offerModel = 0;
+        HudPromptClear();
+        HudToast(g_fr ? "Pas de vehicule" : "No vehicle", 2000);
+        return;
+    }
     if (ChatTyping() || PanelOpen() || !FindPlayerPed()) return;
     if (now - g_offerToastAt >= 1000) {
         g_offerToastAt = now;
-        HudPrompt(g_fr ? "Vehicule de mission : Y = le tien a cote de toi, N = non" : "Mission vehicle: Y = spawn yours next to you, N = no thanks", 1500);
+        char t[96];
+        int left = (int)((g_offerUntil - now + 999) / 1000);
+        sprintf(t, g_fr ? "Vehicule de mission : Y = le tien a cote de toi, N = non (%d s)" : "Mission vehicle: Y = spawn yours next to you, N = no thanks (%d s)", left);
+        HudPrompt(t, 1500);
     }
     if (nDown) { g_offerModel = 0; HudPromptClear(); HudToast(g_fr ? "Pas de vehicule" : "No vehicle", 2000); Log("vehicule de mission propose : refuse (N)"); return; }
     if (yDown) {
@@ -1099,6 +1110,7 @@ void VehiclesAfterProcess()
         // Le joueur local est au volant : la copie va devenir la notre (LocalVehicleId), la physique est celle du jeu.
         if (me && PedVehicle(me) == n.veh && Field<void *>(v, VEH_DRIVER) == me) { FreezeCopy(v, false); continue; }
         if (now - n.lastRecv >= 1500) { FreezeCopy(v, false); continue; }   // plus de nouvelles : le jeu reprend
+        if ((int)(n.pushUntil - now) > 0) { FreezeCopy(v, false); continue; }   // pushed by our car: our physics moves it (VehiclePushProbe)
         Snap s;
         if (!TrackSample(n.track, n.owner, s)) continue;
         uint8_t *mat = *(uint8_t **)(v + 0x14);
@@ -1195,6 +1207,93 @@ static void ProbeEntity(const char *what, void *e)
         phys ? *(uint32_t *)(p + 0x40) : 0, phys && (*(uint32_t *)(p + 0x40) & 0x2000) ? " GELE" : "", phys ? *(float *)(p + 0x8C) : 0.0f,
         type == 2 ? (IsRemoteVehicle(e) ? "copie d'un vehicule d'un autre joueur" : IsNetVehicle(e) ? "vehicule reseau a nous" : "vehicule du jeu")
         : type == 3 ? (Field<int>(e, PED_CREATEDBY) == 2 ? "personnage de mission (ou copie / pantin)" : "personnage du jeu") : "-");
+}
+
+// --- A copy pushed by our car (0.54.31) ---
+// The copies of the other players' vehicles (and of the host's traffic and police near a guest) are placed where their
+// owner says on every frame and frozen against our physics: hitting one was hitting a wall that moved back into our car
+// on every frame, the car stopped dead and the original never knew (test of 15/10: the guest stopped dead on a police
+// bike, no wanted level). Now, when our car touches a copy (CPhysical +0xB9 count, +0xBC list) with some speed between
+// them, the copy is left to our physics for 0.7 s: the hit pushes it as it would push any car. During that time its place
+// and speed are sent to its owner (MSG_VEHPUSH, relayed by the host), who puts the original there unless a player of his
+// drives it; then the copy follows the owner again, from where the push left it.
+static void OnVehPush(const MsgVehPush &m)
+{
+    if (m.owner != g_localId || m.from == g_localId) return;
+    NetVeh *n = FindById(m.id);
+    if (!n || n->owner != g_localId || !Alive(*n)) return;
+    uint8_t *v = (uint8_t *)n->veh;
+    void *drv = Field<void *>(v, VEH_DRIVER);
+    if (drv && (drv == FindPlayerPed() || PuppetIndex(drv) >= 0)) return;   // a player drives it: his car, not pushed
+    uint8_t *mat = *(uint8_t **)(v + 0x14);
+    if (!mat) return;
+    float *pos = EntityPos(v);
+    float dx = m.pos[0] - pos[0], dy = m.pos[1] - pos[1], dz = m.pos[2] - pos[2];
+    if (dx * dx + dy * dy + dz * dz > 100.0f) return;   // (an old message: too far from ours)
+    WorldRemove(v);
+    memcpy(pos, m.pos, 12);
+    float *right = (float *)mat, *fwd = (float *)(mat + 0x10), *up = (float *)(mat + 0x20);
+    memcpy(fwd, m.fwd, 12);
+    memcpy(right, m.right, 12);
+    up[0] = right[1] * fwd[2] - right[2] * fwd[1];
+    up[1] = right[2] * fwd[0] - right[0] * fwd[2];
+    up[2] = right[0] * fwd[1] - right[1] * fwd[0];
+    WorldAdd(v);
+    float sp[3], tn[3];
+    for (int k = 0; k < 3; k++) { sp[k] = fabsf(m.speed[k]) <= 4.0f ? m.speed[k] : 0.0f; tn[k] = fabsf(m.turn[k]) <= 4.0f ? m.turn[k] : 0.0f; }
+    memcpy(v + 0x44, sp, 12);
+    memcpy(v + 0x50, tn, 12);
+    EntityRefresh(v);
+    static int said;
+    if (said < 20) { said++; Log("vehicule %08X (modele %d) pousse par le joueur %d : mis a sa place chez lui", m.id, *(int16_t *)(v + 0x22), m.from); }
+}
+
+void VehiclePushProbe()
+{
+    g_onVehPush = OnVehPush;
+    if (!NetRunning()) return;
+    uint32_t now = GetTickCount();
+    void *me = FindPlayerPed();
+    void *mine = me ? PedVehicle(me) : nullptr;
+    if (mine && Field<void *>(mine, VEH_DRIVER) == me) {
+        uint8_t *v = (uint8_t *)mine;
+        const float *ms = MoveSpeed(mine);
+        for (int i = 0; i < v[0xB9] && i < 6; i++) {
+            void *e = ((void **)(v + 0xBC))[i];
+            if (!e || (((uint8_t *)e)[0x36] & 7) != 2) continue;
+            NetVeh *n = FindByVeh(e);
+            if (!n || n->owner == g_localId) continue;
+            const float *cs = MoveSpeed(e);
+            float rx = ms[0] - cs[0], ry = ms[1] - cs[1], rz = ms[2] - cs[2];
+            if (rx * rx + ry * ry + rz * rz < 0.05f * 0.05f) continue;   // (about 9 km/h between them: a touch, not a hit)
+            if ((int)(n->pushUntil - now) <= 0) {
+                static int said;
+                if (said < 20) { said++; Log("vehicule %08X (modele %d, joueur %d) heurte par notre voiture a %.0f km/h : pousse chez nous, envoye a son proprietaire",
+                    n->id, *(int16_t *)((uint8_t *)e + 0x22), n->owner, sqrtf(rx * rx + ry * ry + rz * rz) * 180.0f); }
+            }
+            n->pushUntil = now + 700;
+            FreezeCopy(e, false);
+        }
+    }
+    for (auto &n : g_veh) {   // pushed copies: their place to their owner, 20 times a second
+        if (!n.id || n.owner == g_localId || !n.veh || !Alive(n) || (int)(n.pushUntil - now) <= 0) continue;
+        static uint32_t lastSend;
+        if (now - lastSend < 50) break;
+        uint8_t *v = (uint8_t *)n.veh, *mat = *(uint8_t **)(v + 0x14);
+        if (!mat) continue;
+        MsgVehPush m = {};
+        m.type = MSG_VEHPUSH;
+        m.from = (uint8_t)(g_localId < 0 ? 0 : g_localId);
+        m.owner = n.owner;
+        m.id = n.id;
+        memcpy(m.pos, EntityPos(v), 12);
+        memcpy(m.fwd, mat + 0x10, 12);
+        memcpy(m.right, mat, 12);
+        memcpy(m.speed, v + 0x44, 12);
+        memcpy(m.turn, v + 0x50, 12);
+        NetSendToAll(&m, sizeof(m));
+        lastSend = now;
+    }
 }
 
 void VehicleHitProbe()

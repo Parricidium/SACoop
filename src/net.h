@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 30, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 31, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -31,6 +31,8 @@ enum MsgType : uint8_t {
     MSG_SPEECH,      // a line said by a player or (host) a shared ped: bank and sound (speech.cpp); relayed by the host
     MSG_GARAGE,      // garage doors the sender is the nearest to: state and position (garages.cpp); relayed by the host
     MSG_MOBJECT,     // host -> guests: a mission object's place, area and visibility (objects.cpp)
+    MSG_MOBJPUSH,    // guest -> host: a mission object moved by the guest (forklift, car, on foot): its pose (objects.cpp)
+    MSG_VEHPUSH,     // a copy of someone's vehicle pushed by our car: its new place and speed, for its owner (vehicles.cpp)
 };
 
 #pragma pack(push, 1)
@@ -138,6 +140,8 @@ struct MsgGarage { uint8_t type, from, count, pad; struct { uint8_t idx, state; 
 // Mission object (objects.cpp): the host's script handle, its pose, area and CEntity flags (+0x1C: 0x80 visible, 1 uses collision).
 // attached: the host's object rides on something (ATTACH_OBJECT_TO_CAR...): the guest's copy then has no collision.
 struct MsgMObject { uint8_t type, area, attached, pad; int16_t model, pad2; int handle; uint32_t flags; float pos[3], right[3], fwd[3], speed[3]; };
+// A vehicle copy pushed by the sender's car (vehicles.cpp): its owner puts the original there, at that speed.
+struct MsgVehPush { uint8_t type, from, owner, pad; uint32_t id; float pos[3], fwd[3], right[3], speed[3], turn[3]; };
 struct MsgObject { uint8_t type, from; int16_t model; float orig[3], pos[3], right[3], fwd[3], speed[3]; };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 // Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).
@@ -245,7 +249,9 @@ void NetFillPings(uint8_t *out);                    // host: MAX_PLAYERS pings f
 extern void (*g_onClothes)(const MsgClothes &c);   // vetements d'un autre joueur
 extern void (*g_onVehicle)(const MsgVehicle &v);   // etat d'un vehicule d'un autre joueur
 extern void (*g_onDamage)(const MsgDamage &d);     // coup porte par un joueur a un autre
-extern void (*g_onMObject)(const MsgMObject &o);   // objects.cpp: a host's mission object
+extern void (*g_onMObject)(const MsgMObject &o);
+extern void (*g_onVehPush)(const MsgVehPush &p);
+extern void (*g_onMObjPush)(int from, const MsgMObject &o);   // objects.cpp (host): a guest moved our mission object   // vehicles.cpp: our vehicle pushed by another player   // objects.cpp: a host's mission object
 extern void (*g_onObject)(const MsgObject &o);     // objet du decor deplace par un autre joueur
 extern void (*g_onPed)(const MsgPed &p);           // invite : personnage de mission de l'hote
 extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite sur un personnage de mission
