@@ -6,6 +6,12 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.32-vcport (network version 31 unchanged)
+
+- **Hitting a police vehicle** of the host (the copies a guest sees near the host: police bikes, cars, Enforcer, FBI)
+  above ~20 km/h now gives at least one star, as the game does for damaging a cop car; the shared wanted level takes it
+  to everybody. (The push itself, so the car no longer stops dead, came in 0.54.31.)
+
 ## 0.54.31-vcport (network version 31: both players need 0.54.31, untested)
 
 From the logs and screenshots of the 15/10 test (0.54.30, Robbing Uncle Sam).

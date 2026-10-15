@@ -17,6 +17,7 @@
 #include "interp.h"
 #include "chat.h"
 #include "panel.h"
+#include "police.h"
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -1267,6 +1268,16 @@ void VehiclePushProbe()
             float rx = ms[0] - cs[0], ry = ms[1] - cs[1], rz = ms[2] - cs[2];
             if (rx * rx + ry * ry + rz * rz < 0.05f * 0.05f) continue;   // (about 9 km/h between them: a touch, not a hit)
             if ((int)(n->pushUntil - now) <= 0) {
+                // A police vehicle hit hard (above ~20 km/h between them): one star at least, as the game gives for
+                // damaging a cop car (the copy is not the game's police: it gave nothing, test of 15/10). The shared wanted
+                // level (police.cpp) takes it to the others.
+                int model = *(int16_t *)((uint8_t *)e + 0x22);
+                bool cop = model == 523 || (model >= 596 && model <= 599) || model == 427 || model == 490 || model == 528 || model == 601;
+                if (cop && rx * rx + ry * ry + rz * rz > 0.11f * 0.11f && WantedLevel() < 1) {
+                    int a[2] = { 0, 1 };
+                    RunScriptCommand(0x010D, 2, a);   // SET_PLAYER_WANTED_LEVEL
+                    Log("police : vehicule de police %08X heurte, une etoile", n->id);
+                }
                 static int said;
                 if (said < 20) { said++; Log("vehicule %08X (modele %d, joueur %d) heurte par notre voiture a %.0f km/h : pousse chez nous, envoye a son proprietaire",
                     n->id, *(int16_t *)((uint8_t *)e + 0x22), n->owner, sqrtf(rx * rx + ry * ry + rz * rz) * 180.0f); }
