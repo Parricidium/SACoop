@@ -34,6 +34,7 @@ void (*g_onMarker)(const MsgMarker &m);
 void (*g_onTrain)(const MsgTrain &t);
 void (*g_onVehMod)(const MsgVehMod &m);
 void (*g_onHud)(const MsgHud &h);
+void (*g_onSpeech)(const MsgSpeech &s);
 
 static SOCKET g_sock = INVALID_SOCKET;
 static sockaddr_in g_hostAddr;               // invite : adresse de l'hote
@@ -517,6 +518,13 @@ static void HostReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         if (g_onVehMod) g_onVehMod(vm);
         for (int i = 1; i < MAX_PLAYERS; i++)   // relay to the other guests
             if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &vm, sizeof(vm));
+    } else if (buf[0] == MSG_SPEECH && len >= (int)sizeof(MsgSpeech)) {
+        MsgSpeech sp = *(const MsgSpeech *)buf;
+        sp.from = (uint8_t)id;
+        sp.kind = 0;   // (a guest only sends his own player's lines)
+        if (g_onSpeech) g_onSpeech(sp);
+        for (int i = 1; i < MAX_PLAYERS; i++)   // relay to the other guests
+            if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &sp, sizeof(sp));
     } else if (buf[0] == MSG_OBJECT && len >= (int)sizeof(MsgObject)) {
         MsgObject o = *(const MsgObject *)buf;
         o.from = (uint8_t)id;
@@ -616,6 +624,9 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         break;
     case MSG_HUD:
         if (len >= (int)sizeof(MsgHud) && g_onHud) g_onHud(*(const MsgHud *)buf);
+        break;
+    case MSG_SPEECH:
+        if (len >= (int)sizeof(MsgSpeech) && g_onSpeech) g_onSpeech(*(const MsgSpeech *)buf);
         break;
     case MSG_RADIO:
         if (len >= (int)sizeof(MsgRadio)) { g_radio = *(const MsgRadio *)buf; g_radioAt = GetTickCount() | 1; }

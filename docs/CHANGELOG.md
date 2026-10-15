@@ -6,6 +6,24 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.13-vcport (network version 25: a new message, so 0.54.12 and older cannot join)
+
+Asked by the player on 15/10: the pedestrians' voice lines did not match between host and guest (other line, other
+moment), and the players' own lines (a grunt when hurt...) were not heard by the other player. The speech code was
+checked in the player's gta_sa.exe 1.0 US (14,383,616 bytes, SHA-1 185b73fbceaa05d66452691fc0d15c8d61b92a7e).
+
+- **Speech sync** (new `speech.cpp`, `MSG_SPEECH`, setting `SyncParole=1`). A ped's line is chosen at random by
+  `CAEPedSpeechAudioEntity` (CPed +0x294): `AddSayEvent` (0x4E6550) and the generic voices through the chooser 0x4E5920,
+  pain (event 0x35, 0x4E4F70) through its own; all three end in `LoadAndPlaySpeech` (0x4E4840), which loads sound +0xA4 of
+  bank +0xA6 into a speech slot. Its three calls (0x4E50D2, 0x4E62EB, 0x4E68B8) now go through `SpeechPlay`: a line of
+  the local player, or on the host of a ped it shares with a guest (`MissionPedId`), is sent with its bank, sound, context
+  and voice type (relayed by the host). The receiver plays that exact sound on the copy (the player's puppet, the ped's
+  copy) the way the game's pain path does: a free slot among the five (0x4E4950, the player's own slot 5 is never used),
+  the game's speech or pain volume (+ the player's bonus), then `LoadAndPlaySpeech`. Not played when the copy is more than
+  60 m away or still saying the previous line. The copies' own lines (random remarks, pain from a local hit) are dropped,
+  and their "talking" flags undone. The three call sites are checked before patching; on another exe nothing is patched
+  (`parole : appel inattendu ...`). Log: `parole :` (sent / played / no copy), 30 lines of each at most.
+
 ## 0.54.12-vcport (network version 24 unchanged)
 
 Asked by the player on 15/10: three separate tools in F10 > Tools (panel.cpp). Each acts on the local player only.

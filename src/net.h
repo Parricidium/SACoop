@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 24, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 25, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -28,6 +28,7 @@ enum MsgType : uint8_t {
     MSG_TRAIN,       // a train's place on its track, by its owner (trains.cpp); relayed by the host
     MSG_VEHMOD,      // a vehicle's colours, paintjob and upgrades, by its owner (vehicles.cpp); relayed by the host
     MSG_HUD,         // host -> guests: the on-screen mission timer and counters (msnhud.cpp), 4 times a second
+    MSG_SPEECH,      // a line said by a player or (host) a shared ped: bank and sound (speech.cpp); relayed by the host
 };
 
 #pragma pack(push, 1)
@@ -124,6 +125,8 @@ struct MsgPed {
 enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */, PF_DRIVEBY = 4 /* tire par la fenetre d'un vehicule */, PF_AIMING = 8 /* vise (CTaskSimpleUseGun) */,
        PF_AIR = 16 /* en l'air (saut, chute) */, PF_CLIMB = 32 /* accroche a un mur */ };
 // Objet du decor deplace : identifie par son modele et la position de son objet factice d'origine.
+// Speech (speech.cpp): kind 0 = the player "from", 1 = the host's ped "id" (MissionPedId). context -1 = pain.
+struct MsgSpeech { uint8_t type, from, kind, voiceType; uint32_t id; int16_t bank, sound, context; };
 struct MsgObject { uint8_t type, from; int16_t model; float orig[3], pos[3], right[3], fwd[3], speed[3]; };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 // Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).
@@ -237,5 +240,6 @@ extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite su
 extern void (*g_onMarker)(const MsgMarker &m);     // invite : marqueur de zone de l'hote
 extern void (*g_onTrain)(const MsgTrain &t);       // a train of another player (or of the host)
 extern void (*g_onVehMod)(const MsgVehMod &m);     // what a vehicle of another player wears (colours, paintjob, upgrades)
+extern void (*g_onSpeech)(const MsgSpeech &s);     // speech.cpp: a line said by another player or a shared ped
 extern void (*g_onHud)(const MsgHud &h);           // guest: the host's mission timer and counters
 
