@@ -6,6 +6,21 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.9-vcport (diagnostic, network version 24 unchanged: plays with 0.54.8)
+
+From the player's report of 15/10: away from the host, when the guest drives his own car into a lamp post, a pedestrian
+or another car at high speed, the car stops dead and the thing it hit does not move (no lamp post knocked down, nobody
+thrown). Fine while the host rides with him. The cause is not visible in the code: the host's copies (frozen with
+`GelerCopies`) only exist near the host, and far from him the guest's traffic and street furniture are his own game's.
+
+- **Crash probe** (`VehicleHitProbe`, vehicles.cpp, called right after `CGame::Process` in interp.cpp). When the local
+  player's car loses more than half its speed in one physics step above ~70 km/h (40 lines at most, 1 per second), the log
+  gets `choc : notre vehicule ...` (speed before / after, place, interior, distance to the host, its flags and mass,
+  whether it is a network vehicle or a copy) and one `choc degats/contact :` line per entity touched (CPhysical +0xDC and
+  the collided list +0xBC): type, model, `statique` (bIsStatic), `ATTEND-COLLISION` (bIsStaticWaitingForCollision: the
+  game freezes things whose collision is not loaded), `GELE` (bDontApplySpeed: a frozen copy), mass, and whether it is a
+  copy. The next fix depends on what these lines show.
+
 ## 0.54.8-vcport (untested, network version 24: two new messages, so 0.54.7 and older cannot join a 0.54.8 game)
 
 Written from the host and client logs of the 0.54.7 test (Robbing Uncle Sam) and the player's list.

@@ -1082,3 +1082,57 @@ void VehiclesFrame()
     static uint32_t lastRelease;
     if (now - lastRelease >= 500) { lastRelease = now; ReleaseVehicleModels(false); }
 }
+
+// Crash probe (0.54.9, report of 15/10: "far from the host, the guest's car stops dead on lamp posts, NPCs and cars at
+// high speed, nothing moves"). Runs after the physics on every player: when the local player's own car loses more than
+// half its speed in one step above ~70 km/h, the entities it touches are logged. CPhysical +0xB9: number of entities
+// collided, +0xBC: their list (6); +0xD8 / +0xDC: damage intensity / damage entity of this step. For each one: type
+// (CEntity +0x36 low 3 bits: 2 car, 3 ped, 4 object), model, CEntity flags (+0x1C: bit 2 bIsStatic, bit 18
+// bIsStaticWaitingForCollision), CPhysical flags (+0x40: bit 13 bDontApplySpeed), mass (+0x8C) and whether it is a mod copy.
+static void ProbeEntity(const char *what, void *e)
+{
+    if (!e) return;
+    uint8_t *p = (uint8_t *)e;
+    int type = p[0x36] & 7;
+    bool phys = type >= 2 && type <= 4;
+    const float *ep = EntityPos(e);
+    Log("  choc %s : type %d modele %d en %.1f %.1f %.1f, drapeaux %08X%s%s, physique %08X%s, masse %.0f, %s", what, type,
+        *(int16_t *)(p + 0x22), ep[0], ep[1], ep[2], *(uint32_t *)(p + 0x1C),
+        (*(uint32_t *)(p + 0x1C) & 4) ? " statique" : "", (*(uint32_t *)(p + 0x1C) & 0x40000) ? " ATTEND-COLLISION" : "",
+        phys ? *(uint32_t *)(p + 0x40) : 0, phys && (*(uint32_t *)(p + 0x40) & 0x2000) ? " GELE" : "", phys ? *(float *)(p + 0x8C) : 0.0f,
+        type == 2 ? (IsRemoteVehicle(e) ? "copie d'un vehicule d'un autre joueur" : IsNetVehicle(e) ? "vehicule reseau a nous" : "vehicule du jeu")
+        : type == 3 ? (Field<int>(e, PED_CREATEDBY) == 2 ? "personnage de mission (ou copie / pantin)" : "personnage du jeu") : "-");
+}
+
+void VehicleHitProbe()
+{
+    static void *lastVeh;
+    static float lastSpeed;
+    static uint32_t lastLog;
+    static int said;
+    void *me = FindPlayerPed();
+    void *veh = me ? PedVehicle(me) : nullptr;
+    if (!veh || Field<void *>(veh, VEH_DRIVER) != me) { lastVeh = nullptr; return; }
+    uint8_t *v = (uint8_t *)veh;
+    const float *sp = MoveSpeed(veh);
+    float speed = sqrtf(sp[0] * sp[0] + sp[1] * sp[1] + sp[2] * sp[2]);
+    float before = veh == lastVeh ? lastSpeed : 0.0f;
+    lastVeh = veh;
+    lastSpeed = speed;
+    if (before < 0.4f || speed > before * 0.5f || said >= 40 || GetTickCount() - lastLog < 1000) return;
+    said++;
+    lastLog = GetTickCount();
+    const float *pos = EntityPos(veh);
+    float host = -1.0f;
+    if (g_localId != 0 && g_players[0].connected) {
+        const float *h = g_players[0].state.pos;
+        host = sqrtf((h[0] - pos[0]) * (h[0] - pos[0]) + (h[1] - pos[1]) * (h[1] - pos[1]) + (h[2] - pos[2]) * (h[2] - pos[2]));
+    }
+    int n = v[0xB9];
+    Log("choc : notre vehicule (modele %d, %s) %.0f -> %.0f km/h en %.1f %.1f %.1f (zone %d/%d, hote a %.0f m), drapeaux %08X, physique %08X, masse %.0f, %d entite(s) touchee(s), degats %.1f",
+        *(int16_t *)(v + 0x22), IsRemoteVehicle(veh) ? "COPIE d'un autre joueur" : IsNetVehicle(veh) ? "vehicule reseau a nous" : "pas reseau",
+        before * 180.0f, speed * 180.0f, pos[0], pos[1], pos[2], EntityArea(veh), *(int *)0xB72914, host,
+        *(uint32_t *)(v + 0x1C), *(uint32_t *)(v + 0x40), *(float *)(v + 0x8C), n, *(float *)(v + 0xD8));
+    ProbeEntity("degats", *(void **)(v + 0xDC));
+    for (int i = 0; i < n && i < 6; i++) if (void *e = ((void **)(v + 0xBC))[i]) if (e != *(void **)(v + 0xDC)) ProbeEntity("contact", e);
+}
