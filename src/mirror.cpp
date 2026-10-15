@@ -487,8 +487,10 @@ static void HostGlobalsFrame()
 }
 
 // Hote : une mission de l'histoire demarre (script.cpp) : position de l'hote pour le regroupement des invites.
+static uint32_t g_missionStartAt;   // host: when the last story mission was launched
 void MirrorMissionStart()
 {
+    g_missionStartAt = GetTickCount() | 1;
     memcpy(g_snap, Globals(), sizeof(g_snap));
     g_snapValid = true;
     void *me = FindPlayerPed();
@@ -533,6 +535,12 @@ void MirrorBefore(void *script, int op)
         if (!known && nSeen < 64) { seen[nSeen++] = (uint16_t)op; Log("telephone : le script %.8s utilise la commande %04X", ScriptName(script), op); }
     }
     bool callSound = callScript && (PhoneCallOp(op) || op == 0x018C || op == 0x097A || op == 0x097B || op == 0x09F1 || op == 0x09F7);
+    // The mission's title (bottom right at the start of its first cutscene) is printed by the script that launches it, not
+    // by the mission script, which is the only one mirrored: only the host saw it (test of 15/10). Big texts (PRINT_BIG)
+    // of any script go to the guests for 20 s after a mission was launched.
+    bool title = !mission && op == 0x00BA && g_missionStartAt && GetTickCount() - g_missionStartAt < 20000;
+    if (title) { static int said; if (said++ < 10) Log("miroir : texte en grand du script %.8s (titre de mission) envoye aux invites", ScriptName(script)); }
+    callSound = callSound || title;
     if (!mission && !(PhoneCallOp(op) && HostOnPhone()) && !callSound) return;
     if (!mission) {
         static int said;
@@ -1095,6 +1103,16 @@ static bool Replay(const uint8_t *d, int len)
     int op = *(const uint16_t *)(d + 1), n = d[3];
     if (IsWeaponOp(op) && len > 4 && d[4] != 'H') return true;   // armes d'un personnage de mission : sa copie suit le reseau
     if (op == 0x02E7 && !CutsceneLoaded()) return false;                           // chargement en cours
+    // PLAY_MISSION_AUDIO: the host's script waited for its own load (HAS_MISSION_AUDIO_LOADED 03D0) before playing; the
+    // guest got the load and the play back to back, his load was not done and the play did nothing: no dialogue between
+    // the host and his mission passenger (test of 15/10). Checked in gta_sa.exe 1.0 US: 03D0 asks
+    // CAudioEngine::GetMissionAudioLoadingStatus (0x5072A0 on AudioEngine 0xB6BC90, slot - 1), 1 = loaded. The play waits
+    // for that (in order, 3 s at most like any command that waits).
+    if (op == 0x03D1 && len >= 9 && d[4] == 'i') {
+        int slot;
+        memcpy(&slot, d + 5, 4);
+        if (slot >= 1 && slot <= 4 && ((uint8_t(__thiscall *)(void *, uint8_t))0x5072A0)((void *)0xB6BC90, (uint8_t)(slot - 1)) != 1) return false;
+    }
     if (op == 0x02E4) {
         g_cutAreaWatch = true;
         g_cutAreaAt = GetTickCount();

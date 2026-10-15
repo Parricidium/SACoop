@@ -6,6 +6,25 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.21-vcport (network version 27 unchanged)
+
+From the players' test of 15/10.
+
+- **Mission title for the guest** (mirror.cpp). The title at the bottom right at the start of a mission's first cutscene
+  only showed for the host: the client log of Robbing Uncle Sam has no `PRINT_BIG` (00BA) at all, so it is printed by the
+  script that launches the mission, not by the mission script (the only one mirrored). For 20 s after a story mission is
+  launched, `PRINT_BIG` from any script of the host now goes to the guests. Log: `texte en grand du script ...`.
+- **Mission vehicle offered, not dropped on the guest** (vehicles.cpp, `GuestVehicleOffer`). When the host takes the wheel
+  of a mission vehicle and has no free seat for the guest, the guest used to get a copy at once next to him, sometimes in a
+  wall or on a car. Now a toast offers it for 30 s: Y spawns it next to the guest wherever he is then (he can walk to an
+  open spot first), N declines; no answer, or the mission ending, drops the offer. Keys read only while the chat and the
+  F10 menu are closed. (A free passenger seat still gives the "G: ride with the host" hint instead.)
+- **Mission dialogue heard by the guest** (mirror.cpp). The host's script loads a line (`LOAD_MISSION_AUDIO` 03CF), waits
+  for it (`HAS_MISSION_AUDIO_LOADED` 03D0) and plays it (03D1); the guest got the load and the play back to back, his own
+  load was not done and the play did nothing: no dialogue between the host and his passenger. Checked in gta_sa.exe 1.0
+  US: 03D0 asks `CAudioEngine::GetMissionAudioLoadingStatus` (0x5072A0 on AudioEngine 0xB6BC90, slot - 1), 1 = loaded. A
+  mirrored play now waits for that, in order, 3 s at most.
+
 ## 0.54.20-vcport (network version 27 unchanged)
 
 From the host and client logs of the 15/10 night test (0.54.17, Robbing Uncle Sam).

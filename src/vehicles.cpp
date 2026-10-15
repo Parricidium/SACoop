@@ -15,6 +15,8 @@
 #include "peds.h"
 #include "mirror.h"
 #include "interp.h"
+#include "chat.h"
+#include "panel.h"
 #include <math.h>
 #include <string.h>
 
@@ -939,6 +941,8 @@ template <int I> static void HookAI()
 }
 
 static void *g_guestMissionCopy;
+static int g_offerModel;               // guest: mission vehicle offered (Y / N), 0 none
+static uint32_t g_offerUntil, g_offerToastAt;
 static int g_guestMissionRef;   // invite : vehicule pose pour lui (garde jusqu'a la fin de la mission de l'hote)
 
 // Fin de mission de l'hote (mirror.cpp) : le vehicule pose pour l'invite redevient ordinaire (le jeu pourra le retirer).
@@ -946,6 +950,7 @@ void VehiclesMissionEnded()
 {
     if (g_guestMissionCopy && VehFromRef(g_guestMissionRef) == g_guestMissionCopy) ((uint8_t *)g_guestMissionCopy)[0x4A4] = 1;
     g_guestMissionCopy = nullptr;
+    g_offerModel = 0;   // (an offer not answered yet goes with the mission)
 }
 
 // Invite : l'hote prend le volant d'un vehicule de mission (cree par son script : velo de la mission de Smoke...) ;
@@ -971,14 +976,28 @@ static void GuestMissionVehicle()
     int seat = g_localId > 0 ? g_localId : 1;   // place passager de ce joueur
     bool freeSeat = seat <= hv[VEH_MAXPASS] && !Field<void *>(hv, VEH_PASSENGERS + (seat - 1) * 4);
     if (freeSeat) { HudToast(g_fr ? "G : monter avec l'hote" : "G: ride with the host", 5000); Log("vehicule de mission de l'hote : place passager libre (G)"); return; }
-    int model = n->last.model;
-    if (!ModelLoaded(model)) { if (!VehicleModelRoom(model)) return; RequestModel(model, 2); LoadAllRequestedModels(false); }
-    if (!ModelLoaded(model)) return;
+    // An offer, not a spawn (request of 15/10): the vehicle used to appear at once next to the guest, sometimes in a wall
+    // or on another car. Now "Y: your own vehicle / N: no" for 30 s; it appears where the guest is when he presses Y (he
+    // can walk to an open spot first).
+    g_offerModel = n->last.model;
+    g_offerUntil = GetTickCount() + 30000;
+    g_offerToastAt = 0;
+    Log("vehicule de mission de l'hote (modele %d) : propose a l'invite (Y / N)", g_offerModel);
+}
+
+static bool SpawnGuestMissionVehicle(int model)
+{
+    static const bool g_fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    void *me = FindPlayerPed();
+    if (!me) return false;
+    const float *mp = EntityPos(me);
+    if (!ModelLoaded(model)) { if (!VehicleModelRoom(model)) return false; RequestModel(model, 2); LoadAllRequestedModels(false); }
+    if (!ModelLoaded(model)) return false;
     float h0 = Field<float>(me, PED_ROTATION);
     float side = PedVehicle(me) ? 4.5f : 3.0f;   // a cote de lui (de sa voiture)
     float pos[3] = { mp[0] + cosf(h0) * side, mp[1] + sinf(h0) * side, mp[2] + 0.5f };   // sur sa droite
     void *v = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(model, pos[0], pos[1], pos[2], false);
-    if (!v) return;
+    if (!v) return false;
     if (uint8_t *mat = *(uint8_t **)((uint8_t *)v + 0x14)) {   // tourne comme l'invite
         float *r = (float *)mat, *f = (float *)(mat + 0x10);
         f[0] = -sinf(h0); f[1] = cosf(h0); f[2] = 0;
@@ -996,6 +1015,32 @@ static void GuestMissionVehicle()
     if (uint32_t nid = LocalVehicleId(v, false)) Log("host mission vehicle: our copy registered as %08X for the host to see", nid);
     HudToast(g_fr ? "Un vehicule pour toi est a cote" : "A vehicle for you is next to you", 5000);
     Log("vehicule de mission de l'hote (modele %d) : copie posee a cote de l'invite", model);
+    return true;
+}
+
+// The offer of a mission vehicle (above): Y spawns it where the guest is, N or 30 s without an answer drops it. Keys read
+// only while the chat and the F10 menu are closed.
+static void GuestVehicleOffer()
+{
+    static const bool g_fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    static bool yWas, nWas;
+    bool y = (GetAsyncKeyState('Y') & 0x8000) != 0, nk = (GetAsyncKeyState('N') & 0x8000) != 0;
+    bool yDown = y && !yWas, nDown = nk && !nWas;
+    yWas = y; nWas = nk;
+    if (!g_offerModel) return;
+    uint32_t now = GetTickCount();
+    if ((int)(g_offerUntil - now) <= 0) { Log("vehicule de mission propose : pas de reponse, abandonne"); g_offerModel = 0; return; }
+    if (ChatTyping() || PanelOpen() || !FindPlayerPed()) return;
+    if (now - g_offerToastAt >= 5000) {
+        g_offerToastAt = now;
+        HudToast(g_fr ? "Vehicule de mission : Y = le tien a cote de toi, N = non" : "Mission vehicle: Y = spawn yours next to you, N = no thanks", 5000);
+    }
+    if (nDown) { g_offerModel = 0; HudToast(g_fr ? "Pas de vehicule" : "No vehicle", 2000); Log("vehicule de mission propose : refuse (N)"); return; }
+    if (yDown) {
+        int model = g_offerModel;
+        if (SpawnGuestMissionVehicle(model)) g_offerModel = 0;
+        else HudToast(g_fr ? "Pas encore possible, reessaie (Y)" : "Not possible yet, try again (Y)", 2500);
+    }
 }
 
 // Hote : circulation que le jeu vient de generer sous les yeux d'un invite. Le jeu ne cree les voitures que hors de la
@@ -1121,6 +1166,7 @@ void VehiclesFrame()
         if (n.veh && n.modNew) ApplyMods(n);   // (placeVeh : la pose vient de VehiclesAfterProcess)
     }
     GuestMissionVehicle();
+    if (!g_cfg.host) GuestVehicleOffer();
     ShareSpawnedVehicles();
     SendOwned();
     SendMods();
