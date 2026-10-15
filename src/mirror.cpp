@@ -521,7 +521,19 @@ void MirrorBefore(void *script, int op)
         static int said;
         if (said < 20) { said++; Log("telephone : commande %04X du script %.8s (%s)", op, ScriptName(script), mission ? "mission" : "hors mission"); }
     }
-    if (!mission && !(PhoneCallOp(op) && HostOnPhone())) return;
+    // A contact's call (scripts mob_*, mob_la1 in the 15/10 log): its sounds go to the guests from the first ring, not only
+    // once the host has answered (the guest's own call waits for the host's, script.cpp, so without this he heard no ring).
+    // Every command of those scripts is logged once (to learn which one rings).
+    bool callScript = !mission && !_strnicmp(ScriptName(script), "mob_", 4);
+    if (callScript) {
+        static uint16_t seen[64];
+        static int nSeen;
+        bool known = false;
+        for (int k = 0; k < nSeen; k++) if (seen[k] == op) known = true;
+        if (!known && nSeen < 64) { seen[nSeen++] = (uint16_t)op; Log("telephone : le script %.8s utilise la commande %04X", ScriptName(script), op); }
+    }
+    bool callSound = callScript && (PhoneCallOp(op) || op == 0x018C || op == 0x097A || op == 0x097B || op == 0x09F1 || op == 0x09F7);
+    if (!mission && !(PhoneCallOp(op) && HostOnPhone()) && !callSound) return;
     if (!mission) {
         static int said;
         if (said < 12) { said++; Log("telephone : l'hote est au telephone, commande %04X du script %.8s (hors mission) envoyee aux invites", op, ScriptName(script)); }

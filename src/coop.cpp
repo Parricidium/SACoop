@@ -152,6 +152,7 @@ static bool InGame()
 
 static void LocalSkin();
 static void RadioFrame();
+static void PassengerAreaFrame();
 static uint8_t g_radioSeq;      // radio: counts this player's own station changes in a vehicle (MsgState.radioSeq)
 static uint32_t g_radioMineAt;  // ... and when the last one was (the player's choice is not overruled for a while)
 static void AttachedToPlayer(void *ped, MsgState &s);
@@ -2171,6 +2172,7 @@ static void CoopFrameInner(bool inGameLoop)
     SyncWorld();
     EventsFrame();
     ObjectsFrame();
+    PassengerAreaFrame();
     RadioFrame();
     MissionHudFrame();
     LocalSkin();
@@ -2266,6 +2268,37 @@ static void LocalSkin()
 // leader's station, except for 2.5 s after a change of their own (time for the leader to take it). CAERadioTrackManager
 // 0x8CB6F8, station +0xAD ; 0x4E8290 (RetuneRadio) changes it the way the radio keys do. The track and its position come from the host's
 // radio (radio.cpp) once they are on the same station.
+// A passenger in a vehicle driven by another player follows the driver's interior (test of 15/10: the guest, passenger
+// of the host, drove into a TransFender with him; the garage put the host's car in interior 2, the guest's game got
+// there late and never came back out: no exterior any more). Visible area (04BB), the player linked to it (0860), the
+// ped's and the vehicle's area field, and the scenery around (LOAD_SCENE), once the two have differed for 300 ms.
+static void PassengerAreaFrame()
+{
+    static uint32_t diffSince;
+    void *me = InGame() ? FindPlayerPed() : nullptr;
+    void *veh = me ? PedVehicle(me) : nullptr;
+    void *drv = veh ? Field<void *>(veh, VEH_DRIVER) : nullptr;
+    int id = drv && drv != me ? PuppetIndex(drv) : -1;
+    if (id < 0 || !g_players[id].connected || !g_players[id].state.inGame || GetTickCount() - g_players[id].lastStateAt > 1500) { diffSince = 0; return; }
+    int want = g_players[id].state.area, cur = *(int *)0xB72914;
+    if (cur == want && EntityArea(me) == want) { diffSince = 0; return; }
+    uint32_t now = GetTickCount();
+    if (!diffSince) { diffSince = now; return; }
+    if (now - diffSince < 300) return;
+    diffSince = 0;
+    if (cur != want) RunScriptCommand(0x04BB, 1, &want);
+    int link[2] = { PedRef(me), want };
+    RunScriptCommand(0x0860, 2, link);
+    EntityArea(me) = (uint8_t)want;
+    EntityArea(veh) = (uint8_t)want;
+    int sc[3];
+    memcpy(sc, EntityPos(me), 12);
+    RunScriptCommandTyped(0x03CB, 3, "fff", sc);
+    NoteLocalRelocated();
+    static int said;
+    if (said++ < 30) Log("passager : interieur %d -> %d, comme le conducteur (joueur %d)", cur, want, id);
+}
+
 static void RadioFrame()
 {
     RadioSyncFrame();   // radio.cpp: host's track and position for the guests
@@ -2289,7 +2322,15 @@ static void RadioFrame()
     if (!veh) return;
     static uint32_t appliedAt;   // when we last asked the game to retune (the station value only follows when its service runs)
     static int appliedWant = -1;
+    static int beforeApply = -1;   // the station before our last retune
+    int mode = *(int *)(0x8CB6F8 + 0x68);   // CAERadioTrackManager mode: 2 = playing
     if (now - enteredAt < 1500 || now - appliedAt < 3000) { seen = cur; }   // (getting in, or retuning ourselves: not a choice of ours)
+    else if (cur != seen && (mode != 2 || (cur == beforeApply && now - appliedAt < 15000))) {
+        // Not a choice either: the radio is not playing (stopped, or the station of a vehicle we were just put in), or our
+        // retune did not take and the old station is back. Counted as ours, it went to the driver, who was retuned to it
+        // every few seconds (test of 15/10: the host's radio silent and stuck, the guest's on Radio Los Santos).
+        seen = cur;
+    }
     else if (cur != seen) {
         seen = cur;
         g_radioSeq++;
@@ -2334,6 +2375,7 @@ static void RadioFrame()
     // CAERadioTrackManager::RetuneRadio (0x4E8290): what the radio keys and the script's SET_RADIO_CHANNEL do (it queues the
     // station for the game's radio service, which retunes and starts the track). 0x4E8330 (InitialiseRadioStationID) only
     // overwrote the station number: in the 14/10 test the station "changed" for the driver but the music never did.
+    beforeApply = cur;
     ((void(__thiscall *)(void *, int))0x4E8290)((void *)0x8CB6F8, want);
     appliedWant = want;
     appliedAt = now;

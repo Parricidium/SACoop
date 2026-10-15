@@ -6,6 +6,32 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.17-vcport (network version 26 unchanged: plays with 0.54.15 and 0.54.16)
+
+From the host and client logs of the 15/10 evening test.
+
+- **Waypoint teleport, again** (panel.cpp). The host log shows the first teleport of the session: no ground after 6 s
+  (`sol 0.0 introuvable`), then a fall from 50 m and a death; the later ones found the ground at once (already loaded).
+  The game only streams collisions around the player, so asking for them from afar did nothing. Now: if the ground at
+  the waypoint is already there, straight onto it; otherwise the player (with his vehicle at the wheel) is put 150 m
+  above the spot and held there (position kept, no speed) while `REQUEST_COLLISION` / `LoadAllRequestedModels` run and
+  the ground is probed every frame; he is put on it as soon as it is found. If it has not loaded after 10 s he goes back
+  where he started (never a drop).
+- **The host's call rings for the guest** (mirror.cpp). The guest's own call now waits for the host's (0.54.16), and the
+  host's call (script `mob_la1` in the log) only reached the guest once the host had answered: the guest heard no ring.
+  The sound and text commands of the contact-call scripts (`mob_*`) are now sent from the first ring (mission audio,
+  one-off sounds, audio events at a character or a position, texts). Each command those scripts use is logged once on
+  the host (`telephone : le script ... utilise la commande ...`) to see what rings if it is still silent.
+- **Passenger follows the driver's interior** (coop.cpp, `PassengerAreaFrame`). The guest, passenger of the host, drove
+  into a TransFender with him: the garage moved the host's car into interior 2, the guest's game got there late and
+  never came back out (client log: `relocated: ... area 2`, then nothing outside loaded). A player in a vehicle driven by
+  another player now takes the driver's interior (visible area, link, ped and vehicle area, scenery) once they have
+  differed for 300 ms, going in and coming out.
+- **Shared-vehicle radio** (coop.cpp, `RadioFrame`). The guest teleported into the host's vehicle: his radio was stopped,
+  a retune to the host's station did not take, the old station came back and was counted as the guest's own choice, sent
+  to the driver, and the host was retuned to it every few seconds: no sound, could not change station. A station change
+  now counts as the player's only while the radio is playing and if it is not the station our own last retune replaced.
+
 ## 0.54.16-vcport (network version 26 unchanged: plays with 0.54.15)
 
 Asked by the player on 15/10: a guest outside before the host got a waiting contact's call first, out of step.
