@@ -1213,6 +1213,12 @@ static bool Replay(const uint8_t *d, int len)
         return true;
     }
     if (op == 0x054C && len > 6 && d[4] == 's' && d[5] > 0 && d[5] < 16) { memset(g_missionText, 0, sizeof(g_missionText)); memcpy(g_missionText, d + 6, d[5]); }
+    // The guest's own script is saying this call (held until the host answered, script.cpp): the host's mirrored lines of
+    // the same call would be heard twice.
+    if (!g_hostMission && PhoneCallOp(op) && GuestOwnCall()) {
+        void *me = FindPlayerPed();
+        if (me && HasTaskType(me, 1600)) return true;
+    }
     if (IsTextOp(op)) TextCheck(op, d, len);
     if (op == 0x015A || op == 0x02EB || op == 0x0373) CameraVectorReset();
     if (op == 0x015F || op == 0x0160 || (op >= 0x0157 && op <= 0x0159) || (op >= 0x0679 && op <= 0x067E) || op == 0x0936 || op == 0x0920) g_mirrorCamAt = GetTickCount();

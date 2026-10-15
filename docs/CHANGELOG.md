@@ -6,6 +6,19 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.16-vcport (network version 26 unchanged: plays with 0.54.15)
+
+Asked by the player on 15/10: a guest outside before the host got a waiting contact's call first, out of step.
+
+- **Guest's calls wait for the host's** (script.cpp, `GuestPhoneHold`). The contacts' calls are made by the guest's own
+  scripts as well. When one of them puts the phone to the guest's ear (`TASK_USE_MOBILE_PHONE` 0729 with on = 1, from any
+  script but the mod's own) while the host is connected and not on the phone, the script is held on that command: its
+  instruction pointer goes back on the opcode and it yields, trying again every frame. Once the host's CJ is on the phone
+  (gear bit 4 of his state) the script goes on, so both calls start together. While the guest's own call runs, the
+  host's mirrored lines of the call (mission audio and text commands) are dropped, so the dialogue is not heard twice.
+  Log: `telephone : appel du script ... retenu` / `libere`. The ring itself is the guest's script's and keeps ringing
+  while it waits.
+
 ## 0.54.15-vcport (network version 26: the vehicle message grew, 0.54.14 and older cannot join)
 
 From the players' test of 15/10. Addresses checked in gta_sa.exe 1.0 US.

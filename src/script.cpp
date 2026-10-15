@@ -41,8 +41,39 @@ const char *RunningMissionScript()
 
 bool IsStoryMission(int mission) { return mission == 2 || (mission >= 11 && mission <= 112); }
 
+// Guest, phone calls (request of 15/10): the contacts' calls are made by the guest's own scripts too, so a guest outside
+// first got the call before the host and out of step with him. When one of the guest's own scripts puts the phone to his
+// ear (TASK_USE_MOBILE_PHONE 0729, on = 1) while the host is not on the phone, the script is held on that command (its
+// instruction pointer is put back on it and it yields: it tries again next frame) until the host's CJ is on the phone
+// too (his state, gear bit 4). Then it goes on, the two calls start together; the host's mirrored lines of that call are
+// dropped meanwhile (MirrorGuestOwnCall), the guest's own script says the same ones.
+static uint32_t g_ownCallUntil;
+bool GuestOwnCall() { return g_ownCallUntil && (int)(g_ownCallUntil - GetTickCount()) > 0; }
+static bool GuestPhoneHold(void *script)
+{
+    uint8_t *&ip = *(uint8_t **)((uint8_t *)script + 0x14);
+    uint8_t *args = ip;
+    CollectParameters(script, 2);
+    int on = ScriptParams()[1];
+    ip = args;   // (the original handler reads the parameters itself)
+    if (on != 1) return false;
+    const NetPlayer &h = g_players[0];
+    bool hostThere = h.connected && h.state.inGame && GetTickCount() - h.lastStateAt < 3000;
+    bool hostPhone = hostThere && (h.state.gear & 4);
+    static uint32_t saidAt;
+    if (hostThere && !hostPhone) {
+        if (GetTickCount() - saidAt > 10000) { saidAt = GetTickCount(); Log("telephone : appel du script %.8s retenu chez l'invite jusqu'a ce que l'hote decroche", ScriptName(script)); }
+        ip = args - 2;   // back on the opcode
+        return true;
+    }
+    g_ownCallUntil = GetTickCount() + 60000;
+    Log("telephone : appel du script %.8s de l'invite libere (%s)", ScriptName(script), hostPhone ? "l'hote est au telephone" : "pas d'hote");
+    return false;
+}
+
 static char Dispatch(int index, void *script, int op)
 {
+    if (op == 0x0729 && !g_cfg.host && NetRunning() && strncmp(ScriptName(script), "sacoop", 6) != 0 && GuestPhoneHold(script)) return 1;
     if (op == 0x417) {   // START_MISSION
         uint8_t *ip = *(uint8_t **)((uint8_t *)script + 0x14);
         int mission = ip[0] == 4 ? (int8_t)ip[1] : ip[0] == 5 ? *(int16_t *)(ip + 1) : ip[0] == 1 ? *(int32_t *)(ip + 1) : -1;

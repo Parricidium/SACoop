@@ -1,5 +1,6 @@
 // Scripts SCM (script.cpp).
 #pragma once
+bool GuestOwnCall();   // guest: his own script is making a phone call (released when the host took his) (script.cpp)
 
 typedef char(__thiscall *ScriptHandler_t)(void *script, int op);
 void InstallScripts();
