@@ -540,6 +540,17 @@ void MirrorBefore(void *script, int op)
     // by the mission script, which is the only one mirrored: only the host saw it (test of 15/10). Big texts (PRINT_BIG)
     // of any script go to the guests for 20 s after a mission was launched.
     bool title = !mission && op == 0x00BA && g_missionStartAt && GetTickCount() - g_missionStartAt < 20000;
+    // (to find what shows the mission title on the host only: every command of the mission script in its first 30 s,
+    // once each, and whether the guests get it)
+    if (mission && g_missionStartAt && GetTickCount() - g_missionStartAt < 30000) {
+        static uint16_t seenOps[96];
+        static int nSeenOps;
+        static uint32_t seenFor;
+        if (seenFor != g_missionStartAt) { seenFor = g_missionStartAt; nSeenOps = 0; }
+        bool known = false;
+        for (int k = 0; k < nSeenOps; k++) if (seenOps[k] == op) known = true;
+        if (!known && nSeenOps < 96) { seenOps[nSeenOps++] = (uint16_t)op; Log("mission : debut, le script %.8s utilise %04X (%s)", ScriptName(script), op, FindOp(op) ? "envoyee aux invites" : "pas envoyee"); }
+    }
     if (title) { static int said; if (said++ < 10) Log("miroir : texte en grand du script %.8s (titre de mission) envoye aux invites", ScriptName(script)); }
     callSound = callSound || title;
     if (!mission && !(PhoneCallOp(op) && HostOnPhone()) && !callSound) return;
@@ -734,6 +745,18 @@ static void GuestObjectDamageWatch()
 // his vehicle (0x5A0E34). A guest's shots reach the host as his puppet's replayed shots: the switch ignored them, and the
 // guest could not do that part of the mission (test of 15/10, also with the 0.54.19 watch above, which never fired).
 // While a guest is within 80 m of such an object, the flag is lifted: his replayed shots damage it like the host's.
+// Host: the same end-of-cutscene line as the guests', to compare (cutscene subtitles: CCutsceneMgr text count 0xBC3FEC,
+// next one to show 0xBC3FF0, shown by CCutsceneMgr::Update at 0x5B1843 when its clock passes their start time).
+static void HostCutsceneLog()
+{
+    static bool was;
+    static uint32_t at;
+    bool running = CutsceneRunning();
+    if (running && !was) at = GetTickCount();
+    if (!running && was) Log("cinematique de l'hote : fin apres %u ms, sous-titres %d affiches sur %d", GetTickCount() - at, *(int *)0xBC3FF0, *(int *)0xBC3FEC);
+    was = running;
+}
+
 static void HostObjectsForGuests()
 {
     static uint32_t last;
@@ -1606,7 +1629,7 @@ static void CutsceneDiagFrame(uint32_t now)
     static bool wasRunning;
     bool running = CutsceneRunning();
     if (running && !wasRunning) { startedAt = now; lastLog = now; Log("cinematique de l'invite : debut (chargement %d, file %d commandes, zone visible %d, zone du joueur %d)", *(uint8_t *)0xB5F84C, (g_qTail - g_qHead + QUEUE) % QUEUE, *(int *)0xB72914, FindPlayerPed() ? (int)EntityArea(FindPlayerPed()) : -1); }
-    if (!running && wasRunning) { Log("cinematique de l'invite : fin apres %u ms (passee par l'invite : %d)", now - startedAt, (int)*(uint8_t *)0xB5F854); CutsceneVisibleAreaEnd(); }
+    if (!running && wasRunning) { Log("cinematique de l'invite : fin apres %u ms (passee par l'invite : %d), sous-titres %d affiches sur %d", now - startedAt, (int)*(uint8_t *)0xB5F854, *(int *)0xBC3FF0, *(int *)0xBC3FEC); CutsceneVisibleAreaEnd(); }
     wasRunning = running;
     if (!running) { since = 0; return; }
     {   // Scenery where the cutscene camera looks, not only around the player (test of 15/10: the far garage of Robbing Uncle
@@ -1741,7 +1764,7 @@ static void PhoneFollowFrame(uint32_t now)
 void MirrorFrame()
 {
     g_onReliable = OnReliable;
-    if (g_cfg.host) { if (NetRunning()) { HostGlobalsFrame(); if (GameState() == 9) HostObjectsForGuests(); } return; }
+    if (g_cfg.host) { if (NetRunning()) { HostGlobalsFrame(); if (GameState() == 9) { HostObjectsForGuests(); HostCutsceneLog(); } } return; }
     if (GameState() != 9 || !FindPlayerPed()) { g_havePrev = false; g_omForced = false; return; }
     UnstickFade();
     CameraWatch();

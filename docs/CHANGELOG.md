@@ -6,6 +6,19 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.24-vcport (diagnostics, network version 27 unchanged)
+
+The guest sees neither the mission title nor the cutscene subtitles; the host sees both. Checked in gta_sa.exe 1.0 US:
+the subtitles are shown by `CCutsceneMgr::Update` itself (0x5B1843: when its clock 0xBC3F08, which runs on the frame time,
+passes a line's start time, `CMessages::AddMessageJumpQ` 0x69F1E0 with the text of key 0xBC2FC0 + 8 x n); nothing there
+depends on the host or on the network, and the title is not a `PRINT_BIG` of any script (0.54.23). Log only:
+
+- End of each cutscene, on the host (new) and on the guest: `... sous-titres a affiches sur b` (CCutsceneMgr text count
+  0xBC3FEC, next one to show 0xBC3FF0). Same numbers on both and nothing on the guest's screen: the guest's game hides
+  them (its subtitles option). Fewer on the guest: his cutscene stopped early.
+- Host, the first 30 s of a story mission: each command its mission script uses, once, and whether the guests get it
+  (`mission : debut, le script ... utilise XXXX (envoyee aux invites / pas envoyee)`): the title's command is among them.
+
 ## 0.54.23-vcport (network version 27 unchanged)
 
 From the host and client logs of the 15/10 test (0.54.22, Robbing Uncle Sam).
