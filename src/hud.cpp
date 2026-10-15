@@ -96,6 +96,19 @@ void HudToast(const char *text, unsigned ms)
     Log("message : %s", text);
 }
 
+// A question to the player (the mission vehicle offer): at the top of the screen, out of the way of the mission texts at
+// the bottom (request of 15/10).
+static char g_prompt[128];
+static uint32_t g_promptUntil;
+void HudPrompt(const char *text, unsigned ms)
+{
+    bool fresh = (int)(g_promptUntil - GetTickCount()) <= 0 || lstrcmpA(g_prompt, text) != 0;
+    lstrcpynA(g_prompt, text, sizeof(g_prompt));
+    g_promptUntil = GetTickCount() + ms;
+    if (fresh) Log("question : %s", text);
+}
+void HudPromptClear() { g_promptUntil = 0; }
+
 static void DrawToasts()
 {
     if (GameState() != 9) return;
@@ -103,6 +116,19 @@ static void DrawToasts()
     uint32_t now = GetTickCount();
     float y = sh * 0.78f;
     bool any = false;
+    if ((int)(g_promptUntil - now) > 0) {
+        font::SetFontStyle(1);
+        font::SetProportional(true);
+        font::SetBackground(false, false);
+        font::SetOrientation(0);
+        font::SetCentreSize((float)sw);
+        font::SetScale(0.5f * sw / 640.0f * HudAspectFactor(), 1.1f * sh / 448.0f);
+        font::SetEdge(1);
+        font::SetDropColor(RGBA(0, 0, 0, 255));
+        font::SetColor(RGBA(255, 230, 120, 255));
+        font::Print(sw * 0.5f, sh * 0.06f, g_prompt);
+        any = true;
+    }
     for (int i = 0; i < 3; i++) {
         if ((int)(g_toastUntil[i] - now) <= 0) continue;
         font::SetFontStyle(1);

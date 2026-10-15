@@ -19,6 +19,8 @@
 using namespace game;
 
 static uint8_t g_localShots;          // compteur des tirs du joueur local (MsgState.shots)
+static uint32_t g_lastShotAt;         // when the local player last fired
+uint32_t CombatLastShotAt() { return g_lastShotAt; }
 static float g_localAim[3];           // point vise au dernier tir
 static bool g_replaying;              // un pantin rejoue un tir : ne pas le compter comme le notre
 static uint8_t g_lastShots[MAX_PLAYERS];
@@ -58,10 +60,25 @@ static char __fastcall h_Fire(int *weapon, void *edx, void *owner, float *origin
     }
     if (r && !g_replaying && owner && owner == FindPlayerPed()) {
         g_localShots++;
+        g_lastShotAt = GetTickCount();
         if (target) memcpy(g_localAim, target, 12);
         else if (uint8_t *m = *(uint8_t **)(0xB6F028 + 0x14)) {   // TheCamera : position + 80 m dans l'axe de visee
             const float *pos = (const float *)(m + 0x30), *fwd = (const float *)(m + 0x10);
             for (int k = 0; k < 3; k++) g_localAim[k] = pos[k] + fwd[k] * 80.0f;
+            // The point the shot really hits (CWorld::ProcessLineOfSight 0x56BA00, checked in gta_sa.exe 1.0 US: buildings,
+            // vehicles, peds, objects; the player and his vehicle ignored through CWorld::pIgnoreEntity 0xB7CD68). The puppet
+            // replays the shot from where it stands: aimed at a point 80 m away along OUR camera, its bullets passed beside a
+            // small target, the switches of Robbing Uncle Sam took many shots from a guest (test of 15/10).
+            uint8_t colPoint[0x2C] = {};
+            void *hitEnt = nullptr;
+            void *&ignore = *(void **)0xB7CD68;
+            void *before = ignore;
+            void *veh = PedVehicle(owner);
+            ignore = veh ? veh : owner;
+            bool hit = ((bool(__cdecl *)(const float *, const float *, void *, void **, bool, bool, bool, bool, bool, bool, bool, bool))0x56BA00)(
+                pos, g_localAim, colPoint, &hitEnt, true, true, true, true, false, true, false, true);
+            ignore = before;
+            if (hit && hitEnt != owner) memcpy(g_localAim, colPoint, 12);
         }
     }
     return r;

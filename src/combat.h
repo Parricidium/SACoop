@@ -1,5 +1,7 @@
 // Armes, tirs et degats entre joueurs (combat.cpp).
 #pragma once
+#include <stdint.h>
+uint32_t CombatLastShotAt();   // GetTickCount of the local player's last shot (0 never)
 #include "net.h"
 
 void InstallCombat();

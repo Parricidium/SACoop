@@ -6,6 +6,29 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.23-vcport (network version 27 unchanged)
+
+From the host and client logs of the 15/10 test (0.54.22, Robbing Uncle Sam).
+
+- **Shots replayed at the point they hit** (combat.cpp). The guest could shoot the switches now, but it took many bullets:
+  a player's shot was sent as a point 80 m along his camera, and his puppet, firing from where it stands, passed beside a
+  small target. The point the shot really hits is now traced (`CWorld::ProcessLineOfSight` 0x56BA00, checked in
+  gta_sa.exe 1.0 US: buildings, vehicles, peds, objects; the shooter and his vehicle ignored through
+  `CWorld::pIgnoreEntity` 0xB7CD68) and sent; the puppet's replayed shot goes to that exact point.
+- **A guest's shot on a mission object counts for the host** (mirror.cpp). The host log has no "plus seulement
+  endommageable" line: the switches do not carry the player-only flag of 0.54.22, the gates opened through the puppet's
+  replayed shots, and the second switch (by the far garage) did not open it. The 0.54.19 watch never fired either: the
+  guest's copy does not get the "damaged" bit. Now a drop of the copy's health (CObject +0x154, lowered by
+  `CObject::ObjectDamage` at 0x5A0E07) also counts, but only within 0.5 s of a shot by the guest (a crate knocked by his
+  forklift must not count); the host then marks its own object damaged, wherever the host is.
+- **Scenery where the guest's cutscene camera looks** (mirror.cpp). The far garage of the second shot of the cutscene was
+  half loaded on the guest, textures out of place. `LOAD_SCENE` at the cutscene camera when the cutscene starts and
+  whenever the camera jumps more than 80 m (`cinematique de l'invite : decor charge autour de la camera`).
+- **The mission vehicle offer at the top of the screen** (hud.cpp, `HudPrompt`), in yellow, out of the way of the mission
+  texts at the bottom; it goes away when answered.
+- Mission title at the start of the first cutscene: neither log has a `PRINT_BIG` (00BA) from any script around the
+  mission start, so it is not a script text; still open.
+
 ## 0.54.22-vcport (network version 27 unchanged)
 
 From the host and client logs of the 15/10 test (0.54.20, Robbing Uncle Sam).

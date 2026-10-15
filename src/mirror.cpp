@@ -24,6 +24,7 @@
 #include "entities.h"
 #include "vehicles.h"
 #include "script.h"
+#include "combat.h"
 #include "mirror.h"
 #include "police.h"
 #include "savesync.h"
@@ -704,13 +705,22 @@ static void *ObjectAt(int handle) { return handle ? ((void *(__thiscall *)(void 
 static bool ObjectDamaged(void *o) { uint32_t f = *(uint32_t *)((uint8_t *)o + 0x1C); return (f & 0x200) || !(f & 0x80); }
 static void GuestObjectDamageWatch()
 {
-    static int reported[MAX_MAP];
+    static int reported[MAX_MAP], watched[MAX_MAP];
+    static float health0[MAX_MAP];
     for (int i = 0; i < MAX_MAP; i++) {
         HandleMap &m = g_objects[i];
-        if (!m.host || !m.guest) { reported[i] = 0; continue; }
+        if (!m.host || !m.guest) { reported[i] = watched[i] = 0; continue; }
         if (reported[i] == m.host) continue;
         void *o = ObjectAt(m.guest);
-        if (!o || !(*(uint32_t *)((uint8_t *)o + 0x1C) & 0x200)) continue;   // (damaged by a hit; not merely hidden)
+        if (!o) continue;
+        // CObject health (+0x154, lowered by CObject::ObjectDamage 0x5A0E07): the guest's shots lower it on his copy even
+        // when the "damaged" bit never comes (0.54.22 test: the watch never fired). Its first value is kept as reference.
+        float hp = *(float *)((uint8_t *)o + 0x154);
+        if (watched[i] != m.host) { watched[i] = m.host; health0[i] = hp; }
+        bool hurt = (*(uint32_t *)((uint8_t *)o + 0x1C) & 0x200) || hp < health0[i] - 0.5f;
+        if (!hurt) continue;
+        // Only right after the guest fired: a crate knocked by his forklift (same mission) must not count as shot.
+        if (!CombatLastShotAt() || GetTickCount() - CombatLastShotAt() > 500) { health0[i] = hp; continue; }
         reported[i] = m.host;
         uint8_t msg[5] = { RL_OBJECT_DAMAGED };
         memcpy(msg + 1, &m.host, 4);
@@ -1599,6 +1609,26 @@ static void CutsceneDiagFrame(uint32_t now)
     if (!running && wasRunning) { Log("cinematique de l'invite : fin apres %u ms (passee par l'invite : %d)", now - startedAt, (int)*(uint8_t *)0xB5F854); CutsceneVisibleAreaEnd(); }
     wasRunning = running;
     if (!running) { since = 0; return; }
+    {   // Scenery where the cutscene camera looks, not only around the player (test of 15/10: the far garage of Robbing Uncle
+        // Sam's second shot was half loaded on the guest, textures out of place). LOAD_SCENE at the camera when the cutscene
+        // has just started and whenever the camera jumps more than 80 m.
+        static float loadedAt[3];
+        static uint32_t loadedFor;
+        uint8_t *cm = *(uint8_t **)(0xB6F028 + 0x14);
+        if (cm && now - startedAt > 100) {
+            const float *cp = (const float *)(cm + 0x30);
+            float dx = cp[0] - loadedAt[0], dy = cp[1] - loadedAt[1], dz = cp[2] - loadedAt[2];
+            if (loadedFor != startedAt || dx * dx + dy * dy + dz * dz > 80.0f * 80.0f) {
+                loadedFor = startedAt;
+                memcpy(loadedAt, cp, 12);
+                int sc[3];
+                memcpy(sc, cp, 12);
+                RunScriptCommandTyped(0x03CB, 3, "fff", sc);
+                static int said;
+                if (said++ < 20) Log("cinematique de l'invite : decor charge autour de la camera (%.0f %.0f %.0f)", cp[0], cp[1], cp[2]);
+            }
+        }
+    }
     if (now - lastLog >= 5000) {
         lastLog = now;
         Log("cinematique de l'invite : %u ms, finie %d, passee %d, mode camera %d, file %d commandes, touches entree %d espace %d souris %d",

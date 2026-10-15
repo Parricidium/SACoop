@@ -950,6 +950,7 @@ void VehiclesMissionEnded()
 {
     if (g_guestMissionCopy && VehFromRef(g_guestMissionRef) == g_guestMissionCopy) ((uint8_t *)g_guestMissionCopy)[0x4A4] = 1;
     g_guestMissionCopy = nullptr;
+    if (g_offerModel) HudPromptClear();
     g_offerModel = 0;   // (an offer not answered yet goes with the mission)
 }
 
@@ -1029,16 +1030,16 @@ static void GuestVehicleOffer()
     yWas = y; nWas = nk;
     if (!g_offerModel) return;
     uint32_t now = GetTickCount();
-    if ((int)(g_offerUntil - now) <= 0) { Log("vehicule de mission propose : pas de reponse, abandonne"); g_offerModel = 0; return; }
+    if ((int)(g_offerUntil - now) <= 0) { Log("vehicule de mission propose : pas de reponse, abandonne"); g_offerModel = 0; HudPromptClear(); return; }
     if (ChatTyping() || PanelOpen() || !FindPlayerPed()) return;
-    if (now - g_offerToastAt >= 5000) {
+    if (now - g_offerToastAt >= 1000) {
         g_offerToastAt = now;
-        HudToast(g_fr ? "Vehicule de mission : Y = le tien a cote de toi, N = non" : "Mission vehicle: Y = spawn yours next to you, N = no thanks", 5000);
+        HudPrompt(g_fr ? "Vehicule de mission : Y = le tien a cote de toi, N = non" : "Mission vehicle: Y = spawn yours next to you, N = no thanks", 1500);
     }
-    if (nDown) { g_offerModel = 0; HudToast(g_fr ? "Pas de vehicule" : "No vehicle", 2000); Log("vehicule de mission propose : refuse (N)"); return; }
+    if (nDown) { g_offerModel = 0; HudPromptClear(); HudToast(g_fr ? "Pas de vehicule" : "No vehicle", 2000); Log("vehicule de mission propose : refuse (N)"); return; }
     if (yDown) {
         int model = g_offerModel;
-        if (SpawnGuestMissionVehicle(model)) g_offerModel = 0;
+        if (SpawnGuestMissionVehicle(model)) { g_offerModel = 0; HudPromptClear(); }
         else HudToast(g_fr ? "Pas encore possible, reessaie (Y)" : "Not possible yet, try again (Y)", 2500);
     }
 }
