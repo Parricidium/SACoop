@@ -6,6 +6,23 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.27-vcport (network version 28 unchanged)
+
+From the host and client logs of the 15/10 test (0.54.26, Robbing Uncle Sam). The mission title now shows on the guest
+(`texte : 00BA cle "RYDER_2" -> Robbing Uncle Sam`).
+
+- **In-car dialogue of a mission** (mirror.cpp). During the drive the guest got 20 `LOAD_MISSION_AUDIO` (03CF) and no
+  `PLAY_MISSION_AUDIO` (03D1) at all (not a log limit: 330 replay lines). Checked in gta_sa.exe 1.0 US: 03D1 is the only
+  command that plays a mission line (0x48521C, the one caller of `CAudioEngine` 0x5072B0). The play is said by a helper
+  script the mission started, which is not flagged as a mission script, and only the mission scripts were mirrored. While
+  a story mission runs on the host (its ONMISSION flag), the mission audio and text commands go to the guests whichever
+  script says them (`ligne de mission ... dite par le script ...`, 10 lines at most). Ryder's own lines (character speech,
+  banks 650-654) were already heard through the speech sync.
+- **Cutscene without textures for a while** (mirror.cpp). A guest outside, brought by the mission start from far away
+  (2702 -2392 to 2461 -1686 in the log), saw the cutscene start 0.5 s later with the scenery still streaming; one already
+  inside did not. The guest's `START_CUTSCENE` now also waits, 3 s at most, for `CStreaming::ms_numModelsRequested`
+  (0x8E4CB8) to reach 0, loading meanwhile (`cinematique de l'invite : decor charge en ... ms avant le debut`).
+
 ## 0.54.26-vcport (network version 28: the speech message grew)
 
 From the host and client logs of the 15/10 test (0.54.25, Robbing Uncle Sam, cutscene watched to its end).

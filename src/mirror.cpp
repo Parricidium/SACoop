@@ -41,6 +41,7 @@
 using namespace game;
 
 enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */, RL_OBJECT_DAMAGED = 9 /* guest -> host: a mission object damaged by the guest (host handle) */, RL_CUT_END = 10 /* host -> guests: his cutscene ends, skipped or not */ };
+static uint32_t *OnMissionVar();   // (below: the host's ONMISSION flag)
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
 // q/Q sphere (entree/sortie), o/O objet (entree/sortie), k/K pickup, r/R feu de script. (A l'envoi, un P qui designe le joueur de l'hote devient H :
@@ -543,6 +544,14 @@ void MirrorBefore(void *script, int op)
     // (0.54.25 log: "Robbing Uncle Sam" is a PRINT_BIG of the contact's script, 0.5 s BEFORE the mission is launched: the
     // 20 s window after the launch missed it. Any big text of the host's scripts goes to the guests now.)
     bool title = !mission && op == 0x00BA;
+    // The dialogue of a mission can be said by a helper script it started (not flagged as a mission script): in Robbing
+    // Uncle Sam the guest got 20 loads (03CF) and no play (03D1) during the drive (0.54.26 logs), and 03D1 is the only
+    // command that plays a mission line (0x48521C, the one caller of 0x5072B0). While a story mission runs on the host,
+    // its lines (mission audio, texts) go to the guests whichever script says them.
+    uint32_t *onMission = OnMissionVar();
+    bool helperLine = !mission && !callScript && onMission && *onMission && (PhoneCallOp(op) || op == 0x0949 || op == 0x03D7 || op == 0x097A || op == 0x097B || op == 0x09F1 || op == 0x09F7);
+    if (helperLine) { static int said; if (said++ < 10) Log("miroir : ligne de mission %04X dite par le script %.8s (pas le script de mission), envoyee aux invites", op, ScriptName(script)); }
+    title = title || helperLine;
     // (to find what shows the mission title on the host only: every command of the mission script in its first 30 s,
     // once each, and whether the guests get it)
     // (and, for the whole mission, every command of its script the guests do NOT get, once each: the in-car dialogue of
@@ -1203,6 +1212,18 @@ static bool Replay(const uint8_t *d, int len)
     int op = *(const uint16_t *)(d + 1), n = d[3];
     if (IsWeaponOp(op) && len > 4 && d[4] != 'H') return true;   // armes d'un personnage de mission : sa copie suit le reseau
     if (op == 0x02E7 && !CutsceneLoaded()) return false;                           // chargement en cours
+    {   // START_CUTSCENE: also wait (3 s at most) for the scenery being streamed in (CStreaming::ms_numModelsRequested
+        // 0x8E4CB8, the same counter AddSayEvent checks at 0x4E66E7). A guest brought from far away by the mission start
+        // saw the cutscene without textures for a while (test of 15/10, Robbing Uncle Sam); one already inside did not.
+        static uint32_t streamWait;
+        if (op != 0x02E7) streamWait = 0;
+        else if (*(int *)0x8E4CB8 > 0) {
+            if (!streamWait) streamWait = GetTickCount();
+            if (GetTickCount() - streamWait < 3000) { LoadAllRequestedModels(false); return false; }
+            Log("cinematique de l'invite : demarre avec %d modeles encore en chargement", *(int *)0x8E4CB8);
+            streamWait = 0;
+        } else if (streamWait) { Log("cinematique de l'invite : decor charge en %u ms avant le debut", GetTickCount() - streamWait); streamWait = 0; }
+    }
     // PLAY_MISSION_AUDIO: the host's script waited for its own load (HAS_MISSION_AUDIO_LOADED 03D0) before playing; the
     // guest got the load and the play back to back, his load was not done and the play did nothing: no dialogue between
     // the host and his mission passenger (test of 15/10). Checked in gta_sa.exe 1.0 US: 03D0 asks
