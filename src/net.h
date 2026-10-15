@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 27, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 28, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -130,7 +130,7 @@ enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */
        PF_AIR = 16 /* en l'air (saut, chute) */, PF_CLIMB = 32 /* accroche a un mur */ };
 // Objet du decor deplace : identifie par son modele et la position de son objet factice d'origine.
 // Speech (speech.cpp): kind 0 = the player "from", 1 = the host's ped "id" (MissionPedId). context -1 = pain.
-struct MsgSpeech { uint8_t type, from, kind, voiceType; uint32_t id; int16_t bank, sound, context; };
+struct MsgSpeech { uint8_t type, from, kind, voiceType; uint32_t id; int16_t bank, sound, context; float volume; uint8_t forceAudible, frontEnd; };
 // Garage doors (garages.cpp): up to 8 garages (index in CGarages::aGarages), door state and position.
 struct MsgGarage { uint8_t type, from, count, pad; struct { uint8_t idx, state; float pos; } e[8]; };
 struct MsgObject { uint8_t type, from; int16_t model; float orig[3], pos[3], right[3], fwd[3], speed[3]; };

@@ -75,6 +75,9 @@ static void __fastcall SpeechPlay(void *ent, void *, int delay)
     m.sound = sound;
     m.context = *(int16_t *)(e + 0xB0);
     m.voiceType = (uint8_t)*(int16_t *)(e + 0x92);
+    m.volume = *(float *)(e + 0xAC);   // as the original says it: its volume, "always audible", "front end" (heard as in the
+    m.forceAudible = e[0x9B];          // cabin: a mission's dialogue in a car, test of 15/10, was played as a far 3D sound)
+    m.frontEnd = e[0x9C];
     NetSendToAll(&m, sizeof(m));
     static int said;
     if (said < 30) { said++; Log("parole : %s dit le son %d de la banque %d (contexte %d), envoye", m.kind == SP_PLAYER ? "le joueur" : "un personnage", sound, bank, m.context); }
@@ -87,7 +90,7 @@ static void OnSpeech(const MsgSpeech &m)
     static int said;
     if (!ped) { if (said < 30) { said++; Log("parole : son %d banque %d du joueur %d : pas de copie ici", m.sound, m.bank, m.from); } return; }
     void *me = FindPlayerPed();
-    if (me) {   // (too far to be heard: the game would not have said it either)
+    if (me && !m.frontEnd && !m.forceAudible) {   // (too far to be heard: the game would not have said it either)
         const float *a = EntityPos(me), *b = EntityPos(ped);
         float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
         if (dx * dx + dy * dy + dz * dz > 60.0f * 60.0f) return;
@@ -96,11 +99,9 @@ static void OnSpeech(const MsgSpeech &m)
     if (!e[0x90] || e[0x98]) return;   // speech not set up on this ped, or still saying the previous line
     int slot = (int16_t)((int(__thiscall *)(void *))0x4E4950)(e);   // a free speech slot among the 5 (the player's own slot 5 stays his)
     if (slot < 0 || slot >= 5 || *SlotStatus(slot) != 0) return;
-    float vol = (float)*(int8_t *)(*(uint8_t **)0xBD00F8 + (m.context == -1 ? 0x35 : 0x34));   // the game's speech / pain volume
-    if (m.voiceType == 2) vol += *(float *)0x8C80E8;   // the player's voice is a little louder, as in the game
-    *(float *)(e + 0xAC) = vol;
-    e[0x9B] = 0;   // not forced audible
-    e[0x9C] = 0;   // not front end (heard at the ped's place)
+    *(float *)(e + 0xAC) = m.volume;   // the original's volume and flags (front end: heard as in the cabin, not at the ped)
+    e[0x9B] = m.forceAudible;
+    e[0x9C] = m.frontEnd;
     *(int16_t *)(e + 0xA8) = (int16_t)slot;
     *(int16_t *)(e + 0xB0) = m.context;
     *(int16_t *)(e + 0xA4) = m.sound;
@@ -109,7 +110,7 @@ static void OnSpeech(const MsgSpeech &m)
     g_injecting = true;
     LoadAndPlaySpeech(e, 0);
     g_injecting = false;
-    if (said < 30) { said++; Log("parole : son %d banque %d du joueur %d joue sur sa copie (case %d)", m.sound, m.bank, m.from, slot); }
+    if (said < 30) { said++; Log("parole : son %d banque %d du joueur %d joue sur sa copie (case %d, volume %.1f, audible %d, cabine %d)", m.sound, m.bank, m.from, slot, m.volume, m.forceAudible, m.frontEnd); }
 }
 
 void InstallSpeech()

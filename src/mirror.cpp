@@ -540,17 +540,21 @@ void MirrorBefore(void *script, int op)
     // The mission's title (bottom right at the start of its first cutscene) is printed by the script that launches it, not
     // by the mission script, which is the only one mirrored: only the host saw it (test of 15/10). Big texts (PRINT_BIG)
     // of any script go to the guests for 20 s after a mission was launched.
-    bool title = !mission && op == 0x00BA && g_missionStartAt && GetTickCount() - g_missionStartAt < 20000;
+    // (0.54.25 log: "Robbing Uncle Sam" is a PRINT_BIG of the contact's script, 0.5 s BEFORE the mission is launched: the
+    // 20 s window after the launch missed it. Any big text of the host's scripts goes to the guests now.)
+    bool title = !mission && op == 0x00BA;
     // (to find what shows the mission title on the host only: every command of the mission script in its first 30 s,
     // once each, and whether the guests get it)
-    if (mission && g_missionStartAt && GetTickCount() - g_missionStartAt < 30000) {
-        static uint16_t seenOps[96];
+    // (and, for the whole mission, every command of its script the guests do NOT get, once each: the in-car dialogue of
+    // Robbing Uncle Sam loads its lines with 03CF but plays them with something that is not mirrored)
+    if (mission && g_missionStartAt && (GetTickCount() - g_missionStartAt < 30000 || !FindOp(op))) {
+        static uint16_t seenOps[160];
         static int nSeenOps;
         static uint32_t seenFor;
         if (seenFor != g_missionStartAt) { seenFor = g_missionStartAt; nSeenOps = 0; }
         bool known = false;
         for (int k = 0; k < nSeenOps; k++) if (seenOps[k] == op) known = true;
-        if (!known && nSeenOps < 96) { seenOps[nSeenOps++] = (uint16_t)op; Log("mission : debut, le script %.8s utilise %04X (%s)", ScriptName(script), op, FindOp(op) ? "envoyee aux invites" : "pas envoyee"); }
+        if (!known && nSeenOps < 160) { seenOps[nSeenOps++] = (uint16_t)op; Log("mission : debut, le script %.8s utilise %04X (%s)", ScriptName(script), op, FindOp(op) ? "envoyee aux invites" : "pas envoyee"); }
     }
     if (title) { static int said; if (said++ < 10) Log("miroir : texte en grand du script %.8s (titre de mission) envoye aux invites", ScriptName(script)); }
     callSound = callSound || title;

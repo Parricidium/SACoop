@@ -6,6 +6,25 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.26-vcport (network version 28: the speech message grew)
+
+From the host and client logs of the 15/10 test (0.54.25, Robbing Uncle Sam, cutscene watched to its end).
+
+- **Cutscene subtitles work on the guest**: 14 of 14 shown on both (the guest's cutscene now ends by itself when the host
+  watches his to the end). The players have the subtitles option off, hence nothing on screen.
+- **Mission title for the guest** (mirror.cpp). The 0.54.25 diagnostic shows it: `message en grand : style 1, 1000 ms,
+  "Robbing Uncle Sam" (appele de 004680B7)`: a `PRINT_BIG` of the contact's script, 0.5 s before the mission is launched,
+  so the 20 s window that began at the launch (0.54.21) missed it. Every `PRINT_BIG` of the host's scripts outside the
+  missions now goes to the guests (the mission scripts' were already mirrored).
+- **Passenger dialogue in a mission car** (speech.cpp). The guest log shows Ryder's lines arriving and played on his copy
+  (`son 294 banque 650 ... joue sur sa copie`), but not heard: the receiver played them as an ordinary 3D sound at the
+  copy, with its own volume. Checked in gta_sa.exe 1.0 US: `AddSayEvent` makes a ped's line "always audible" (+0x9B) when
+  the ped sits in the player's vehicle (0x4E684E), and lines can be "front end" (+0x9C, heard as in the cabin). The sender
+  now sends the line's volume (+0xAC) and both flags; the receiver uses them (and no distance limit for such lines).
+- **Diagnostic**: for the whole mission, each command of the mission script that the guests do not get is logged once on
+  the host (`mission : debut, ... (pas envoyee)`): during the drive the host's script loads lines (`03CF`, seen replayed on
+  the guest) but plays them with a command that is not mirrored; this names it.
+
 ## 0.54.25-vcport (network version 27 unchanged; both players need it)
 
 From the host and client logs of the 15/10 test (0.54.24, Robbing Uncle Sam). The 0.54.23 switch fix works: one bullet
