@@ -138,7 +138,7 @@ static void OnObject(const MsgObject &m)
 // by a forklift, attached, slid or made visible later stayed where (and as) the guest's copy began, or unseen (test of
 // 15/10: the crates of Home Invasion and the boxes of Robbing Uncle Sam were not seen by the guest). The host sends, for
 // each of its mission objects within 150 m of a guest, its script handle, pose, area and visible / collision flags
-// (MSG_MOBJECT: moving ones 5 times a second, still ones every 2 s); the guest puts his copy (MirrorGuestObject) there.
+// (MSG_MOBJECT: moving ones 10 times a second, still ones every 2 s); the guest puts his copy (MirrorGuestObject) there.
 static int ObjRef(int i) { return (i << 8) | ObjectPool()->flags[i]; }
 static uint8_t *ObjFromRef(int h)
 {
@@ -155,7 +155,7 @@ static void HostMissionObjects()
     static float sentPos[1024][3];
     static uint32_t sentAt[1024];
     uint32_t now = GetTickCount();
-    if (now - last < 200) return;
+    if (now - last < 100) return;
     last = now;
     ObjPool *pool = ObjectPool();
     if (!pool) return;
@@ -179,6 +179,7 @@ static void HostMissionObjects()
         m.model = *(int16_t *)(o + 0x22);
         m.handle = ObjRef(i);
         m.flags = *(uint32_t *)(o + 0x1C);
+        m.attached = *(void **)(o + 0xFC) != nullptr;
         memcpy(m.pos, p, 12);
         memcpy(m.right, mat, 12);
         memcpy(m.fwd, mat + 0x10, 12);
@@ -187,6 +188,39 @@ static void HostMissionObjects()
         memcpy(sentPos[i], p, 12);
         sentAt[i] = now;
         sent++;
+    }
+}
+
+// Guest: the last state of each host object, applied on every frame (0.54.30). Applied only when a message came, the
+// copy was left to the local physics in between: boxes in the back of the van (attached to it on the host, loose on the
+// guest) were thrown out by the van copy, which is moved by placement, not by physics (test of 15/10). Now the copy's
+// own physics is off while it is followed (CPhysical bDontApplySpeed +0x40 bit 13): it is put at the host's position,
+// carried along its speed for up to 0.3 s between messages; an object attached on the host has no collision here.
+struct Followed { int hostHandle, guest; MsgMObject m; uint32_t at; };
+static Followed g_followed[128];
+
+static void PlaceObject(uint8_t *o, const MsgMObject &m, float ahead)
+{
+    uint8_t *mat = *(uint8_t **)(o + 0x14);
+    if (!mat) return;
+    float pos[3];
+    for (int k = 0; k < 3; k++) pos[k] = m.pos[k] + m.speed[k] * ahead;
+    float off = Dist2(EntityPos(o), pos);
+    bool farAway = off > 4.0f;
+    if (farAway) WorldRemove(o);
+    float *r = (float *)mat, *f = (float *)(mat + 0x10), *u = (float *)(mat + 0x20);
+    memcpy(r, m.right, 12);
+    memcpy(f, m.fwd, 12);
+    u[0] = r[1] * f[2] - r[2] * f[1];
+    u[1] = r[2] * f[0] - r[0] * f[2];
+    u[2] = r[0] * f[1] - r[1] * f[0];
+    memcpy(EntityPos(o), pos, 12);
+    memset(MoveSpeed(o), 0, 12);
+    memset((uint8_t *)o + 0x50, 0, 12);   // turn speed
+    if (farAway) WorldAdd(o);
+    if (*(void **)(o + 0x18)) {
+        ((void(__thiscall *)(void *))0x446F90)(o);   // CEntity::UpdateRW
+        ((void(__thiscall *)(void *))0x532B00)(o);   // CEntity::UpdateRwFrame
     }
 }
 
@@ -203,35 +237,67 @@ static void OnMObject(const MsgMObject &m)
         return;
     }
     uint8_t *o = ObjFromRef(h);
-    if (!o) return;
-    uint8_t *mat = *(uint8_t **)(o + 0x14);
-    if (!mat || *(void **)(o + 0xFC)) return;   // (attached to something here: the game places it)
-    uint32_t &fl = *(uint32_t *)(o + 0x1C);
+    if (!o || *(void **)(o + 0xFC)) return;   // (attached to something here: the game places it)
+    uint32_t fl = *(uint32_t *)(o + 0x1C);
     float off = Dist2(EntityPos(o), m.pos);
-    bool areaDiff = o[0x2F] != m.area, visDiff = (fl & 0x80) != (m.flags & 0x80);
-    if ((areaDiff || visDiff || off > 1.0f) && saidFix < 40) {
+    if ((o[0x2F] != m.area || (fl & 0x80) != (m.flags & 0x80) || off > 1.0f) && saidFix < 40) {
         saidFix++;
-        Log("objet de mission %d (hote %d, modele %d) : chez l'invite zone %d visible %d a %.1f m, chez l'hote zone %d visible %d -> corrige",
-            h, m.handle, m.model, o[0x2F], (fl & 0x80) ? 1 : 0, sqrtf(off), m.area, (m.flags & 0x80) ? 1 : 0);
+        Log("objet de mission %d (hote %d, modele %d) : chez l'invite zone %d visible %d a %.1f m, chez l'hote zone %d visible %d%s -> corrige",
+            h, m.handle, m.model, o[0x2F], (fl & 0x80) ? 1 : 0, sqrtf(off), m.area, (m.flags & 0x80) ? 1 : 0, m.attached ? ", attache" : "");
     }
-    o[0x2F] = m.area;
-    fl = (fl & ~0x81u) | (m.flags & 0x81);   // visible, uses collision
-    if (off < 0.0004f && !(m.speed[0] || m.speed[1] || m.speed[2])) return;
-    bool farAway = off > 4.0f;
-    if (farAway) WorldRemove(o);
-    float *r = (float *)mat, *f = (float *)(mat + 0x10), *u = (float *)(mat + 0x20);
-    memcpy(r, m.right, 12);
-    memcpy(f, m.fwd, 12);
-    u[0] = r[1] * f[2] - r[2] * f[1];
-    u[1] = r[2] * f[0] - r[0] * f[2];
-    u[2] = r[0] * f[1] - r[1] * f[0];
-    memcpy(EntityPos(o), m.pos, 12);
-    memcpy(MoveSpeed(o), m.speed, 12);
-    if (farAway) WorldAdd(o);
-    if (*(void **)(o + 0x18)) {
-        ((void(__thiscall *)(void *))0x446F90)(o);   // CEntity::UpdateRW
-        ((void(__thiscall *)(void *))0x532B00)(o);   // CEntity::UpdateRwFrame
+    Followed *slot = nullptr, *freeSlot = nullptr;
+    for (auto &f : g_followed) { if (f.hostHandle == m.handle) { slot = &f; break; } if (!f.hostHandle && !freeSlot) freeSlot = &f; }
+    if (!slot) slot = freeSlot;
+    if (!slot) return;
+    slot->hostHandle = m.handle;
+    slot->guest = h;
+    slot->m = m;
+    slot->at = GetTickCount();
+}
+
+static void GuestFollowObjects()
+{
+    uint32_t now = GetTickCount();
+    float step = *(float *)0xB7CB5C;   // CTimer::ms_fTimeStep (speeds are per 1/50 s)
+    for (auto &f : g_followed) {
+        if (!f.hostHandle) continue;
+        uint8_t *o = ObjFromRef(f.guest);
+        bool gone = !o || MirrorGuestObject(f.hostHandle) != f.guest;
+        if (gone || now - f.at > 3000) {   // no news for 3 s (the host's object is still, or too far): the game takes it back
+            if (!gone) *(uint32_t *)(o + 0x40) &= ~0x2000u;
+            f.hostHandle = 0;
+            continue;
+        }
+        if (*(void **)(o + 0xFC)) continue;
+        o[0x2F] = f.m.area;
+        uint32_t &fl = *(uint32_t *)(o + 0x1C);
+        fl = (fl & ~0x81u) | (f.m.flags & 0x80) | (f.m.attached ? 0 : (f.m.flags & 1));   // visible; collision unless attached
+        *(uint32_t *)(o + 0x40) |= 0x2000;   // bDontApplySpeed: we move it
+        float dt = (now - f.at) / 20.0f;     // in 1/50 s steps
+        if (dt > 15.0f) dt = 15.0f;
+        (void)step;
+        PlaceObject(o, f.m, dt);
     }
+}
+
+// Host and guest: CObject::Render (0x59FD50, checked in gta_sa.exe 1.0 US) with no RW object reads it anyway when the
+// object is scaled (+0x15C != 1) or flagged 0x20000 (0x59FE47): the host crashed there after Robbing Uncle Sam (15/10).
+// An object with no RW object has nothing to draw: skipped.
+typedef void(__thiscall *ObjRender_t)(void *);
+static ObjRender_t o_ObjRender;
+static void __fastcall h_ObjRender(void *obj, void *)
+{
+    if (!*(void **)((uint8_t *)obj + 0x18)) {
+        static int said;
+        if (said < 5) { said++; Log("objet (modele %d) a dessiner sans modele 3D : ignore", *(int16_t *)((uint8_t *)obj + 0x22)); }
+        return;
+    }
+    o_ObjRender(obj);
+}
+void InstallObjects()
+{
+    static const uint8_t pro[] = { 0x83, 0xEC, 0x10, 0x56, 0x8B, 0xF1 };
+    o_ObjRender = (ObjRender_t)MakeDetour(0x59FD50, pro, sizeof(pro), (void *)h_ObjRender);
 }
 
 void ObjectsFrame()
@@ -240,5 +306,5 @@ void ObjectsFrame()
     g_onMObject = OnMObject;
     if (!InGame() || !NetRunning()) return;
     SendFrame();
-    if (g_cfg.host) HostMissionObjects();
+    if (g_cfg.host) HostMissionObjects(); else GuestFollowObjects();
 }

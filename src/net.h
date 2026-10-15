@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 29, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 30, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -128,14 +128,16 @@ struct MsgPed {
     uint32_t time;              // GetTickCount de l'envoi (interpolation, interp.cpp)
 };
 enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */, PF_DRIVEBY = 4 /* tire par la fenetre d'un vehicule */, PF_AIMING = 8 /* vise (CTaskSimpleUseGun) */,
-       PF_AIR = 16 /* en l'air (saut, chute) */, PF_CLIMB = 32 /* accroche a un mur */ };
+       PF_AIR = 16 /* en l'air (saut, chute) */, PF_CLIMB = 32 /* accroche a un mur */,
+       PF_ATTACHED = 64 /* attached to a vehicle (ATTACH_CHAR_TO_CAR): vehicleId, offset in speed[] */ };
 // Objet du decor deplace : identifie par son modele et la position de son objet factice d'origine.
 // Speech (speech.cpp): kind 0 = the player "from", 1 = the host's ped "id" (MissionPedId). context -1 = pain.
 struct MsgSpeech { uint8_t type, from, kind, voiceType; uint32_t id; int16_t bank, sound, context; float volume; uint8_t forceAudible, frontEnd; };
 // Garage doors (garages.cpp): up to 8 garages (index in CGarages::aGarages), door state and position.
 struct MsgGarage { uint8_t type, from, count, pad; struct { uint8_t idx, state; float pos; } e[8]; };
 // Mission object (objects.cpp): the host's script handle, its pose, area and CEntity flags (+0x1C: 0x80 visible, 1 uses collision).
-struct MsgMObject { uint8_t type, area; int16_t model; int handle; uint32_t flags; float pos[3], right[3], fwd[3], speed[3]; };
+// attached: the host's object rides on something (ATTACH_OBJECT_TO_CAR...): the guest's copy then has no collision.
+struct MsgMObject { uint8_t type, area, attached, pad; int16_t model, pad2; int handle; uint32_t flags; float pos[3], right[3], fwd[3], speed[3]; };
 struct MsgObject { uint8_t type, from; int16_t model; float orig[3], pos[3], right[3], fwd[3], speed[3]; };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 // Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).

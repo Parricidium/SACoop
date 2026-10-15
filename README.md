@@ -93,7 +93,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**. Everybody's game starts together.
    - Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a virtual LAN.
    - A player who arrives late uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.29-vcport (Zebra's forked repo) loaded`. If it does
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.30-vcport (Zebra's forked repo) loaded`. If it does
    not, that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -118,12 +118,12 @@ Then copy `build\dinput8.dll` into the game folder **on both PCs**.
 ## What this fork adds
 
 The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was added on top of it, in `0.49.0-vcport` to
-`0.54.29-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
+`0.54.30-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
 > [!NOTE]
-> **New in 0.54.9 to 0.54.29** is marked with 🆕. Most of it has been tried by two players; the newest items
-> (mission objects, weapon pickups for each player, the van crash fix) still need a real test.
+> **New in 0.54.9 to 0.54.30** is marked with 🆕. Most of it has been tried by two players; the newest items
+> (Ryder in the van, objects placed every frame, weapon pickups for each player) still need a real test.
 
 ### 🎬 Missions and cutscenes
 
@@ -143,7 +143,8 @@ The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was adde
 - 🆕 **"Mission cancelled by \<name\>"** pops up for everybody.
 - 🆕 **Mission objects match:** crates and boxes the mission creates are in the same place, and seen, on every screen.
 - 🆕 **Mission objects:** a guest's shots count, even from far away (the control panel and switches of Robbing Uncle Sam).
-- 🆕 **Mission characters** no longer fall over on the spot in scripted scenes.
+- 🆕 **Mission characters** no longer fall over on the spot in scripted scenes, and ride where the mission puts them
+  (Ryder standing in the back of the van).
 - **F10 > Tools > SKIP CUTSCENE** and **STOP MISSION** for when something gets stuck.
 - Fixes for Home Invasion, new games and interiors.
 
@@ -234,10 +235,10 @@ Each player only changes their own character, weapons and money.
 | 0.54.9 to 0.54.12 | Wanted level cleared on death, interior cutscenes, suicide / weapons / money tools |
 | 0.54.13 to 0.54.18 | Speech sync, waypoint teleport, extras, entry fixes, phone calls, garage doors, drive-bys, nitro |
 | 0.54.19 to 0.54.23 | Mission objects for the guest, HUD without blinking, mission title, vehicle offer (Y/N), exact hit points |
-| 0.54.24 to 0.54.29 | Firing animation, cutscene fixes, helper-script dialogue, no lock-on to players, mission objects synced, weapon pickups for each player, van crash fixed |
+| 0.54.24 to 0.54.30 | Firing animation, cutscene fixes, helper-script dialogue, no lock-on to players, mission objects synced, weapon pickups for each player, Ryder in the van, crash fixes |
 
 **Network versions:** both players must use the same build. The last network changes were in 0.54.13, 0.54.15, 0.54.18,
-0.54.26 and **0.54.29** (network version 29).
+0.54.26, 0.54.29 and **0.54.30** (network version 30).
 
 ## What the original mod does
 
@@ -367,7 +368,7 @@ ready).
 
 Play a session and tick these off. Newest first:
 
-- [ ] Both `sacoop.log` files start with the same version (`0.54.29-vcport (Zebra's forked repo)`).
+- [ ] Both `sacoop.log` files start with the same version (`0.54.30-vcport (Zebra's forked repo)`).
 - [ ] **Mission dialogue in a car:** the guest hears the host's passengers and the mission's lines.
 - [ ] **Cutscenes:** the guest sees the scenery loaded (indoors and outdoors) and the cutscene is not cut short.
 - [ ] **Mission objects:** the guest sees the crates of Home Invasion and the boxes of Robbing Uncle Sam, in the same place.
@@ -426,11 +427,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.29-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.30-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.29-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.29-vcport.zip`.
+`v0.54.30-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.30-vcport.zip`.
 
 ## Known gaps and roadmap
 
@@ -446,7 +447,8 @@ Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **
 8. The host's mission characters and mission vehicles are copies on the guest, placed from the host's state: the
    guest's collisions cannot push them, so they feel like walls. Letting a hit move them needs the guest to take them
    over for a moment; not done yet.
-9. Mission objects sync, weapon pickups for each player and the van crash fix (0.54.29) still need a real test.
+9. Ryder attached in the van, mission objects placed every frame and weapon pickups for each player (0.54.29-30) still need
+   a real test.
 
 ## Credits and license
 

@@ -6,6 +6,26 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.30-vcport (network version 30: both players need 0.54.30, untested)
+
+From the host and client logs of the 15/10 test (0.54.29, Robbing Uncle Sam). The mission objects now reached the guest
+(he saw the host pick the boxes up with the forklift).
+
+- **Ryder in the back of the van:** the mission attaches him to the van (he stands in it with his gun). The guest's copy
+  used to walk after his position with his aim and animations replayed, on a moving van, and stayed stuck in a pose with
+  the gun at an odd angle. The host now says when a mission character is attached to a vehicle (and where on it); the
+  guest attaches the copy to his copy of that vehicle the same way (the game's own `AttachPedToEntity`), with the same
+  weapon, and lets it go when the host's is let go.
+- **Boxes flying out of the van on the guest:** the guest's copies of mission objects are now placed on every frame
+  (carried along their speed between messages, 10 a second while they move), with their own physics off while the host
+  moves them; an object attached on the host (a box loaded in the van) has no collision on the guest.
+- **Host crash after the mission** (`0x59FE47`, drawing an object whose 3D model was gone): such an object is now skipped
+  instead of drawn.
+- The client's crash in this log was while closing the game (`0x72FDBA`, in the game's own shutdown), after the host had
+  left; nothing in the mod's code was on the stack.
+- Log: each animation replayed on a copy is now logged the first time it is seen (only the first 20 of the session were),
+  to find what put the players' copies in the stuck pose.
+
 ## 0.54.29-vcport (network version 29: both players need 0.54.29, untested)
 
 From the host and client logs of the 15/10 test (0.54.28, Just Business and Robbing Uncle Sam).

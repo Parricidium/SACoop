@@ -139,8 +139,14 @@ void AnimsApply(void *ped, const NetAnim *in, int n, AnimMirror &m)
             if (!GroupReady(a.group)) continue;
             as = (uint8_t *)((void *(__cdecl *)(void *, int, int, float))0x4D4610)(clump, a.group, a.id, 8.0f);
             if (!as) continue;
-            static int said;
-            if (said < 20) { said++; Log("animations : %d:%d rejouee sur %p", a.group, a.id, ped); }
+            // Each group:number the first time it is replayed (the first 20 only, until 0.54.30: all from the session
+            // start, none from the scene of Robbing Uncle Sam where the copies stayed stuck in a pose).
+            static uint32_t seen[256];
+            static int nSeen;
+            uint32_t key = (uint32_t)(a.group & 0xFFFF) << 16 | (uint16_t)a.id;
+            bool known = false;
+            for (int q = 0; q < nSeen; q++) known |= seen[q] == key;
+            if (!known && nSeen < 256) { seen[nSeen++] = key; Log("animations : %d:%d rejouee sur %p (premiere fois)", a.group, a.id, ped); }
         }
         float len = *(float *)(*(uint8_t **)(as + 0x14) + 0x10);   // CAnimBlendHierarchy : duree +0x10
         float t = a.time;

@@ -103,6 +103,18 @@ static void HostSend()
             if (Field<void *>(veh, VEH_DRIVER) != ped)
                 for (int k = 0; k < 8; k++) if (Field<void *>(veh, VEH_PASSENGERS + k * 4) == ped) m.seat = (uint8_t)(k + 1);
         }
+        // Attached to a vehicle (Ryder standing in the back of the van in Robbing Uncle Sam, ATTACH_CHAR_TO_CAR: CPhysical
+        // +0xFC attached-to, +0x100 offset): the guest's copy is attached to the copy of that vehicle the same way, instead
+        // of walking after him (it played its walk and aim on the moving van and stayed stuck in that pose, test of 15/10).
+        if (void *att = Field<void *>(ped, 0xFC))
+            if (!PedVehicle(ped) && (((uint8_t *)att)[0x36] & 7) == 2)
+                if (uint32_t vid = HostVehicleId(att, true, ambient)) {
+                    m.flags = (uint8_t)((m.flags | PF_ATTACHED) & ~(PF_AIR | PF_CLIMB));
+                    m.vehicleId = vid;
+                    m.seat = 0;
+                    memcpy(m.speed, (uint8_t *)ped + 0x100, 12);
+                    m.animCount = 0;
+                }
         if (m.model >= 290 && m.model <= 299) memcpy(m.special, g_special[m.model - 290], 8);
         CombatNpcShots(ped, m.shots, m.aim);
         float aimNow[3];
@@ -272,6 +284,27 @@ static void UpdateCopy(Copy &c, uint32_t now)
     ClearEventResponses(ped);   // (pas d'IA locale : la copie suit le personnage de l'hote, voir coop.cpp)
     void *inVeh = PedVehicle(ped);
     if (c.air && (inVeh || m.vehicleId)) FollowAirEnd(ped, c.air);
+    void *attachedTo = Field<void *>(ped, 0xFC);
+    if (m.flags & PF_ATTACHED) {
+        void *veh = NetVehicleById(m.vehicleId);
+        if (inVeh) { WarpPuppetOut(ped, m.pos); c.moveState = 0; return; }
+        if (veh && attachedTo != veh) {
+            if (attachedTo) ((void(__thiscall *)(void *))0x5E7EC0)(ped);   // CPed::DettachPedFromEntity
+            // CPed::AttachPedToEntity (0x5E7CB0, checked in gta_sa.exe 1.0 US: entity, offset, direction, angle limit in
+            // radians, weapon; ret 0x1C): free to turn all round, with the weapon the host's ped holds.
+            ((void(__thiscall *)(void *, void *, float, float, float, uint16_t, float, int))0x5E7CB0)(ped, veh, m.speed[0], m.speed[1], m.speed[2], 0, 6.2831853f, m.weapon);
+            static int said;
+            if (said < 20) { said++; Log("copie %08X attachee au vehicule %08X (decalage %.1f %.1f %.1f, arme %d)", c.id, m.vehicleId, m.speed[0], m.speed[1], m.speed[2], m.weapon); }
+        }
+        AimMirror(ped, (m.flags & PF_AIMING) && m.weapon >= 22 && m.weapon <= 38, m.aim);
+        return;
+    }
+    if (attachedTo && (((uint8_t *)attachedTo)[0x36] & 7) == 2) {   // no longer attached on the host
+        ((void(__thiscall *)(void *))0x5E7EC0)(ped);
+        static int said;
+        if (said < 20) { said++; Log("copie %08X detachee de son vehicule", c.id); }
+        return;
+    }
     if (m.vehicleId) {
         void *veh = NetVehicleById(m.vehicleId);
         if (!veh) {
