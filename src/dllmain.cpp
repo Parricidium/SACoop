@@ -219,6 +219,7 @@ static void LoadConfig()
     g_cfg.placeVeh = GetPrivateProfileIntA("SACoop", "PlacementVehicules", 1, ini) != 0;
     g_cfg.freezeCopies = GetPrivateProfileIntA("SACoop", "GelerCopies", 1, ini) != 0;
     g_cfg.speechSync = GetPrivateProfileIntA("SACoop", "SyncParole", 1, ini) != 0;
+    g_cfg.syncGarages = GetPrivateProfileIntA("SACoop", "SyncGarages", 1, ini) != 0;
     g_cfg.guard = GetPrivateProfileIntA("SACoop", "GardeFou", 1, ini) != 0;
     g_cfg.mirrorExtra = GetPrivateProfileIntA("SACoop", "MiroirEtendu", 1, ini) != 0;
     g_cfg.hideCut = GetPrivateProfileIntA("SACoop", "CacherEnCinematique", 1, ini) != 0;

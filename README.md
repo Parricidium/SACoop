@@ -94,7 +94,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**: every game starts, and guests follow the host (same save
    when they have it). Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a
    virtual LAN. A player who arrives after the start uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.17-vcport (Zebra's forked repo) loaded`. If it does not,
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.18-vcport (Zebra's forked repo) loaded`. If it does not,
    that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -107,14 +107,14 @@ Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini
 
 ## Everything this fork adds
 
-Versions are `0.49.0-vcport` to `0.54.17-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
+Versions are `0.49.0-vcport` to `0.54.18-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
 per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
 ### At a glance: what this fork adds over the original (`0.48.4-prealpha`)
 
 The original is Parricidium's mod as it stood at `0.48.4-prealpha`. Everything below was added on top of it, in
-`0.49.0-vcport` to `0.54.17-vcport`. Each point is described in detail in the sections that follow.
+`0.49.0-vcport` to `0.54.18-vcport`. Each point is described in detail in the sections that follow.
 
 - **Smoother play:** other players, vehicles and mission characters are interpolated between received states and placed
   after the game's physics, so they no longer jitter; vehicle copies are frozen against the local physics; absurd
@@ -289,6 +289,9 @@ players when this was written (the mission HUD, the vehicle colour / upgrade syn
 - **0.54.17:** waypoint teleport holds the player above the spot until the ground loads (never a fall: back to the
   start if it does not load); the host's call rings for the guest too; a passenger follows the driver's interior (garages,
   TransFender); the shared-vehicle radio no longer fights the driver. Network version unchanged (26).
+- **0.54.18:** garage doors synced; passengers can do drive-bys (never hurting the others in the vehicle); nitro flame
+  synced; a passenger only follows the driver's interior while the driver is at the wheel; mission characters no longer
+  fall on the spot in scripted scenes. **Network version 27: both players need 0.54.18.**
 
 ### Players
 
@@ -422,6 +425,7 @@ sync options. **The key names are still the original French ones**; they are exp
 | `ArmesMort=1` | Weapons are kept on death (given back after the respawn). 0 = lost, like the original game |
 | `GuestWeatherGuard=1` | The guest never changes the weather by itself (no more sky colour flicker) |
 | `RadioSync=1` | Guests follow the host's radio (station, track, position, adverts) |
+| `SyncGarages=1` | Garage doors open and close the same for everybody (the nearest player leads) |
 | `SyncParole=1` | What players and shared pedestrians say (remarks, pain) is the same line at the same moment on every PC |
 | `GuestMissionLock=1` | A guest cannot start a story mission by walking into its marker (the marker is still drawn); only the host starts missions. 0 = like before |
 | `TrainSync=1` | The host's trains run the same on every guest's rails; the guest's own random trains are off. 0 = every PC runs its own trains |
@@ -454,7 +458,7 @@ ready).
 Versions 0.49 to 0.54 have been written and checked for build errors, but are still being tested in real play. If you
 want to help, play a session and look at these:
 
-- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.17-vcport (Zebra's forked repo)`).
+- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.18-vcport (Zebra's forked repo)`).
 - [ ] **Ping** shows in F5 and F10 > Players and looks like the real ping (a few ms on the same PC or network).
 - [ ] The **sky** no longer flickers at dusk and dawn.
 - [ ] After a **teleport** or leaving a safe house, the other player is not stuck in the falling animation.
@@ -517,11 +521,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.17-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.18-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.17-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.17-vcport.zip`.
+`v0.54.18-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.18-vcport.zip`.
 
 ## Known gaps and roadmap
 

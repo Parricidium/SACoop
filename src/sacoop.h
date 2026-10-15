@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.54.17-vcport"
+#define SACOOP_VERSION "0.54.18-vcport"
 #define SACOOP_FORK "Zebra's forked repo"   // shown in the log, the F10 menu and the launcher: tells this build from the original
 
 struct Config {
@@ -48,6 +48,7 @@ struct Config {
     int interpDelay;        // DelaiInterpolation : retard d'affichage en ms (110)
     bool placeFoot;         // PlacementPietons : pantins et copies de PNJ places par interpolation
     bool placeVeh;          // PlacementVehicules : copies de vehicules placees par interpolation
+    bool syncGarages;       // SyncGarages : garage doors follow the nearest player (garages.cpp)
     bool speechSync;        // SyncParole : what players and shared peds say is heard the same on every PC (speech.cpp)
     bool freezeCopies;      // GelerCopies : la physique du jeu ne deplace plus les copies de vehicules (CPhysical bDontApplySpeed)
     bool guard;             // GardeFou : vehicules / personnages aberrants (NaN...) remis a leur derniere position saine

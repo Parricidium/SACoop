@@ -194,6 +194,8 @@ static void __fastcall h_Damage(int *calc, void *edx, void *victim, float *resp,
     // Pantin touche : rien en local (son joueur fait foi) ; un coup du joueur local est envoye a son joueur.
     bool fresh = !*((uint8_t *)resp + 10);
     void *me = FindPlayerPed();
+    // Two players in the same vehicle (a passenger's drive-by): never a hit between them.
+    if (me && PedVehicle(me) && PedVehicle(me) == PedVehicle(victim)) fresh = false;
     bool mine = damager && (damager == me || ((*((uint8_t *)damager + 0x36) & 7) == 2 && Field<void *>(damager, VEH_DRIVER) == me));
     float damage = *(float *)&calc[1];
     if (fresh && mine && damage > 0) {
@@ -237,6 +239,10 @@ static void OnDamage(const MsgDamage &d)
     if (!me || GameState() != 9 || Field<float>(me, PED_HEALTH) <= 0.0f) return;
     int damage = (int)(d.damage + 0.5f);
     if (damage < 1 || damage > 1000) return;
+    if (!d.pedId) {   // (a player sitting in our vehicle: his drive-by never hurts us)
+        void *pup = PuppetOf(d.from);
+        if (pup && PedVehicle(me) && PedVehicle(pup) == PedVehicle(me)) { Log("coup du joueur %d ignore : il est dans notre vehicule", d.from); return; }
+    }
     float before = Field<float>(me, PED_HEALTH) + Field<float>(me, PED_ARMOUR);
     void *damager = d.pedId ? MissionCopyById(d.pedId) : PuppetOf(d.from);   // auteur : pantin ou copie (mort creditee)
     ApplyPedHit(me, damager, d.weapon, damage, d.bodyPart);

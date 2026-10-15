@@ -81,6 +81,27 @@ static NetVeh *NewSlot()
     return nullptr;
 }
 
+// CAutomobile and the types built on it (car, monster truck, quad, helicopter, plane, trailer): they have the nitro fields.
+static bool IsCarFamily(const uint8_t *v)
+{
+    int t = *(const int *)(v + VEH_TYPE);
+    return t == 0 || t == 1 || t == 2 || t == 3 || t == 4 || t == 11;
+}
+
+// Nitro of a copy (checked in gta_sa.exe 1.0 US): CAutomobile::ProcessControl calls NitrousControl (0x6A3EA0) for every
+// car with nitro fitted (+0x38C bit 0x80000); for a car not driven by the local player it only reads the charge (+0x8A4:
+// > 0 burning, counting down; < 0 recharging) and the gas pedal (replayed already), and draws the blue flame
+// (DoNitroEffect 0x6A3BD0). The owner's charge and boosts (+0x48A) are written on the copy: same flame, same moment
+// (test of 15/10: the flame was not synced).
+static void ApplyNitro(NetVeh &n)
+{
+    uint8_t *v = (uint8_t *)n.veh;
+    if (!IsCarFamily(v) || !n.last.nitroFitted) return;
+    *(uint32_t *)(v + 0x38C) |= 0x80000;
+    v[0x48A] = n.last.nitroBoosts;
+    *(float *)(v + 0x8A4) = n.last.nitro;
+}
+
 // Copie gelee : CPhysical::bDontApplySpeed (+0x40, bit 13). La physique du jeu ne deplace plus la copie (elle remettait
 // sa vitesse a zero et la laissait derive entre deux messages, a-coups et etincelles pour un passager) ; sa pose vient
 // du proprietaire (VehiclesAfterProcess). Retire quand le joueur local en prend le volant.
@@ -474,6 +495,11 @@ static void SendOwned()
         m.ownerRef = n.ref;
         m.comps[0] = (int8_t)v[0x438];   // (the extras the game picked for it: the copy is built with the same)
         m.comps[1] = (int8_t)v[0x439];
+        if (IsCarFamily(v)) {   // nitro: charge and boosts (the blue flame is drawn from the charge, 0.54.18)
+            m.nitro = *(float *)(v + 0x8A4);
+            m.nitroBoosts = v[0x48A];
+            m.nitroFitted = (*(uint32_t *)(v + 0x38C) & 0x80000) ? 1 : 0;
+        }
         m.steer = *(float *)(v + 0x494);
         m.gas = *(float *)(v + 0x49C);
         m.brake = *(float *)(v + 0x4A0);
@@ -1081,7 +1107,7 @@ void VehiclesFrame()
         if (now - n.lastRecv > timeout && !PuppetInVehicle(n.veh)) { DestroyCopy(n, true); continue; }
         if (!n.veh) CreateCopy(n);
         if (n.veh) CutsceneHide(n.veh, g_cfg.hideCut && CutsceneNow(), n.cutHidden);
-        if (n.veh && now - n.lastRecv < 1500) { if (!g_cfg.placeVeh) UpdateCopy(n); ApplyBody(n); }
+        if (n.veh && now - n.lastRecv < 1500) { if (!g_cfg.placeVeh) UpdateCopy(n); ApplyBody(n); ApplyNitro(n); }
         if (n.veh && n.modNew) ApplyMods(n);   // (placeVeh : la pose vient de VehiclesAfterProcess)
     }
     GuestMissionVehicle();

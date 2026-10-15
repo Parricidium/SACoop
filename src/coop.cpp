@@ -20,6 +20,7 @@
 #include "net.h"
 #include "game.h"
 #include "vehicles.h"
+#include "garages.h"
 #include "hud.h"
 #include "combat.h"
 #include "peds.h"
@@ -2173,6 +2174,7 @@ static void CoopFrameInner(bool inGameLoop)
     EventsFrame();
     ObjectsFrame();
     PassengerAreaFrame();
+    GaragesFrame();
     RadioFrame();
     MissionHudFrame();
     LocalSkin();
@@ -2272,14 +2274,44 @@ static void LocalSkin()
 // of the host, drove into a TransFender with him; the garage put the host's car in interior 2, the guest's game got
 // there late and never came back out: no exterior any more). Visible area (04BB), the player linked to it (0860), the
 // ped's and the vehicle's area field, and the scenery around (LOAD_SCENE), once the two have differed for 300 ms.
+// Drive-by from a passenger seat (request of 15/10: "they have the weapon but can't use it"). Checked in gta_sa.exe 1.0 US:
+// both places that start a player's drive-by (0x5E63AB, 0x74200C) first test CPlayerInfo::m_bCanDoDriveBy (+0x153 of
+// CWorld::Players 0xB7CD98, written by SET_PLAYER_CAN_DO_DRIVE_BY 0501 at 0x48C856): the story scripts leave it off for
+// long stretches. While the local player rides as a passenger of another player it is switched on, and put back as it
+// was when he gets out. (His shots ignore his own vehicle, 0x73FD47; hits between players in the same vehicle are
+// dropped, combat.cpp.)
+static void PassengerDriveByFrame()
+{
+    static bool forced;
+    static uint8_t before;
+    uint8_t &flag = *(uint8_t *)(0xB7CD98 + 0x153);
+    void *me = InGame() ? FindPlayerPed() : nullptr;
+    void *veh = me ? PedVehicle(me) : nullptr;
+    void *drv = veh ? Field<void *>(veh, VEH_DRIVER) : nullptr;
+    bool passenger = drv && drv != me && PuppetIndex(drv) >= 0;
+    if (passenger && !forced) {
+        forced = true;
+        before = flag;
+        if (!flag) Log("passager : tir par la fenetre permis (il etait coupe par le script)");
+    }
+    if (forced && passenger) flag = 1;
+    if (forced && !passenger) { forced = false; flag = before; }
+}
+
 static void PassengerAreaFrame()
 {
+    PassengerDriveByFrame();
     static uint32_t diffSince;
     void *me = InGame() ? FindPlayerPed() : nullptr;
     void *veh = me ? PedVehicle(me) : nullptr;
     void *drv = veh ? Field<void *>(veh, VEH_DRIVER) : nullptr;
     int id = drv && drv != me ? PuppetIndex(drv) : -1;
     if (id < 0 || !g_players[id].connected || !g_players[id].state.inGame || GetTickCount() - g_players[id].lastStateAt > 1500) { diffSince = 0; return; }
+    // Only while the driver really is at the wheel of this vehicle (his own state says so): his puppet stays seated a
+    // moment after he got out, and the guest then took the interior the host had walked into, the street vanished around
+    // him and he fell (test of 15/10). Each player goes through doors by himself; a vehicle driven into an interior
+    // (garage, TransFender) takes its passengers along.
+    if (!g_players[id].state.vehicleId || NetVehicleById(g_players[id].state.vehicleId) != veh || g_players[id].state.seat != 0) { diffSince = 0; return; }
     int want = g_players[id].state.area, cur = *(int *)0xB72914;
     if (cur == want && EntityArea(me) == want) { diffSince = 0; return; }
     uint32_t now = GetTickCount();

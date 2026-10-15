@@ -329,6 +329,15 @@ void GhostsAfterProcess()
         Snap n;
         if (!TrackSample(c.track, 0, n, true)) continue;
         PlaceFollower(c.ped, n);
+        // On foot and not following a jump or a fall of its original: it stands. Placed by us every frame it has no ground
+        // of its own (scene or interior not loaded here, a few cm off): the game raised its "in the air" event and the copy
+        // fell on the spot during the host's scripted scenes (test of 15/10), as the players' puppets did before.
+        if (!c.air) {
+            Field<uint8_t>(c.ped, 0x46C) |= 1;
+            void **t = PrimaryTasks(c.ped);
+            for (int k = 1; k <= 2; k++)
+                if (t[k] && ((int(__thiscall *)(void *))(*(void ***)t[k])[4])(t[k]) == 240) SetPrimaryTask(c.ped, nullptr, k);   // CTaskComplexInAirAndLand
+        }
     }
 }
 

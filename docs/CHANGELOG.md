@@ -6,6 +6,31 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.18-vcport (network version 27: new garage message, the vehicle message grew)
+
+Asked by the players on 15/10. Addresses checked in gta_sa.exe 1.0 US.
+
+- **Garage doors** (new `garages.cpp`, `MSG_GARAGE`, setting `SyncGarages=1`). `CGarages::aGarages` (0x96C048, 0xD8 bytes,
+  count 0x96C024): +0 position, +0x38 door position, +0x4C type, +0x4D door state. Each PC ran its own garages for its own
+  player. Now the player nearest a garage (30 m, outside) sends its door state and position (on every open/close change,
+  and twice a second); the others set their door opening (3) or closing (2) when theirs is the other way, and the game
+  moves the door. Log: `garage :`.
+- **Passenger drive-by** (coop.cpp, `PassengerDriveByFrame`). Both places that start a player's drive-by (0x5E63AB,
+  0x74200C) test `CPlayerInfo::m_bCanDoDriveBy` (0xB7CD98 + 0x153, set by `SET_PLAYER_CAN_DO_DRIVE_BY` 0501 at 0x48C856),
+  which the story scripts leave off. It is switched on while the local player rides as another player's passenger, and
+  restored when he gets out. A shot from inside a vehicle ignores that vehicle (0x73FD47), and hits between two players
+  in the same vehicle are now dropped on both sides (combat.cpp).
+- **Nitro flame** (vehicles.cpp, `MsgVehicle.nitro`). `CAutomobile::ProcessControl` runs `NitrousControl` (0x6A3EA0) for
+  every car with nitro fitted (+0x38C bit 0x80000); for a car not driven locally it draws the flame (`DoNitroEffect`
+  0x6A3BD0) from the charge (+0x8A4) and the gas pedal. The owner sends the charge, the boosts left (+0x48A) and the
+  fitted flag; the copy gets them every frame. Cars and the types built on them only (not bikes, boats, trains).
+- **Passenger interior, follow-up of 0.54.17**: the passenger took the interior the host had walked into (his puppet still
+  seated for a moment after he got out): the street vanished and the guest fell. Now only while the driver's own state says
+  he is at the wheel of that vehicle; each player goes through doors by himself.
+- **Mission characters falling on the spot** in the host's scripted scenes (entities.cpp): the copies, placed every
+  frame, had no ground of their own and the game played its in-air reaction. Like the players' puppets (0.52.0): standing
+  flag set and `CTaskComplexInAirAndLand` dropped unless the original is jumping or falling.
+
 ## 0.54.17-vcport (network version 26 unchanged: plays with 0.54.15 and 0.54.16)
 
 From the host and client logs of the 15/10 evening test.
