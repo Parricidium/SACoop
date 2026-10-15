@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 32, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 33, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -107,6 +107,7 @@ struct MsgVehicle {
     int8_t comps[2];    // extras chosen at creation (CVehicle +0x438 / +0x439: van adverts, roof racks...), -1 none
     float nitro;        // CAutomobile +0x8A4: nitro charge (> 0 burning: the blue flame), cars only
     uint8_t nitroBoosts, nitroFitted;   // CVehicle +0x48A boosts left; nitro fitted (+0x38C bit 0x80000)
+    uint16_t misc;      // CAutomobile +0x86C: moving part angle (forklift forks, Dumper bed, tow hook...), cars only
 };
 enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */, VF_SCRIPT = 16 /* cree par un script de mission (CreatedBy 2) */, VF_HORN = 32 /* klaxon (CVehicle +0x514) */,
        VF_PLAYBACK = 64 /* sur un trajet enregistre (CVehicleRecording::pVehicleForPlayback 0x97D840) : copie posee telle quelle */,

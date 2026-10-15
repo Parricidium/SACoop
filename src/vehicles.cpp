@@ -103,6 +103,10 @@ static bool IsCarFamily(const uint8_t *v)
 static void ApplyNitro(NetVeh &n)
 {
     uint8_t *v = (uint8_t *)n.veh;
+    // Moving part (0.54.41, report of 15/10: the host never saw the guest's forklift forks move, Robbing Uncle Sam):
+    // CAutomobile +0x86C, its previous value +0x86E (checked in gta_sa.exe 1.0 US, the forklift code at 0x6AD378). The game
+    // only moves it from the driver's pad, a copy's driver has none: the owner's angle is put there.
+    if (IsCarFamily(v)) { *(uint16_t *)(v + 0x86C) = n.last.misc; *(uint16_t *)(v + 0x86E) = n.last.misc; }
     if (!IsCarFamily(v) || !n.last.nitroFitted) return;
     *(uint32_t *)(v + 0x38C) |= 0x80000;
     v[0x48A] = n.last.nitroBoosts;
@@ -524,6 +528,7 @@ static void SendOwned()
             m.nitro = *(float *)(v + 0x8A4);
             m.nitroBoosts = v[0x48A];
             m.nitroFitted = (*(uint32_t *)(v + 0x38C) & 0x80000) ? 1 : 0;
+            m.misc = *(uint16_t *)(v + 0x86C);
         }
         m.steer = *(float *)(v + 0x494);
         m.gas = *(float *)(v + 0x49C);

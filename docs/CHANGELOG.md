@@ -6,6 +6,17 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.41-vcport (network version 33: both players need 0.54.41, untested)
+
+From the Robbing Uncle Sam test of 15/10.
+
+- **Forklift forks** (and every vehicle's moving part: Dumper bed, tow truck hook...): the owner's angle now goes with
+  the vehicle (CAutomobile +0x86C) and the copy shows it. The game only moves that part from the driver's pad, and a
+  copy's driver has none, so the host never saw the guest's forks rise.
+- **Ryder in the back of the van, on the guest:** his attached copy now also plays the host's animations (throwing the
+  boxes); without them it stood with its arm twisted behind its head. When the mission lets him go, his tasks and pose
+  are flushed (the twisted arm lasted into the final cutscene).
+
 ## 0.54.40-vcport (network version 32 unchanged, untested)
 
 - **F10 > MISSIONS names:** the title now comes from the key the game builds from the mission's script name (`RYDER2` ->

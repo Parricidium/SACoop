@@ -116,8 +116,7 @@ static void HostSend()
                     // direction +0x778 (16 bits), angle limit +0x77C. (0.54.30 read CPhysical +0x100: zero for a ped.)
                     memcpy(m.speed, (uint8_t *)ped + 0x76C, 12);
                     m.moveState = (uint8_t)Field<uint16_t>(ped, 0x778);
-                    m.heading = Field<float>(ped, 0x77C);
-                    m.animCount = 0;
+                    m.heading = Field<float>(ped, 0x77C);   // (his animations still go: Ryder throwing boxes from the van)
                 }
         if (m.model >= 290 && m.model <= 299) memcpy(m.special, g_special[m.model - 290], 8);
         CombatNpcShots(ped, m.shots, m.aim);
@@ -311,10 +310,14 @@ static void UpdateCopy(Copy &c, uint32_t now)
             static int said;
             if (said < 20) { said++; Log("copie %08X attachee au vehicule %08X (decalage %.2f %.2f %.2f, direction %d, limite %.2f, arme %d)", c.id, m.vehicleId, m.speed[0], m.speed[1], m.speed[2], m.moveState, limit, m.weapon); }
         }
-        return;   // (aimed and turned by the game's attached-ped code, as on the host: no aim replayed on top)
+        // His animations as on the host (Ryder throws the boxes from the back of the van: without them the copy stood with
+        // its arm twisted behind its head, test of 15/10); no aim replayed on top of the game's attached-ped code.
+        AnimsApply(ped, m.anims, m.animCount, c.anims);
+        return;
     }
     if (attachedTo && (((uint8_t *)attachedTo)[0x36] & 7) == 2) {   // no longer attached on the host
         ((void(__thiscall *)(void *))0x5E7EC0)(ped);
+        WarpPuppetOut(ped, EntityPos(ped));   // (tasks and pose of the attached ped flushed: the twisted arm stayed into the cutscene)
         static int said;
         if (said < 20) { said++; Log("copie %08X detachee de son vehicule", c.id); }
         return;
