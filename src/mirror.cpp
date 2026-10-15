@@ -38,7 +38,7 @@
 
 using namespace game;
 
-enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */ };
+enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */ };
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
 // q/Q sphere (entree/sortie), o/O objet (entree/sortie), k/K pickup, r/R feu de script. (A l'envoi, un P qui designe le joueur de l'hote devient H :
@@ -628,7 +628,8 @@ struct Pending { uint8_t data[256]; int len; uint32_t since; };
 static Pending g_queue[QUEUE];
 static int g_qHead, g_qTail;
 
-static void HostStopMission(const char *by);
+static void HostStopMission(int who);
+static void MissionCancelledToast(const char *name);
 static void OnReliable(int from, const uint8_t *data, int len)
 {
     (void)from;
@@ -645,7 +646,14 @@ static void OnReliable(int from, const uint8_t *data, int len)
         if (RequestGameStart(slot)) Log("miroir : partie de l'hote suivie (%s)", slot >= 0 ? path : "nouvelle partie");
         return;
     }
-    if (g_cfg.host && len >= 1 && data[0] == RL_MISSION_STOP) { HostStopMission(from == 1 ? "guest 1" : from == 2 ? "guest 2" : "a guest"); return; }
+    if (g_cfg.host && len >= 1 && data[0] == RL_MISSION_STOP) { HostStopMission(from > 0 && from < MAX_PLAYERS ? from : 1); return; }
+    if (!g_cfg.host && len >= 2 && data[0] == RL_MISSION_STOPPED) {
+        char name[24] = {};
+        memcpy(name, data + 1, len - 1 < 23 ? len - 1 : 23);
+        Log("mission: cancelled by %s (host)", name);
+        MissionCancelledToast(name);
+        return;
+    }
     if (g_cfg.host || len < 1 || len > 256) return;
     if ((g_qTail + 1) % QUEUE == g_qHead) { Log("miroir : file pleine, commande perdue"); return; }
     Pending &p = g_queue[g_qTail];
@@ -1420,8 +1428,18 @@ void SkipCutsceneNow()
 // controls and camera given back, the player free). No pass and no reward, and the contact can start it again. gta-reversed's
 // debug menu does the same ("fail current mission"). A running cutscene is ended first. Only the host runs the scripts: a
 // guest's click sends a request (RL_MISSION_STOP). Two clicks within 6 s: a stray click must not throw a mission away.
-static void HostStopMission(const char *by)
+static void MissionCancelledToast(const char *name)
 {
+    char msg[96];
+    bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    wsprintfA(msg, fr ? "Mission annulee par %s" : "Mission cancelled by %s", name && name[0] ? name : "?");
+    HudToast(msg, 5000);
+}
+
+// by: the player who asked (0 = the host). Everybody is told who cancelled it (request of 15/10).
+static void HostStopMission(int who)
+{
+    const char *by = g_players[who].state.name[0] ? g_players[who].state.name : who == 0 ? "the host" : "a guest";
     bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
     uint32_t *om = OnMissionVar();
     if (!om || *om == 0) {
@@ -1432,7 +1450,10 @@ static void HostStopMission(const char *by)
     if (CutsceneRunning()) ForceCutsceneEnd("stop mission");
     *(int8_t *)0xA444B0 = 2;   // CTheScripts::FailCurrentMission
     Log("mission: stopped by %s (FailCurrentMission = 2): the mission script runs its clean-up", by);
-    HudToast(fr ? "Mission arretee" : "Mission stopped", 3500);
+    MissionCancelledToast(by);
+    uint8_t m[1 + 24] = { RL_MISSION_STOPPED };
+    lstrcpynA((char *)m + 1, by, 24);
+    NetSendReliable(m, 1 + lstrlenA((char *)m + 1) + 1);
 }
 
 void MissionStopRequest()
@@ -1446,7 +1467,7 @@ void MissionStopRequest()
         return;
     }
     armed = 0;
-    if (g_cfg.host) { HostStopMission("the host"); return; }
+    if (g_cfg.host) { HostStopMission(0); return; }
     uint8_t m = RL_MISSION_STOP;
     NetSendReliable(&m, 1);
     Log("mission: stop requested from this guest, sent to the host");

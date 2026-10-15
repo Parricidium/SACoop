@@ -6,6 +6,39 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.15-vcport (network version 26: the vehicle message grew, 0.54.14 and older cannot join)
+
+From the players' test of 15/10. Addresses checked in gta_sa.exe 1.0 US.
+
+- **Vehicle extras** (vehicles.cpp, `MsgVehicle.comps`). A van with a "Toy Corner" advert for the guest had a plain side
+  for the host: the colours travel, the extras did not. `CVehicle::SetModelIndex` keeps the extras the game picked in
+  +0x438 / +0x439 (from `CVehicleModelInfo::ms_compsUsed` 0xB4E478); the owner sends them, and the copy is built after
+  writing them into `CVehicleModelInfo::ms_compsToUse` (0x8A6458 / 0x8A6459), which `ChooseComponent` /
+  `ChooseSecondComponent` take when it is not -2 and then set back to -2 (the script command for a car's components does
+  the same).
+- **Waypoint teleport waits for the ground** (panel.cpp, `WaypointFrame`). 0.54.14 moved the player and probed the ground
+  at once: never loaded yet, so he fell from 50 m. Now the player stays where he is while `REQUEST_COLLISION` at the
+  waypoint and `CStreaming::LoadAllRequestedModels` run every 250 ms and the ground is probed every frame; he goes as soon
+  as it is found (6 s at most, then `LOAD_SCENE` and one last probe). Toast "Loading the waypoint...". Log gives the time
+  it took.
+- **"Mission cancelled by <name>"** (mirror.cpp). The host's stop (its own click or a guest's request) shows the name of
+  the player who asked, on the host and on every guest (`RL_MISSION_STOPPED` with the name).
+- **Pause-menu map on wide screens** (widescreen.cpp). The map image is drawn by the menu code (squeezed to 4:3), its
+  blips, waypoint cursor and zoom by `CRadar`, which also had the narrower HUD scale: the blips drifted from the map,
+  more with the zoom, and the map cursor was not under the mouse. On the map page (`FrontEndMenuManager` +0x15D == 5,
+  compared with 5 in eight places in the exe) neither correction applies: the game's own map, stretched but consistent.
+- **Feet through the car floor** (coop.cpp). The player's animations were replayed on his puppet inside any vehicle
+  (meant for bunny hops and standing pedalling); in a car his seat and steering animations, on top of the puppet's own,
+  dragged its body through the floor. Now only on bikes, BMX and quads.
+- **Entering vehicles** (coop.cpp).
+  - "The host watches the client hop into the car twice": the puppet's own entry finished before its player's "in the
+    vehicle" state arrived, so it was pulled out and put back. A puppet that has just got into the vehicle it was walking
+    to stays seated for up to 4 s while the state catches up.
+  - Both players jacking each other: a puppet walking to the driver's seat where the local player already sits no longer
+    gets the "enter as driver" task (in the game that means pulling the driver out). If both end up at the wheel of the
+    same vehicle, the player with the lower number keeps it (the host first) and the other one is moved by his own game
+    to a free passenger seat (`WARP_CHAR_INTO_CAR_AS_PASSENGER` 0430), with a toast. Same rule on every PC, no message.
+
 ## 0.54.14-vcport (network version 25 unchanged: plays with 0.54.13)
 
 Asked by the player on 15/10.

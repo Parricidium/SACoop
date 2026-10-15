@@ -94,7 +94,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**: every game starts, and guests follow the host (same save
    when they have it). Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a
    virtual LAN. A player who arrives after the start uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.14-vcport (Zebra's forked repo) loaded`. If it does not,
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.15-vcport (Zebra's forked repo) loaded`. If it does not,
    that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -107,14 +107,14 @@ Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini
 
 ## Everything this fork adds
 
-Versions are `0.49.0-vcport` to `0.54.14-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
+Versions are `0.49.0-vcport` to `0.54.15-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
 per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
 ### At a glance: what this fork adds over the original (`0.48.4-prealpha`)
 
 The original is Parricidium's mod as it stood at `0.48.4-prealpha`. Everything below was added on top of it, in
-`0.49.0-vcport` to `0.54.14-vcport`. Each point is described in detail in the sections that follow.
+`0.49.0-vcport` to `0.54.15-vcport`. Each point is described in detail in the sections that follow.
 
 - **Smoother play:** other players, vehicles and mission characters are interpolated between received states and placed
   after the game's physics, so they no longer jitter; vehicle copies are frozen against the local physics; absurd
@@ -280,6 +280,10 @@ players when this was written (the mission HUD, the vehicle colour / upgrade syn
   version 25: both players need 0.54.13.**
 - **0.54.14:** F10 > Tools > TELEPORT TO WAYPOINT: to the waypoint set on the map, on the ground (the scenery is loaded
   first); at the wheel, the vehicle comes along. Network version unchanged (25).
+- **0.54.15:** vehicle copies get the same extras as the original (van adverts...); the waypoint teleport waits for the
+  ground; "Mission cancelled by <name>" for everybody; the pause-menu map lines up with its blips and cursor on wide
+  screens; no more feet through the car floor; no more double entry or both players jacking each other for the wheel.
+  **Network version 26: both players need 0.54.15.**
 
 ### Players
 
@@ -445,7 +449,7 @@ ready).
 Versions 0.49 to 0.54 have been written and checked for build errors, but are still being tested in real play. If you
 want to help, play a session and look at these:
 
-- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.14-vcport (Zebra's forked repo)`).
+- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.15-vcport (Zebra's forked repo)`).
 - [ ] **Ping** shows in F5 and F10 > Players and looks like the real ping (a few ms on the same PC or network).
 - [ ] The **sky** no longer flickers at dusk and dawn.
 - [ ] After a **teleport** or leaving a safe house, the other player is not stuck in the falling animation.
@@ -508,11 +512,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.14-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.15-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.14-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.14-vcport.zip`.
+`v0.54.15-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.15-vcport.zip`.
 
 ## Known gaps and roadmap
 

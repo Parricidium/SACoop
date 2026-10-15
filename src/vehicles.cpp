@@ -472,6 +472,8 @@ static void SendOwned()
         memcpy(m.turn, v + 0x50, 12);
         m.driven = driving;
         m.ownerRef = n.ref;
+        m.comps[0] = (int8_t)v[0x438];   // (the extras the game picked for it: the copy is built with the same)
+        m.comps[1] = (int8_t)v[0x439];
         m.steer = *(float *)(v + 0x494);
         m.gas = *(float *)(v + 0x49C);
         m.brake = *(float *)(v + 0x4A0);
@@ -732,7 +734,15 @@ static void CreateCopy(NetVeh &n)
         if (!ModelLoaded(model)) return;
     }
     if (!ClearSpotForCopy(n)) return;
+    // Same extras as the original (checked in gta_sa.exe 1.0 US): CVehicleModelInfo::ChooseComponent / ChooseSecondComponent
+    // take CVehicleModelInfo::ms_compsToUse (0x8A6458 / 0x8A6459) when it is not -2 and put -2 back, as the script command
+    // that sets a car's components does. Without it each PC drew its own: a van with a "Toy Corner" advert for one player
+    // and a plain side for the other (test of 15/10).
+    *(int8_t *)0x8A6458 = n.last.comps[0];
+    *(int8_t *)0x8A6459 = n.last.comps[1];
     void *v = ((void *(__cdecl *)(int, float, float, float, bool))0x431F80)(model, n.last.pos[0], n.last.pos[1], n.last.pos[2], false);
+    *(int8_t *)0x8A6458 = -2;   // (in case this model has no extras and nothing read them)
+    *(int8_t *)0x8A6459 = -2;
     if (!v) return;
     n.veh = v;
     n.ref = VehRef(v);

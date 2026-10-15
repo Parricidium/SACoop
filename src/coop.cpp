@@ -693,6 +693,10 @@ static void UpdatePuppet(int id)
     bool entering = vt == VT_TaskEnterCarAsDriver || vt == VT_TaskEnterCarAsPassenger, leaving = vt == VT_TaskLeaveCar;
     if ((s.carTask == 1 || s.carTask == 2) && !inVeh && !s.vehicleId) {
         void *veh = NetVehicleById(s.carTaskVeh);
+        // Our own seat (we are at the wheel and he walks to it): his puppet does not get the "enter as driver" task, which
+        // in the game means pulling us out (test of 15/10: both players jacked each other). The seat is settled below.
+        void *meNow = FindPlayerPed();
+        if (veh && s.carTask == 1 && meNow && Field<void *>(veh, VEH_DRIVER) == meNow) veh = nullptr;
         if (veh && (p.carTask != s.carTask || p.carVeh != veh)) {
             if (void *task = NewEnterCarTask(veh, s.carTask == 1 ? -1 : s.carDoor)) {
                 SetPrimaryTask(ped, task, 3);
@@ -723,7 +727,11 @@ static void UpdatePuppet(int id)
             // Animations du joueur dans son vehicule (bunny hop, pedalage debout, gestes...) et tir par la fenetre : le
             // pantin assis recoit TASK_DRIVE_BY 0713 vers le point vise (cadence 0 : les balles sont les tirs rejoues),
             // redonnee quand le point bouge de plus de 4 m ; retiree (tache principale 3) quand le joueur arrete.
-            AnimsApply(ped, s.anims, s.animCount, p.anims);
+            // Only on two-wheelers and quads: in a car the player's own seat and steering animations, replayed on top of
+            // the puppet's, dragged its body down through the floor (test of 15/10: the host seen "like the Flintstones").
+            int vtype = *(int *)((uint8_t *)veh + VEH_TYPE);
+            bool bikeLike = vtype == 9 || vtype == 10 || vtype == 2;   // CBike, CBmx, CQuadBike
+            AnimsApply(ped, s.anims, bikeLike ? s.animCount : 0, p.anims);
             bool db = s.aiming == 2 && s.weapon >= 22 && s.weapon <= 38, has = HasTaskType(ped, 1022);
             uint32_t tnow = GetTickCount();
             float dx = s.aim[0] - p.dbAim[0], dy = s.aim[1] - p.dbAim[1];
@@ -743,6 +751,25 @@ static void UpdatePuppet(int id)
             return;
         }
         if (p.carTask) return;   // montee (ou descente) en cours : on la laisse finir
+        // Both at the wheel of the same vehicle (they got in at the same moment): the player with the lower number keeps it
+        // (the host first), the other one is moved to a free passenger seat by his own game (WARP_CHAR_INTO_CAR_AS_PASSENGER
+        // 0430). Each PC applies the same rule, so they agree without a message.
+        void *me = FindPlayerPed();
+        if (s.seat == 0 && me && Field<void *>(veh, VEH_DRIVER) == me) {
+            static uint32_t lastMove;
+            if (id < g_localId && now - lastMove > 1000) {
+                int maxp = Field<uint8_t>(veh, VEH_MAXPASS), free = -1;
+                for (int k = 0; k < maxp && k < 8 && free < 0; k++) if (!Field<void *>(veh, VEH_PASSENGERS + k * 4)) free = k;
+                if (free >= 0) {
+                    lastMove = now;
+                    int a[3] = { PedRef(me), VehicleRef(veh), free };
+                    RunScriptCommand(0x0430, 3, a);
+                    HudToast(PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH ? "L'autre joueur conduit : place passager" : "The other player drives: passenger seat", 3000);
+                    Log("pantin du joueur %d : lui et nous au volant du vehicule %08X, il le garde (numero plus petit), nous passons a la place %d", id, s.vehicleId, free + 1);
+                }
+            }
+            return;   // (we keep the wheel: his game moves him, his next state gives his new seat)
+        }
         if (inVeh) WarpPuppetOut(ped, s.pos);
         WarpPuppetIn(ped, veh, s.seat);
         p.moveState = 0;
@@ -750,6 +777,9 @@ static void UpdatePuppet(int id)
         return;
     }
     if (p.carTask == 3) return;   // descente en cours
+    // The puppet's own entry finished before its player's "in the vehicle" state arrived: it stays seated for a moment
+    // instead of being pulled out and put back (test of 15/10: "the host watches the client hop into the car twice").
+    if (inVeh && inVeh == p.carVeh && now - p.carTaskAt < 4000 && s.carTask != 3) return;
     if (inVeh) {
         WarpPuppetOut(ped, s.pos);
         p.moveState = 0;

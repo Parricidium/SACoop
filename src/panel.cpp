@@ -182,10 +182,51 @@ static bool WaypointPos(float *out)
     return true;
 }
 
+// Ground height at (x, y) from 1000 m (GET_GROUND_Z_FOR_3D_COORD 02CE); false while the collisions there are not loaded.
+static bool GroundAt(float x, float y, float *gz)
+{
+    float probe[3] = { x, y, 1000.0f };
+    int args[4];
+    memcpy(args, probe, 12);
+    args[3] = 0;
+    RunScriptCommandTyped(0x02CE, 4, "fffo", args);
+    int bits = ScriptGhostVar(0);
+    memcpy(gz, &bits, 4);
+    return *gz > -100.0f && *gz < 1000.0f && *gz != 0.0f;
+}
+
+// The player stays where he is while the collisions of the waypoint stream in (REQUEST_COLLISION 04E4 and
+// CStreaming::LoadAllRequestedModels every 250 ms, ground probed every frame), then goes: the 0.54.14 version moved him
+// first and probed at once, the ground was never loaded yet and he fell from 50 m (test of 15/10). 6 s at most.
+static struct { bool on; float pos[3]; uint32_t since, lastReq; } g_wp;
+
 static void TeleportToWaypoint(void *me)
 {
     float pos[3];
     if (!WaypointPos(pos)) { HudToast(L("Aucun point de passage sur la carte", "No waypoint set on the map"), 3000); return; }
+    g_wp.on = true;
+    memcpy(g_wp.pos, pos, 12);
+    g_wp.since = GetTickCount();
+    g_wp.lastReq = 0;
+    HudToast(L("Chargement du point de passage...", "Loading the waypoint..."), 2000);
+    Log("menu jeu : point de passage %.1f %.1f demande, chargement du sol", pos[0], pos[1]);
+}
+
+static void WaypointFrame(void *me)
+{
+    if (!g_wp.on) return;
+    uint32_t now = GetTickCount();
+    float *pos = g_wp.pos, gz = 0;
+    if (now - g_wp.lastReq >= 250) {
+        g_wp.lastReq = now;
+        int xy[2];
+        memcpy(xy, pos, 8);
+        RunScriptCommandTyped(0x04E4, 2, "ff", xy);   // REQUEST_COLLISION (the collisions there, the player staying where he is)
+        LoadAllRequestedModels(false);
+    }
+    bool found = GroundAt(pos[0], pos[1], &gz);
+    if (!found && now - g_wp.since < 6000) return;
+    g_wp.on = false;
     if (*(int *)0xB72914 != 0 || EntityArea(me) != 0) {   // out of the interior first (the waypoint is outside)
         int area = 0;
         RunScriptCommand(0x04BB, 1, &area);
@@ -193,33 +234,27 @@ static void TeleportToWaypoint(void *me)
         RunScriptCommand(0x0860, 2, link);
         EntityArea(me) = 0;
     }
-    int scene[3];
-    float sc[3] = { pos[0], pos[1], 20.0f };
-    memcpy(scene, sc, 12);
-    RunScriptCommandTyped(0x03CB, 3, "fff", scene);   // LOAD_SCENE: collisions there now
-    int xy[2];
-    memcpy(xy, pos, 8);
-    RunScriptCommandTyped(0x04E4, 2, "ff", xy);       // REQUEST_COLLISION
-    float probe[3] = { pos[0], pos[1], 1000.0f };
-    int args[4];
-    memcpy(args, probe, 12);
-    args[3] = 0;
-    RunScriptCommandTyped(0x02CE, 4, "fffo", args);   // GET_GROUND_Z_FOR_3D_COORD
-    int bits = ScriptGhostVar(0);
-    float gz;
-    memcpy(&gz, &bits, 4);
-    bool found = gz > -100.0f && gz < 1000.0f && gz != 0.0f;
+    if (!found) {   // last try: the whole scene there, then the ground once more
+        int scene[3];
+        float sc[3] = { pos[0], pos[1], 20.0f };
+        memcpy(scene, sc, 12);
+        RunScriptCommandTyped(0x03CB, 3, "fff", scene);
+        found = GroundAt(pos[0], pos[1], &gz);
+    }
     pos[2] = found ? gz + 1.0f : 50.0f;
     void *veh = PedVehicle(me);
     if (veh && Field<void *>(veh, VEH_DRIVER) == me) {
+        int scene[3];
+        memcpy(scene, pos, 12);
+        RunScriptCommandTyped(0x03CB, 3, "fff", scene);
         int car[4] = { VehicleRef(veh) };
         memcpy(car + 1, pos, 12);
-        RunScriptCommandTyped(0x00AB, 4, "ifff", car);   // SET_CAR_COORDINATES (on the ground, speed zeroed by the game)
+        RunScriptCommandTyped(0x00AB, 4, "ifff", car);   // SET_CAR_COORDINATES (on the ground)
         memset(MoveSpeed(veh), 0, 12);
         NoteLocalRelocated();
     } else TeleportPed(me, pos, Field<float>(me, PED_ROTATION), 0, "point de passage de la carte");
     HudToast(found ? L("Teleporte au point de passage", "Teleported to the waypoint") : L("Teleporte (sol pas encore charge)", "Teleported (ground not loaded yet)"), 3000);
-    Log("menu jeu : point de passage %.1f %.1f, sol %.1f (%s), %s", pos[0], pos[1], gz, found ? "trouve" : "introuvable", veh ? "avec le vehicule" : "a pied");
+    Log("menu jeu : point de passage %.1f %.1f, sol %.1f (%s apres %u ms), %s", pos[0], pos[1], gz, found ? "trouve" : "introuvable", now - g_wp.since, veh ? "avec le vehicule" : "a pied");
 }
 
 static bool f10held, f1held;   // touches maintenues (PanelFrame les remet a zero si le relachement n'a pas ete vu)
@@ -300,6 +335,7 @@ void PanelFrame()
         case A_ANISO: g_cfg.aniso = !g_cfg.aniso; SaveIni("FiltrageAnisotrope", g_cfg.aniso); break;
         }
     }
+    WaypointFrame(me);
     // Bienvenue : la premiere fois en jeu
     static bool welcomed;
     if (!welcomed && InGameNow() && !*(uint8_t *)0xB5F851) { welcomed = true; g_welcomeUntil = GetTickCount() + 10000; }

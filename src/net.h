@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 25, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 26, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -99,6 +99,7 @@ struct MsgVehicle {
     uint8_t handbrake;  // frein a main (+0x428, bit 0x20)
     float rotor;        // helicoptere : vitesse du rotor (CAutomobile +0x84C) ; avion : vitesse de l'helice (CPlane +0x9C4) ; sinon 0
     uint32_t time;      // GetTickCount de l'envoi (interpolation, interp.cpp)
+    int8_t comps[2];    // extras chosen at creation (CVehicle +0x438 / +0x439: van adverts, roof racks...), -1 none
 };
 enum { VF_SIREN = 1, VF_WRECKED = 2, VF_DAMAGE = 4 /* champs de degats valides */, VF_MISSION = 8 /* vehicule de mission de l'hote */, VF_SCRIPT = 16 /* cree par un script de mission (CreatedBy 2) */, VF_HORN = 32 /* klaxon (CVehicle +0x514) */,
        VF_PLAYBACK = 64 /* sur un trajet enregistre (CVehicleRecording::pVehicleForPlayback 0x97D840) : copie posee telle quelle */,

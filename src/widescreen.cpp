@@ -32,11 +32,19 @@ static float ScreenAspect()
 
 static float g_hudScaleX = 1.0f / 640.0f;
 
-static void __cdecl h_CalculateAspectRatio()
+// The pause menu's map page (FrontEndMenuManager +0x5C menu open, +0x15D current page, 5 = map; checked in gta_sa.exe 1.0 US:
+// the page byte is compared with 5 in eight places). The map image is drawn by the menu code (squeezed to 4:3 below), but
+// its blips, the waypoint cursor and the zoom go through CRadar, which also had the narrower HUD scale: two corrections on
+// the blips, one on the map, and the gap grew with the zoom (test of 15/10: "the blips do not scale with the map, the map
+// cursor is not where the mouse is"). On the map page neither applies: the game's own map, stretched to the screen but
+// with everything in its place.
+static bool MapPage() { return *(uint8_t *)(0xBA6748 + 0x5C) && *(uint8_t *)(0xBA6748 + 0x15D) == 5; }
+
+static void __cdecl h_CalculateAspectRatio()   // (called every frame, in game and in the menus)
 {
     float aspect = ScreenAspect();
     *(float *)0xC3EFA4 = aspect;
-    g_hudScaleX = aspect > 4.0f / 3.0f ? (1.0f / 640.0f) * (4.0f / 3.0f) / aspect : 1.0f / 640.0f;
+    g_hudScaleX = aspect > 4.0f / 3.0f && !MapPage() ? (1.0f / 640.0f) * (4.0f / 3.0f) / aspect : 1.0f / 640.0f;
 }
 
 // Facteur horizontal du HUD (1 en 4:3, 0.75 en 16:9) : pour nos propres textes (hud.cpp).
@@ -108,7 +116,7 @@ static Im2DTri_t o_Tri;
 static Im2DPrim_t o_Prim;
 static Im2DIdx_t o_Idx;
 
-static bool MenuSqueeze() { return *(uint8_t *)(0xBA6748 + 0x5C) && ScreenAspect() > 4.0f / 3.0f + 0.01f; }
+static bool MenuSqueeze() { return *(uint8_t *)(0xBA6748 + 0x5C) && !MapPage() && ScreenAspect() > 4.0f / 3.0f + 0.01f; }
 
 // Copie resserree des sommets (au plus 1024 ; au-dela, dessin d'origine).
 static void *Squeeze(void *verts, int n)
