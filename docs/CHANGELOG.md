@@ -6,6 +6,19 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.14-vcport (network version 25 unchanged: plays with 0.54.13)
+
+Asked by the player on 15/10.
+
+- **F10 > Tools > TELEPORT TO WAYPOINT** (panel.cpp, `TeleportToWaypoint`). Checked in gta_sa.exe 1.0 US: the map sets its
+  waypoint with `CRadar::SetCoordBlip` (0x583820, sprite 41) and keeps the blip handle in `FrontEndMenuManager` +0x2C
+  (0xBA6774); handle = counter << 16 | index into `CRadar::ms_RadarTrace` (0xBA86F0, 0x28 bytes: position +8, counter
+  +0x14, flags +0x25, bit 2 = in use). The handle is checked against the table (no waypoint: a toast says so). The blip
+  has no height: out of any interior first, `LOAD_SCENE` and `REQUEST_COLLISION` there, then
+  `GET_GROUND_Z_FOR_3D_COORD` from 1000 m gives the ground (1 m above it; 50 m if the ground did not load). On foot:
+  `TeleportPed`; at the wheel: `SET_CAR_COORDINATES` (00AB) moves the vehicle with the player in it. The menu closes. Log:
+  `menu jeu : point de passage x y, sol z (...)`.
+
 ## 0.54.13-vcport (network version 25: a new message, so 0.54.12 and older cannot join)
 
 Asked by the player on 15/10: the pedestrians' voice lines did not match between host and guest (other line, other

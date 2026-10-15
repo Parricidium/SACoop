@@ -66,7 +66,7 @@ void PanelMouseInput(int dx, int dy, int dz, bool lmb)
 }
 
 // ======================================================================= Actions (boucle du jeu)
-enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH, A_SKIPCUT, A_REMOVELAST, A_REMOVEALL, A_STOPMISSION, A_SUICIDE, A_NOWEAPONS, A_SETMONEY };
+enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH, A_SKIPCUT, A_REMOVELAST, A_REMOVEALL, A_STOPMISSION, A_SUICIDE, A_NOWEAPONS, A_SETMONEY, A_WAYPOINT };
 struct Action { int kind, arg; };
 static std::vector<Action> g_actions;
 static void Queue(int kind, int arg = 0) { g_actions.push_back({ kind, arg }); }
@@ -166,6 +166,62 @@ static void SpawnVehicle(int model)
     Log("menu jeu : vehicule %d pose devant le joueur", model);
 }
 
+// The map's waypoint (checked in gta_sa.exe 1.0 US): the map sets it with CRadar::SetCoordBlip (0x583820, sprite 41) and keeps
+// the blip handle in FrontEndMenuManager +0x2C (0xBA6774); handle = counter << 16 | index into CRadar::ms_RadarTrace
+// (0xBA86F0, 0x28 bytes each: position +8, counter +0x14, flags +0x25 with bit 2 = in use). It has no height: the scenery
+// is loaded there (LOAD_SCENE) and the ground found (GET_GROUND_Z_FOR_3D_COORD from high up). On foot the player goes
+// (TeleportPed); at the wheel, the vehicle goes with him (SET_CAR_COORDINATES 00AB).
+static bool WaypointPos(float *out)
+{
+    uint32_t h = *(uint32_t *)0xBA6774;
+    int idx = h & 0xFFFF;
+    if (!h || idx >= 175) return false;
+    uint8_t *t = (uint8_t *)0xBA86F0 + idx * 0x28;
+    if (!(t[0x25] & 2) || *(uint16_t *)(t + 0x14) != (h >> 16)) return false;
+    memcpy(out, t + 8, 12);
+    return true;
+}
+
+static void TeleportToWaypoint(void *me)
+{
+    float pos[3];
+    if (!WaypointPos(pos)) { HudToast(L("Aucun point de passage sur la carte", "No waypoint set on the map"), 3000); return; }
+    if (*(int *)0xB72914 != 0 || EntityArea(me) != 0) {   // out of the interior first (the waypoint is outside)
+        int area = 0;
+        RunScriptCommand(0x04BB, 1, &area);
+        int link[2] = { PedRef(me), 0 };
+        RunScriptCommand(0x0860, 2, link);
+        EntityArea(me) = 0;
+    }
+    int scene[3];
+    float sc[3] = { pos[0], pos[1], 20.0f };
+    memcpy(scene, sc, 12);
+    RunScriptCommandTyped(0x03CB, 3, "fff", scene);   // LOAD_SCENE: collisions there now
+    int xy[2];
+    memcpy(xy, pos, 8);
+    RunScriptCommandTyped(0x04E4, 2, "ff", xy);       // REQUEST_COLLISION
+    float probe[3] = { pos[0], pos[1], 1000.0f };
+    int args[4];
+    memcpy(args, probe, 12);
+    args[3] = 0;
+    RunScriptCommandTyped(0x02CE, 4, "fffo", args);   // GET_GROUND_Z_FOR_3D_COORD
+    int bits = ScriptGhostVar(0);
+    float gz;
+    memcpy(&gz, &bits, 4);
+    bool found = gz > -100.0f && gz < 1000.0f && gz != 0.0f;
+    pos[2] = found ? gz + 1.0f : 50.0f;
+    void *veh = PedVehicle(me);
+    if (veh && Field<void *>(veh, VEH_DRIVER) == me) {
+        int car[4] = { VehicleRef(veh) };
+        memcpy(car + 1, pos, 12);
+        RunScriptCommandTyped(0x00AB, 4, "ifff", car);   // SET_CAR_COORDINATES (on the ground, speed zeroed by the game)
+        memset(MoveSpeed(veh), 0, 12);
+        NoteLocalRelocated();
+    } else TeleportPed(me, pos, Field<float>(me, PED_ROTATION), 0, "point de passage de la carte");
+    HudToast(found ? L("Teleporte au point de passage", "Teleported to the waypoint") : L("Teleporte (sol pas encore charge)", "Teleported (ground not loaded yet)"), 3000);
+    Log("menu jeu : point de passage %.1f %.1f, sol %.1f (%s), %s", pos[0], pos[1], gz, found ? "trouve" : "introuvable", veh ? "avec le vehicule" : "a pied");
+}
+
 static bool f10held, f1held;   // touches maintenues (PanelFrame les remet a zero si le relachement n'a pas ete vu)
 
 void PanelFrame()
@@ -200,6 +256,7 @@ void PanelFrame()
         case A_GODEATH: if (GoToDeathSpot()) g_open = false; break;
         case A_SKIPCUT: SkipCutsceneNow(); break;
         case A_STOPMISSION: MissionStopRequest(); break;
+        case A_WAYPOINT: TeleportToWaypoint(me); g_open = false; break;
         case A_SUICIDE: {   // SET_CHAR_HEALTH 0: the game's own death (wasted, hospital), on foot or in a vehicle
             int args[2] = { PedRef(me), 0 };
             Field<float>(me, PED_ARMOUR) = 0.0f;
@@ -408,7 +465,7 @@ static void ToolsTab(float x0, float y0, float x1, float y1)
         { "R\xC9" "PARER LE V\xC9" "HICULE", "REPAIR VEHICLE", A_REPAIR }, { "\xC9" "TOILES \xC0" " Z\xC9" "RO", "CLEAR WANTED LEVEL", A_NOWANTED }, { "JETPACK", "JETPACK", A_JETPACK },
         { "PASSER LA CIN\xC9" "MATIQUE", "SKIP CUTSCENE", A_SKIPCUT }, { "RETIRER MON DERNIER V\xC9" "HICULE", "REMOVE MY LAST VEHICLE", A_REMOVELAST }, { "RETIRER TOUS MES V\xC9" "HICULES", "REMOVE ALL MY VEHICLES", A_REMOVEALL },
         { "ARR\xCATER LA MISSION", "STOP MISSION", A_STOPMISSION }, { "SUICIDE", "SUICIDE", A_SUICIDE },
-        { "RETIRER TOUTES MES ARMES", "REMOVE ALL MY WEAPONS", A_NOWEAPONS } };
+        { "RETIRER TOUTES MES ARMES", "REMOVE ALL MY WEAPONS", A_NOWEAPONS }, { "ALLER AU POINT DE PASSAGE", "TELEPORT TO WAYPOINT", A_WAYPOINT } };
     float bw = (x1 - x0 - 2 * 10 * k) / 3, bh = 42 * k;
     const int count = sizeof(tools) / sizeof(tools[0]);
     for (int i = 0; i < count; i++) {
