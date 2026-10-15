@@ -66,10 +66,13 @@ void PanelMouseInput(int dx, int dy, int dz, bool lmb)
 }
 
 // ======================================================================= Actions (boucle du jeu)
-enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH, A_SKIPCUT, A_REMOVELAST, A_REMOVEALL, A_STOPMISSION };
+enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH, A_SKIPCUT, A_REMOVELAST, A_REMOVEALL, A_STOPMISSION, A_SUICIDE, A_NOWEAPONS, A_SETMONEY };
 struct Action { int kind, arg; };
 static std::vector<Action> g_actions;
 static void Queue(int kind, int arg = 0) { g_actions.push_back({ kind, arg }); }
+// Tools > money field: digits typed while it has the focus (clicked), Enter or SET applies.
+static char g_moneyText[10];
+static bool g_moneyFocus;
 
 static void SaveIni(const char *key, int v)
 {
@@ -197,6 +200,31 @@ void PanelFrame()
         case A_GODEATH: if (GoToDeathSpot()) g_open = false; break;
         case A_SKIPCUT: SkipCutsceneNow(); break;
         case A_STOPMISSION: MissionStopRequest(); break;
+        case A_SUICIDE: {   // SET_CHAR_HEALTH 0: the game's own death (wasted, hospital), on foot or in a vehicle
+            int args[2] = { PedRef(me), 0 };
+            Field<float>(me, PED_ARMOUR) = 0.0f;
+            RunScriptCommand(0x0223, 2, args);
+            g_open = false;
+            Log("menu jeu : suicide");
+            break;
+        }
+        case A_NOWEAPONS: {   // REMOVE_ALL_CHAR_WEAPONS (from the ghost script: not mirrored to the other players)
+            int ref = PedRef(me);
+            RunScriptCommand(0x048F, 1, &ref);
+            HudToast(L("Armes retirees", "All weapons removed"), 2500);
+            Log("menu jeu : armes retirees");
+            break;
+        }
+        case A_SETMONEY: {   // CPlayerInfo::m_nMoney (CWorld::Players[0] 0xB7CD98 + 0xB8): ADD_SCORE of the difference, the HUD counts to it
+            int have = *(int *)0xB7CE50, want = a.arg;
+            int args[2] = { 0, want - have };
+            if (want != have) RunScriptCommand(0x0109, 2, args);
+            char msg[64];
+            wsprintfA(msg, L("Argent : %d $", "Money: $%d"), want);
+            HudToast(msg, 2500);
+            Log("menu jeu : argent %d -> %d", have, want);
+            break;
+        }
         case A_REMOVELAST:
         case A_REMOVEALL: {
             int n = VehiclesRemoveSpawned(a.kind == A_REMOVEALL);
@@ -241,6 +269,13 @@ bool PanelWindowMessage(UINT msg, WPARAM wp)
     }
     if (g_open || g_help) {
         if (down && wp == VK_ESCAPE) g_open = g_help = false;
+        if (g_open && g_moneyFocus) {   // money field: digits, Backspace, Enter (T and the others do nothing meanwhile)
+            size_t n = strlen(g_moneyText);
+            if (msg == WM_CHAR && wp >= '0' && wp <= '9' && n < 9) { g_moneyText[n] = (char)wp; g_moneyText[n + 1] = 0; }
+            if (down && wp == VK_BACK && n) g_moneyText[n - 1] = 0;
+            if (down && wp == VK_RETURN && n) { Queue(A_SETMONEY, atoi(g_moneyText)); g_moneyFocus = false; g_moneyText[0] = 0; }
+            return keyMsg || msg == WM_CHAR;
+        }
         if (down && wp == 'T') { g_open = g_help = false; return false; }   // T : le tchat (chat.cpp) prend la main
         return keyMsg || msg == WM_CHAR;
     }
@@ -372,15 +407,29 @@ static void ToolsTab(float x0, float y0, float x1, float y1)
         { "SANT\xC9" " + GILET", "HEALTH + ARMOUR", A_HEAL }, { "ARMES", "WEAPONS", A_WEAPONS }, { "+10 000 $", "+10,000 $", A_MONEY },
         { "R\xC9" "PARER LE V\xC9" "HICULE", "REPAIR VEHICLE", A_REPAIR }, { "\xC9" "TOILES \xC0" " Z\xC9" "RO", "CLEAR WANTED LEVEL", A_NOWANTED }, { "JETPACK", "JETPACK", A_JETPACK },
         { "PASSER LA CIN\xC9" "MATIQUE", "SKIP CUTSCENE", A_SKIPCUT }, { "RETIRER MON DERNIER V\xC9" "HICULE", "REMOVE MY LAST VEHICLE", A_REMOVELAST }, { "RETIRER TOUS MES V\xC9" "HICULES", "REMOVE ALL MY VEHICLES", A_REMOVEALL },
-        { "ARR\xCATER LA MISSION", "STOP MISSION", A_STOPMISSION } };
+        { "ARR\xCATER LA MISSION", "STOP MISSION", A_STOPMISSION }, { "SUICIDE", "SUICIDE", A_SUICIDE },
+        { "RETIRER TOUTES MES ARMES", "REMOVE ALL MY WEAPONS", A_NOWEAPONS } };
     float bw = (x1 - x0 - 2 * 10 * k) / 3, bh = 42 * k;
-    for (int i = 0; i < 10; i++) {
+    const int count = sizeof(tools) / sizeof(tools[0]);
+    for (int i = 0; i < count; i++) {
         float bx = x0 + (i % 3) * (bw + 10 * k), by = y0 + (i / 3) * (bh + 10 * k);
         const char *label = g_fr ? tools[i].fr : tools[i].en;
         // (the long labels of the last row get a smaller font so they fit the button)
         if (Button(bx, by, bx + bw, by + bh, label, false, true, i >= 7 ? 11.5f * k : 0)) { Queue(tools[i].action); if (tools[i].action == A_JETPACK) g_open = false; }
     }
-    float ny = y0 + 4 * (bh + 10 * k) + 6 * k;
+    // Money: a field (click it, type the amount, Enter) and SET.
+    float my = y0 + ((count + 2) / 3) * (bh + 10 * k);
+    UiText(x0, my + bh * 0.5f - 8 * k, 14 * k, C_INK, UI_LEFT, L("Argent ($) :", "Money ($):"));
+    float fx0 = x0 + 120 * k, fx1 = x0 + bw + 10 * k + bw, sx1 = x1;
+    bool focusHot = Hover(fx0, my, fx1, my + bh);
+    UiRect(fx0, my, fx1, my + bh, 9 * k, g_moneyFocus ? 0xFFFFFF30 : 0xFFFFFF14, g_moneyFocus ? 0xFFFFFF26 : 0xFFFFFF0C, g_moneyFocus || focusHot ? 0xFFFFFF90 : 0xFFFFFF22, 1.2f * k);
+    char shown[24];
+    if (g_moneyText[0] || g_moneyFocus) sprintf(shown, "%s%s", g_moneyText, g_moneyFocus && (GetTickCount() / 500) % 2 ? "_" : "");
+    else sprintf(shown, "%d", *(int *)0xB7CE50);
+    UiText(fx0 + 12 * k, my + bh * 0.5f - 8 * k, 15 * k, g_moneyText[0] || g_moneyFocus ? C_INK : C_GREY, UI_LEFT, shown);
+    if (g_click) { if (focusHot) { g_moneyFocus = true; g_click = false; } else g_moneyFocus = false; }
+    if (Button(fx1 + 10 * k, my, sx1, my + bh, L("D\xC9" "FINIR", "SET"), false, g_moneyText[0] != 0)) { Queue(A_SETMONEY, atoi(g_moneyText)); g_moneyFocus = false; g_moneyText[0] = 0; }
+    float ny = my + bh + 16 * k;
     UiText(x0, ny, 12.5f * k, C_GREY, UI_LEFT,
            L("Armes : Desert Eagle, fusil \xE0" " pompe, MP5, M4, fusil de pr\xE9" "cision, grenades.", "Weapons: Desert Eagle, shotgun, MP5, M4, sniper rifle, grenades."));
     UiText(x0, ny + 18 * k, 12.5f * k, C_GREY, UI_LEFT,

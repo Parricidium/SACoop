@@ -6,6 +6,20 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.12-vcport (network version 24 unchanged)
+
+Asked by the player on 15/10: three separate tools in F10 > Tools (panel.cpp). Each acts on the local player only.
+
+- **SUICIDE**: armour to 0 and `SET_CHAR_HEALTH` 0 (0223): the game's own death (wasted, hospital), on foot or in a vehicle.
+  The menu closes. The 0.54.10 rule applies: the death clears the wanted level of everybody. Log: `menu jeu : suicide`.
+- **REMOVE ALL MY WEAPONS**: `REMOVE_ALL_CHAR_WEAPONS` (048F), run from the mod's own script so it is not mirrored to
+  the other players. Log: `menu jeu : armes retirees`.
+- **Money field**: shows the current money; click it, type digits (Backspace deletes, 9 digits at most), Enter or SET.
+  The difference with `CPlayerInfo::m_nMoney` (0xB7CE50) is given with `ADD_SCORE` (0109), so the HUD counts to the new
+  amount. While the field has the focus, keys go to it only. Log: `menu jeu : argent a -> b`.
+- Note for whoever builds this: with the MinGW C++ headers installed (`g++-mingw-w64-i686`), the files that include
+  `<string>` / `<vector>` (panel, ui, mods, savesync, thumbs) can be syntax-checked with clang too.
+
 ## 0.54.11-vcport (network version 24 unchanged)
 
 From the player's report of 15/10: on the guest, cutscenes set in an interior show no interior, and cutscenes have no
