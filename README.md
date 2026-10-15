@@ -93,7 +93,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**. Everybody's game starts together.
    - Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a virtual LAN.
    - A player who arrives late uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.27-vcport (Zebra's forked repo) loaded`. If it does
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.28-vcport (Zebra's forked repo) loaded`. If it does
    not, that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -118,11 +118,11 @@ Then copy `build\dinput8.dll` into the game folder **on both PCs**.
 ## What this fork adds
 
 The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was added on top of it, in `0.49.0-vcport` to
-`0.54.27-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
+`0.54.28-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
 > [!NOTE]
-> **New in 0.54.9 to 0.54.27** is marked with 🆕. Most of it has been tried by two players; the newest items
+> **New in 0.54.9 to 0.54.28** is marked with 🆕. Most of it has been tried by two players; the newest items
 > (helper-script dialogue, the cutscene loading wait) still need a real test.
 
 ### 🎬 Missions and cutscenes
@@ -162,6 +162,8 @@ The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was adde
 
 ### 🔫 Combat and voices
 
+- 🆕 **No lock-on to other players:** aiming picks the enemies, not your friend standing next to them (free aim still
+  hits them with friendly fire on). Setting `TargetPlayers`.
 - 🆕 **Firing animation and muzzle flash** for the other players' shots.
 - 🆕 **Exact hits:** shots are replayed where they really landed, so small targets take one bullet.
 - 🆕 **Speech sync:** what players and shared pedestrians say (remarks, pain grunts, dialogue) is the same line, at the
@@ -230,7 +232,7 @@ Each player only changes their own character, weapons and money.
 | 0.54.9 to 0.54.12 | Wanted level cleared on death, interior cutscenes, suicide / weapons / money tools |
 | 0.54.13 to 0.54.18 | Speech sync, waypoint teleport, extras, entry fixes, phone calls, garage doors, drive-bys, nitro |
 | 0.54.19 to 0.54.23 | Mission objects for the guest, HUD without blinking, mission title, vehicle offer (Y/N), exact hit points |
-| 0.54.24 to 0.54.27 | Firing animation, cutscene fixes, passenger and helper-script dialogue, cutscene loading wait |
+| 0.54.24 to 0.54.28 | Firing animation, cutscene fixes, passenger and helper-script dialogue, cutscene loading wait, no lock-on to players |
 
 **Network versions:** both players must use the same build. The last network changes were in 0.54.13, 0.54.15, 0.54.18
 and **0.54.26** (network version 28).
@@ -313,6 +315,7 @@ sync options. **The key names are still the original French ones**; they are exp
 | `SauvegardesLocales=1` | Settings and saves in the game folder, apart from your solo saves |
 | `Tenue=0` | Your outfit: 0 = CJ with your clothes, 1 to 299 = a pedestrian of the game |
 | `TirAmi=1` | Friendly fire: 1 = other players can hurt you, 0 = no (each player chooses for themselves) |
+| `TargetPlayers=0` | Lock-on: 0 = the other players can never be locked on to (aiming picks the enemies), 1 = like the original game |
 | `VuePremierePersonne=1`, `ToucheVue=F6` | First-person view on foot, and its key |
 | `OcclusionAmbiante=1`, `Anticrenelage=1` | Modern rendering: ambient occlusion and FXAA |
 | `ModsPartages=1`, `MemoireStreaming=256` | Shared mods (folder `SACoop\mods`), and the streaming memory in MB when mods are loaded |
@@ -361,9 +364,10 @@ ready).
 
 Play a session and tick these off. Newest first:
 
-- [ ] Both `sacoop.log` files start with the same version (`0.54.27-vcport (Zebra's forked repo)`).
+- [ ] Both `sacoop.log` files start with the same version (`0.54.28-vcport (Zebra's forked repo)`).
 - [ ] **Mission dialogue in a car:** the guest hears the host's passengers and the mission's lines.
 - [ ] **Cutscenes:** the guest sees the scenery loaded (indoors and outdoors) and the cutscene is not cut short.
+- [ ] **Lock-on:** aim at an enemy standing next to the other player: the lock goes to the enemy, never to the player.
 - [ ] **Firing:** the other player's shots show the firing animation and muzzle flash.
 - [ ] **Mission title and subtitles** show on the guest.
 - [ ] **Vehicle offer:** the guest gets the Y/N prompt at the top of the screen; Y spawns the car, N declines.
@@ -417,11 +421,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.27-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.28-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.27-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.27-vcport.zip`.
+`v0.54.28-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.28-vcport.zip`.
 
 ## Known gaps and roadmap
 

@@ -6,6 +6,17 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.28-vcport (network version 28 unchanged, untested)
+
+Request of 15/10: aiming at an enemy kept locking on to the other player.
+
+- **The other players can no longer be locked on to.** Their characters carry the game's own "never target this ped"
+  flag (the one the script command `SET_CHAR_NEVER_TARGETTED` sets), which only the player's lock-on reads: the
+  first-target search and the next-target switch skip them, so lock-on picks the enemies around them. Police, gangs and
+  mission enemies still go after the players as before. Free aim still hits another player when friendly fire is on.
+- New setting `TargetPlayers` (default `0`). `1` lets you lock on to the other players again.
+- Only the player aiming needs 0.54.28; the network messages did not change.
+
 ## 0.54.27-vcport (network version 28 unchanged)
 
 From the host and client logs of the 15/10 test (0.54.26, Robbing Uncle Sam). The mission title now shows on the guest

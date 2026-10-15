@@ -893,6 +893,20 @@ void PlaceFollower(void *ped, const Snap &n)
     EntityRefresh(ped);
 }
 
+// Lock-on (0.54.28): the other players are never locked on to (CPed bNeverEverTargetThisPed, +0x470 bit 28, read only
+// by the player's lock-on search 0x60E084 and its next-target switch 0x60E6A7; the only other use is the script command
+// that sets it), so aiming picks the enemies around them. Free aim still hits them (friendly fire). TargetPlayers=1 in
+// sacoop.ini: they can be locked on to as before.
+static void PuppetsNoTarget()
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        Puppet &p = g_puppets[i];
+        if (i == g_localId || !p.ped || PedFromRef(p.ref) != p.ped) continue;
+        uint32_t &f = Field<uint32_t>(p.ped, 0x470);
+        f = g_cfg.targetPlayers ? f & ~0x10000000u : f | 0x10000000u;
+    }
+}
+
 // Apres la physique : les pantins a pied sont places a leur position interpolee.
 void PuppetsAfterProcess()
 {
@@ -2126,6 +2140,7 @@ static void CoopFrameInner(bool inGameLoop)
     PanelTest();
     TrainsIdle();    // (before the NetRunning test: gives the random trains back when the session ends)
     if (!NetRunning()) return;
+    PuppetsNoTarget();
     SaveSyncFrame();
     {   // arrivees et departs des joueurs (message a l'ecran)
         static bool was[MAX_PLAYERS];
