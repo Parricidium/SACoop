@@ -6,6 +6,18 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.10-vcport (network version 24 unchanged: plays with 0.54.8 and 0.54.9, but both players need it for the fix)
+
+From the player's report of 15/10: the wanted level did not follow deaths.
+
+- **A death clears the wanted level of everybody** (`SomeoneDied`, police.cpp, with `RecherchePartagee=1`). Before: a guest
+  who died came back with no stars (his game clears them) while the host kept his level, and nothing told the guest's
+  game about it again; when the host died, the guest stayed chased until the host respawned. Now, on the step any
+  player goes from alive to dead (the local player's health, or a remote player's state), the host clears its level
+  (CLEAR_WANTED_LEVEL, which also calls the police off) and ignores the guests' old levels for 5 s, and a guest clears his
+  at once instead of waiting for the host's new level. Log: `police : ... est mort, plus de recherche pour personne`.
+- The crash probe of 0.54.9 stays in.
+
 ## 0.54.9-vcport (diagnostic, network version 24 unchanged: plays with 0.54.8)
 
 From the player's report of 15/10: away from the host, when the guest drives his own car into a lamp post, a pedestrian

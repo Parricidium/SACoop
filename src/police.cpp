@@ -53,19 +53,45 @@ static bool PlayerUp(int i)
     return p.connected && p.state.inGame && p.state.health > 0.0f;
 }
 
+// A player who dies (any of them) clears the wanted level of everybody (report of 15/10: a guest who died came back
+// clean while the host kept his stars, and the other way round the guest stayed chased until the host respawned).
+// Returns true on the step a player goes from alive to dead.
+static bool SomeoneDied()
+{
+    static bool up[MAX_PLAYERS];
+    bool died = false;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        bool now;
+        if (i == g_localId) { void *me = FindPlayerPed(); now = me && Field<float>(me, PED_HEALTH) > 0.0f; }
+        else now = PlayerUp(i);
+        bool here = i == g_localId || (g_players[i].connected && g_players[i].state.inGame);
+        if (up[i] && !now && here) {
+            died = true;
+            Log("police : %s %s, plus de recherche pour personne", i == g_localId ? "nous" : g_players[i].state.name, i == g_localId ? "sommes morts" : "est mort");
+        }
+        up[i] = now;
+    }
+    return died;
+}
+
 static void ShareWanted()
 {
     static int lastHost = -1;
+    bool died = SomeoneDied();
     if (!g_cfg.shareWanted) { lastHost = -1; return; }
     if (g_cfg.host) {
-        // Quand la recherche de l'hote baisse (police semee), les invites l'apprennent un peu apres : pendant 2 s on
-        // ignore leurs anciens niveaux, sinon on remontait aussitot.
+        // Quand la recherche de l'hote baisse (police semee, mort d'un joueur), les invites l'apprennent un peu apres :
+        // pendant un moment on ignore leurs anciens niveaux, sinon on remontait aussitot.
         static int lastMine;
         static uint32_t quietUntil;
+        if (died) {
+            if (WantedLevel() > 0) SetWantedLevel(0);
+            quietUntil = GetTickCount() + 5000;
+        }
         int mine = WantedLevel(), best = mine;
-        if (mine < lastMine) quietUntil = GetTickCount() + 2000;
+        if (mine < lastMine && (int)(quietUntil - GetTickCount()) < 2000) quietUntil = GetTickCount() + 2000;
         lastMine = mine;
-        if (GetTickCount() < quietUntil) return;
+        if ((int)(quietUntil - GetTickCount()) > 0) return;
         for (int i = 1; i < MAX_PLAYERS; i++)
             if (PlayerUp(i) && g_players[i].state.wanted > best) best = g_players[i].state.wanted;
         if (best > mine && best <= 6) { SetWantedLevel(best); lastMine = best; Log("police : recherche %d (crime d'un invite)", best); }
@@ -73,6 +99,7 @@ static void ShareWanted()
     }
     const NetPlayer &h = g_players[0];
     if (g_localId <= 0 || !h.connected || !h.state.inGame) { lastHost = -1; return; }
+    if (died && WantedLevel() > 0) SetWantedLevel(0);   // at once: the host's clean level follows a moment later
     if (h.state.wanted != lastHost) {
         lastHost = h.state.wanted;
         if (WantedLevel() != lastHost) { SetWantedLevel(lastHost); Log("police : recherche %d (comme l'hote)", lastHost); }
