@@ -50,6 +50,7 @@ struct NetVeh {
     MsgVehMod mod;       // (copies) what the owner says the vehicle wears
     bool modNew;         // (copies) a MsgVehMod is waiting to be applied
     uint32_t pushUntil;  // (copies) pushed by our car: left to our physics until then, its place sent to the owner
+    uint32_t takenAt;    // (ours) when we took it over from another player (LocalVehicleId)
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -154,6 +155,7 @@ uint32_t LocalVehicleId(void *veh, bool driver)
         Log("vehicule %08X (modele %d, %p, cree par %d) enregistre", n->id, *(int16_t *)((uint8_t *)veh + 0x22), veh, ((uint8_t *)veh)[0x4A4]);
     } else if (driver && n->owner != g_localId) {
         n->owner = (uint8_t)g_localId;   // au volant d'une copie : elle devient la notre
+        n->takenAt = GetTickCount();
         n->track.Clear();
         FreezeCopy(veh, false);
         Log("vehicule %08X : on en prend la propriete", n->id);
@@ -667,6 +669,16 @@ static void OnVehicle(const MsgVehicle &m)
     }
     if (Buried(m.id)) return;   // (state messages that were already on the way)
     if (n && n->owner == g_localId && Alive(*n)) {
+        // While we drive it, or just after we took it over, a state from its former owner is one he sent before he knew
+        // (0.54.33: the guest jacked one of the host's cars, the host's next state arrived 15 ms later and made it a copy
+        // again: the guest was put back where he had jacked it, test of 15/10). Only a player at its wheel takes it over.
+        void *me = FindPlayerPed();
+        bool driving = me && PedVehicle(me) == n->veh && Field<void *>(n->veh, VEH_DRIVER) == me;
+        if (driving || GetTickCount() - n->takenAt < 2000) {
+            static int said;
+            if (said < 20) { said++; Log("vehicule %08X : etat du joueur %d ignore (nous le conduisons)", m.id, m.owner); }
+            return;
+        }
         // Un autre joueur a pris le volant de notre vehicule : il devient une copie chez nous.
         Log("vehicule %08X : le joueur %d en prend la propriete", m.id, m.owner);
     }

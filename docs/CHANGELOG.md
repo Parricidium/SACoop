@@ -6,6 +6,18 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.33-vcport (network version 31 unchanged, untested)
+
+From the logs of the 15/10 test (0.54.32, Big Smoke's mission: the guest crashed twice at the same place).
+
+- **Guest crash when the mission reached its objective** (jump to `0x74756F52` from the renderer's alpha list,
+  `0x5539BF`): the host's script cleared a 300 m area and the guest's copies of the people and cars there went at once;
+  a deleted ped was still on the list of things to draw that frame. Every entity taken out of the world is now also taken
+  off the renderer's lists (the four visible-entity arrays and the alpha entity list).
+- **Jacked car put back where it was jacked:** the guest took over one of the host's cars, and the host's last state for
+  it (sent before the host knew) arrived 15 ms later and turned it back into a copy at the host's place. A state from
+  another player is now ignored while we drive the vehicle and for 2 s after we took it over.
+
 ## 0.54.32-vcport (network version 31 unchanged)
 
 - **Hitting a police vehicle** of the host (the copies a guest sees near the host: police bikes, cars, Enforcer, FBI)

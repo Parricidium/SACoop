@@ -356,8 +356,33 @@ static void __fastcall h_ObjRender(void *obj, void *)
     }
     o_ObjRender(obj);
 }
+// Every entity taken out of the world (CWorld::Remove 0x563280, cdecl, before any deletion) is also taken off the
+// lists the renderer draws from this frame (checked in gta_sa.exe 1.0 US, CRenderer::RenderEverythingBarRoads 0x553910:
+// four arrays, count at 0xB76840/44/38/3C, entities at 0xB748F8/0xB75898/0xB74830/0xB745D8, then the alpha entity list
+// 0xC88130..0xC88134, node: +0 entity, +4 render callback (0x732B40), +0x10 next). The guest crashed twice at the same
+// moment of Big Smoke's mission (15/10), the host's script clearing a 300 m area and the guest's copies going at once: a
+// deleted ped (its vtable already the CPlaceable one, 0x863C40) was still on the alpha list and its Render was called.
+static void __cdecl NoAlphaRender(void *, float) {}
+typedef void(__cdecl *WorldRemove_t)(void *);
+static WorldRemove_t o_WorldRemove;
+static void __cdecl h_WorldRemove(void *e)
+{
+    o_WorldRemove(e);
+    static const uintptr_t lists[4][2] = { { 0xB76840, 0xB748F8 }, { 0xB76844, 0xB75898 }, { 0xB76838, 0xB74830 }, { 0xB7683C, 0xB745D8 } };
+    for (auto &l : lists) {
+        int &n = *(int *)l[0];
+        void **a = (void **)l[1];
+        for (int i = 0; i < n && n <= 1000; ) { if (a[i] == e) a[i] = a[--n]; else i++; }
+    }
+    uint8_t *node = *(uint8_t **)0xC88130;
+    for (int guard = 0; node && node != (uint8_t *)0xC88134 && guard < 4096; guard++, node = *(uint8_t **)(node + 0x10))
+        if (*(void **)node == e) *(void **)(node + 4) = (void *)NoAlphaRender;
+}
+
 void InstallObjects()
 {
+    static const uint8_t wr[] = { 0x56, 0x8B, 0x74, 0x24, 0x08, 0x8B, 0x06 };
+    o_WorldRemove = (WorldRemove_t)MakeDetour(0x563280, wr, sizeof(wr), (void *)h_WorldRemove);
     static const uint8_t pro[] = { 0x83, 0xEC, 0x10, 0x56, 0x8B, 0xF1 };
     o_ObjRender = (ObjRender_t)MakeDetour(0x59FD50, pro, sizeof(pro), (void *)h_ObjRender);
 }
