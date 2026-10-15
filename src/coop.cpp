@@ -280,7 +280,22 @@ static void SendLocalState()
         void *sec = PrimaryTasks(ped)[5];
         bool driveby = PedVehicle(ped) && HasTaskType(ped, 1022);   // tir par la fenetre (meme tache que les PNJ)
         { static int said; if (driveby && said < 3) { said++; Log("tir par la fenetre du joueur (arme %d)", (int)s.weapon); } }
-        if (driveby || (!PedVehicle(ped) && sec && ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) == 1017)) {
+        bool useGun = !PedVehicle(ped) && sec && ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) == 1017;
+        {   // (0.54.39 diagnostic, report of 15/10: "standing still with the gun out, the other player sees him still aiming".
+            // The gun task, the ped's bIsAimingGun flag (+0x46C bit 4) and the camera mode, each time one of them changes.)
+            static int said, lastKey = -1;
+            uint8_t *cam = (uint8_t *)0xB6F028;
+            int mode = *(int16_t *)(cam + 0x174 + (cam[0x59] % 3) * 0x238 + 0xC);
+            int flag = (Field<uint8_t>(ped, 0x46C) >> 4) & 1;
+            int key = (useGun ? 1 : 0) | flag << 1 | (mode & 0xFF) << 2;
+            if (key != lastKey && said < 60) {
+                lastKey = key;
+                said++;
+                Log("visee : tache d'arme %d, drapeau de visee %d, camera mode %d, octets de la tache %02X %02X %02X %02X", useGun, flag, mode,
+                    useGun ? ((uint8_t *)sec)[8] : 0, useGun ? ((uint8_t *)sec)[9] : 0, useGun ? ((uint8_t *)sec)[0xE] : 0, useGun ? ((uint8_t *)sec)[0xF] : 0);
+            }
+        }
+        if (driveby || useGun) {
             s.aiming = driveby ? 2 : 1;
             if (void *cam = *(void **)0xC1703C)
                 if (uint8_t *fr = *(uint8_t **)((uint8_t *)cam + 4)) {
@@ -288,6 +303,12 @@ static void SendLocalState()
                     for (int k = 0; k < 3; k++) s.aim[k] = cp[k] + at[k] * 40.0f;
                 }
         }
+        if (void *cam = *(void **)0xC1703C)   // camera direction (RwCamera frame, LTM "at" +0x70), for the host's population
+            if (uint8_t *fr = *(uint8_t **)((uint8_t *)cam + 4)) {
+                const float *at = (const float *)(fr + 0x70);
+                float l = sqrtf(at[0] * at[0] + at[1] * at[1]);
+                if (l > 0.01f) { s.camFwd[0] = at[0] / l; s.camFwd[1] = at[1] / l; }
+            }
         if (void *veh = PedVehicle(ped)) {
             bool driver = Field<void *>(veh, VEH_DRIVER) == ped;
             s.seat = 0;
@@ -2181,6 +2202,7 @@ static void CoopFrameInner(bool inGameLoop)
     if (others) *(uint8_t *)0xB7CB49 = 0;
     VehiclesFrame();
     TrainsFrame();
+    PopulationSpawnGuard();   // (host: before EntitiesFrame sends them)
     EntitiesFrame();
     MirrorFrame();
     ConditionsFrame();

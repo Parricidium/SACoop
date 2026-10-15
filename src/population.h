@@ -8,3 +8,5 @@ bool PopulationShared();                              // invite : en population 
 bool NearSharedGuest(const float *pos, float radius); // hote : un invite partage est-il a moins de radius ?
 bool NearSharedGuestAnywhere(const float *pos, float radius);   // idem, meme hors de la zone de l'hote
 int PopulationClearArea(const float *centre, const float *half, bool round, bool peds, bool cars);   // invite : la zone nettoyee par l'hote (mirror.cpp) ; nombre retire
+bool GuestSees(const float *pos, float nearR, float farR);   // host: a guest is within nearR, or within farR and looking at it
+void PopulationSpawnGuard();     // host: people of ours just born in a guest's view go (before they are sent)

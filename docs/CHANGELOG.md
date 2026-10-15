@@ -6,6 +6,25 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.39-vcport (network version 32: both players need 0.54.39, untested)
+
+Reports of 15/10: "the client looking behind sees people pop in and vanish", "after a teleport, massive desync that
+does not re-sync", "it should be synced at all times".
+
+- **The guests' view on the host's population:** each guest now sends where his camera looks. The host's game no longer
+  removes people or cars a guest sees (within 45-50 m of him, or within 150-200 m in his view), and a person or car of
+  the host's that appears in a guest's view (within 70 m) is removed at once, before it is ever sent: no more pop-ins
+  and vanishings behind the host when travelling together. What a guest sees is also sent to him even a little outside
+  the host's zone. (Indoors the crowd is left alone.)
+- **Re-sync after a teleport:** when either player's position jumps more than 40 m at once (go to player, teleport, a
+  script move, respawn), for 3 s the guest's own people and cars in the host's zone go, on screen or not. Otherwise
+  what has stayed in the host's zone more than 6 s goes even on screen, unless within 25 m (it used to stay as long as
+  it was on screen: a guest looking at his own cars kept them for good, next to the host's).
+- Log: `visee :` lines (gun task, aim flag, camera mode) for the "still seen aiming" report; the population line gives
+  how many removals were avoided for a guest's view and how many births in his view were removed.
+
+Not yet: the guest's own population (around him, away from the host) is not sent to the host.
+
 ## 0.54.38-vcport (network version 31 unchanged)
 
 To find why a guest out of the host's sight (short to medium range) has little traffic and sees other cars than the

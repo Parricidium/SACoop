@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 31, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 32, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -83,6 +83,7 @@ struct MsgState {
     float attOff[3], attRot[3];   // son decalage et sa rotation (CPhysical +0x100, +0x10C, radians)
     char name[24];
     uint32_t time;      // GetTickCount de l'envoi (interpolation)
+    float camFwd[2];    // where his camera looks (x, y, unit): the host keeps what he sees and makes nothing appear in it (population.cpp)
 };
 // CPedClothesDesc du joueur : 10 cles de modeles, 18 cles de textures, gras, muscle (0x78 octets).
 struct MsgClothes { uint8_t type, id; uint32_t desc[30]; };

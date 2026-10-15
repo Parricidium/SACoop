@@ -219,12 +219,12 @@ void HostRegisterAmbientVehicles()
     for (int i = 0; i < p->size; i++) {
         if (p->flags[i] & 0x80) continue;
         uint8_t *v = p->objects + i * 0xA18;
-        if ((v[0x4A4] == 1 || v[0x4A4] == 3) && !IsTrain(v) && !FindByVeh(v) && NearSharedGuest(EntityPos(v), 150.0f)) HostVehicleId(v, false, true);
+        if ((v[0x4A4] == 1 || v[0x4A4] == 3) && !IsTrain(v) && !FindByVeh(v) && (NearSharedGuest(EntityPos(v), 150.0f) || GuestSees(EntityPos(v), 50.0f, 200.0f))) HostVehicleId(v, false, true);
     }
     for (auto &n : g_veh) {
         if (!n.id || !n.ambient || n.owner != g_localId) continue;
         if (!Alive(n)) { memset(&n, 0, sizeof(n)); continue; }
-        if (now - n.lastDriven > 2000 && !NearSharedGuest(EntityPos(n.veh), 200.0f)) memset(&n, 0, sizeof(n));
+        if (now - n.lastDriven > 2000 && !NearSharedGuest(EntityPos(n.veh), 200.0f) && !GuestSees(EntityPos(n.veh), 50.0f, 200.0f)) memset(&n, 0, sizeof(n));
     }
 }
 
@@ -1131,9 +1131,11 @@ static void HostTrafficGuard()
             const float *gp = EntityPos(pup);
             float dx = cp[0] - gp[0], dy = cp[1] - gp[1], d = sqrtf(dx * dx + dy * dy);
             if (d > (float)g_cfg.trafficGuardRange || d < 0.1f) continue;   // (TrafficGuardRange, 90 m by default)
-            float fx, fy;
-            if (void *gv = PedVehicle(pup)) { uint8_t *m = *(uint8_t **)((uint8_t *)gv + 0x14); fx = m ? ((float *)m)[4] : 0; fy = m ? ((float *)m)[5] : 1; }
-            else { float h = Field<float>(pup, PED_ROTATION); fx = -sinf(h); fy = cosf(h); }
+            float fx = g_players[g].state.camFwd[0], fy = g_players[g].state.camFwd[1];   // (his camera, 0.54.39: looking behind too)
+            if (fx == 0 && fy == 0) {
+                if (void *gv = PedVehicle(pup)) { uint8_t *m = *(uint8_t **)((uint8_t *)gv + 0x14); fx = m ? ((float *)m)[4] : 0; fy = m ? ((float *)m)[5] : 1; }
+                else { float h = Field<float>(pup, PED_ROTATION); fx = -sinf(h); fy = cosf(h); }
+            }
             if ((dx * fx + dy * fy) / d < 0.34f) continue;   // hors du cone de vue
             for (int k = 0; k < 8; k++) if (void *ps = Field<void *>(v, VEH_PASSENGERS + k * 4)) { int r = PedRef(ps); RunScriptCommand(0x009B, 1, &r); }
             int r = PedRef(drv);

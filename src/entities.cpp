@@ -48,7 +48,7 @@ uint32_t MissionPedId(void *ped)
     if (ped == FindPlayerPed() || PuppetIndex(ped) >= 0) return 0;
     uint8_t by = Field<uint8_t>(ped, 0x484);
     if (by == 2) return (uint32_t)PedRef(ped);
-    if (by == 1 && NearSharedGuest(EntityPos(ped), 160.0f)) return (uint32_t)PedRef(ped);
+    if (by == 1 && (NearSharedGuest(EntityPos(ped), 160.0f) || GuestSees(EntityPos(ped), 45.0f, 150.0f))) return (uint32_t)PedRef(ped);   // (and what a guest sees: kept for him, population.cpp)
     // policiers : partout pres d'un invite partage (ceux qui le poursuivent hors de la zone de l'hote n'etaient pas vus)
     if (by == 1 && Field<int>(ped, 0x598) == 6 && NearSharedGuestAnywhere(EntityPos(ped), 160.0f)) return (uint32_t)PedRef(ped);
     return 0;
