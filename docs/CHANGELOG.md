@@ -6,6 +6,15 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.37-vcport (network version 31 unchanged, untested)
+
+- **F10 > MISSIONS** (debug tool): every story mission of `main.scm`, by number and title (or script name). Two clicks
+  start one. The host's game starts it the way the main script does (START_MISSION), and the guests follow it as any
+  other mission (regroup next to the host, mirrored commands). A guest's click asks the host. Refused while a mission is
+  already running (stop it first with Tools > Stop mission), during a cutscene, or when the host is dead; everybody gets a
+  line on screen saying who started which mission, or why not. It counts as played: saving afterwards can upset the story
+  order, so use a spare save.
+
 ## 0.54.36-vcport (network version 31 unchanged, untested)
 
 Review of everything since 0.54.9 for what could get in the way of play.

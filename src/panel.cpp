@@ -21,6 +21,8 @@
 #include "combat.h"
 #include "ui.h"
 #include "thumbs.h"
+#include "script.h"
+#include "menu.h"
 #include "../launcher/skins.h"
 #include <math.h>
 #include <stdio.h>
@@ -44,7 +46,7 @@ static bool g_lmb, g_click;
 static int g_wheel;
 static float g_vehScroll[4];
 static uint32_t g_welcomeUntil;
-enum { T_PLAYERS, T_VEHICLES, T_TOOLS, T_OUTFIT, T_DISPLAY, T_WORLD, T_HOST, T_COUNT };
+enum { T_PLAYERS, T_VEHICLES, T_TOOLS, T_OUTFIT, T_DISPLAY, T_MISSIONS, T_WORLD, T_HOST, T_COUNT };   // (guests: up to T_WORLD)
 
 bool PanelOpen() { return g_open || g_help; }
 bool PanelCapturesKeys() { return g_open || g_help || ChatTyping(); }
@@ -66,7 +68,7 @@ void PanelMouseInput(int dx, int dy, int dz, bool lmb)
 }
 
 // ======================================================================= Actions (boucle du jeu)
-enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH, A_SKIPCUT, A_REMOVELAST, A_REMOVEALL, A_STOPMISSION, A_SUICIDE, A_NOWEAPONS, A_SETMONEY, A_WAYPOINT };
+enum { A_SPAWN, A_HEAL, A_WEAPONS, A_MONEY, A_REPAIR, A_NOWANTED, A_JETPACK, A_SKIN, A_HOUR, A_WEATHER, A_GOTO, A_FRIENDLY, A_SHAREWANTED, A_HOSTPOLICE, A_DRAWDIST, A_ZONE, A_DENSITY, A_ANISO, A_GODEATH, A_SKIPCUT, A_REMOVELAST, A_REMOVEALL, A_STOPMISSION, A_SUICIDE, A_NOWEAPONS, A_SETMONEY, A_WAYPOINT, A_MISSION };
 struct Action { int kind, arg; };
 static std::vector<Action> g_actions;
 static void Queue(int kind, int arg = 0) { g_actions.push_back({ kind, arg }); }
@@ -313,6 +315,7 @@ void PanelFrame()
         case A_GODEATH: if (GoToDeathSpot()) g_open = false; break;
         case A_SKIPCUT: SkipCutsceneNow(); break;
         case A_STOPMISSION: MissionStopRequest(); break;
+        case A_MISSION: MissionStartRequest(a.arg); break;
         case A_WAYPOINT: TeleportToWaypoint(me); g_open = false; break;
         case A_SUICIDE: {   // SET_CHAR_HEALTH 0: the game's own death (wasted, hospital), on foot or in a vehicle
             int args[2] = { PedRef(me), 0 };
@@ -699,6 +702,116 @@ static void HostTab(float x0, float y0, float x1, float y1)
     Toggle(x0, y, x1, L("Police de l'h\xF4" "te (elle poursuit aussi les invit\xE9" "s)", "Host's police (also chases the guests)"), g_cfg.hostPolice, A_HOSTPOLICE);
 }
 
+// Missions (0.54.37, debug tool asked for on 15/10): every story mission of main.scm (2, 11 to 112), named after its own
+// script (SCRIPT_NAME 03A4, "RYDER2") and, when the game's text has it, the title its start prints (PRINT_BIG 00BA key,
+// "RYDER_2" -> "Robbing Uncle Sam"). Read once from data\script\main.scm: header jumps (02 00 01 + offset) to the mission
+// segment (segment byte, main size, largest mission, uint16 count, uint16 exclusive count, int32 largest locals (SA), then
+// the offsets), cross-checked with the game's own table CTheScripts::MultiScriptArray 0xA444C8. Two clicks start one
+// (MissionStartRequest: the host starts it, a guest asks the host).
+struct MissionEntry { int index; char script[9]; std::string title; };
+static std::vector<MissionEntry> g_missionList;
+static bool g_missionListTried;
+static int g_missionArmed = -1;
+static uint32_t g_missionArmedAt;
+static float g_missionScroll;
+
+static bool KeyChars(const uint8_t *p, int n, bool lowerOk)
+{
+    if (!((p[0] >= 'A' && p[0] <= 'Z') || (lowerOk && p[0] >= 'a' && p[0] <= 'z'))) return false;
+    for (int i = 0; i < n && p[i]; i++)
+        if (!((p[i] >= 'A' && p[i] <= 'Z') || (p[i] >= '0' && p[i] <= '9') || p[i] == '_' || (lowerOk && p[i] >= 'a' && p[i] <= 'z'))) return false;
+    return true;
+}
+
+static void LoadMissionList()
+{
+    if (g_missionListTried) return;
+    g_missionListTried = true;
+    char path[MAX_PATH];
+    wsprintfA(path, "%sdata\\script\\main.scm", GameDir());
+    HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) { Log("missions : %s illisible", path); return; }
+    DWORD size = GetFileSize(f, nullptr), got = 0;
+    std::vector<uint8_t> b(size > 0 && size < 16 * 1024 * 1024 ? size : 0);
+    if (!b.empty()) ReadFile(f, b.data(), size, &got, nullptr);
+    CloseHandle(f);
+    if (b.empty() || got != size) { Log("missions : main.scm vide ou illisible"); return; }
+    auto rd32 = [&](size_t p) { return p + 4 <= b.size() ? *(const int32_t *)&b[p] : -1; };
+    auto jump = [&](long p) -> long { return p >= 0 && (size_t)p + 7 <= b.size() && b[p] == 2 && b[p + 1] == 0 && b[p + 2] == 1 ? rd32(p + 3) : -1; };
+    long s2 = jump(0), s3 = jump(s2);
+    if (s3 <= 0 || (size_t)s3 + 24 > b.size()) { Log("missions : en-tete de main.scm inattendu"); return; }
+    size_t p = s3 + 8 + 8;
+    int n = *(const uint16_t *)&b[p];
+    p += 2 + 2 + 4;
+    if (n <= 0 || n > 200 || p + n * 4 > b.size()) { Log("missions : %d missions dans main.scm, inattendu", n); return; }
+    const int32_t *mem = (const int32_t *)0xA444C8;
+    bool same = rd32(p) == mem[0] && rd32(p + 4) == mem[1];
+    if (!same) Log("missions : decalages de main.scm (%d %d) differents du jeu (%d %d) : ceux du jeu sont pris", rd32(p), rd32(p + 4), mem[0], mem[1]);
+    for (int i = 0; i < n; i++) {
+        if (!IsStoryMission(i)) continue;
+        long at = same ? rd32(p + i * 4) : mem[i];
+        if (at <= 0 || (size_t)at >= b.size()) continue;
+        MissionEntry e = { i, {}, {} };
+        size_t end = b.size() < (size_t)at + 69000 ? b.size() : (size_t)at + 69000;
+        for (size_t q = at; q + 11 <= end && q < (size_t)at + 4000; q++)
+            if (b[q] == 0xA4 && b[q + 1] == 0x03 && b[q + 2] == 0x09 && KeyChars(&b[q + 3], 8, true)) { memcpy(e.script, &b[q + 3], 8); break; }
+        for (size_t q = at; q + 11 <= end; q++)
+            if (b[q] == 0xBA && b[q + 1] == 0x00 && b[q + 2] == 0x09 && KeyChars(&b[q + 3], 8, false)) {
+                char key[9] = {};
+                memcpy(key, &b[q + 3], 8);
+                if (const char *t = GxtLookup(key)) {
+                    std::string title;
+                    for (const char *c = t; *c && title.size() < 40; c++) {
+                        if (*c == '~') { const char *e2 = strchr(c + 1, '~'); if (!e2) break; c = e2; continue; }   // (~r~ colour codes)
+                        title += (*c >= 32 && *c < 127) ? *c : ' ';
+                    }
+                    e.title = title;
+                }
+                break;
+            }
+        for (char &c : e.script) if (c >= 'a' && c <= 'z') c = (char)(c - 32);
+        if (e.title.empty()) e.title = e.script[0] ? e.script : "?";
+        g_missionList.push_back(e);
+    }
+    Log("missions : %d missions de l'histoire lues dans main.scm", (int)g_missionList.size());
+}
+
+static void MissionsTab(float x0, float y0, float x1, float y1)
+{
+    LoadMissionList();
+    float k = K();
+    UiText(x0, y0, 12.5f * k, C_GREY, UI_LEFT, L("Outil de test : la mission d\xE9" "marre chez l'h\xF4" "te et tout le monde la suit. Deux clics pour lancer. Molette : d\xE9" "filer.",
+                                                  "Debug tool: the mission starts on the host and everybody follows. Two clicks to start. Wheel: scroll."));
+    UiText(x0, y0 + 18 * k, 12.5f * k, C_GREY, UI_LEFT, L("Elle compte comme jou\xE9" "e : sauvegarder ensuite peut d\xE9" "r\xE9" "gler l'histoire (prenez une sauvegarde de test).",
+                                                         "It counts as played: saving afterwards can upset the story order (use a spare save)."));
+    float y = y0 + 44 * k;
+    if (g_missionList.empty()) { UiText(x0, y, 14 * k, C_INK, UI_LEFT, L("Aucune mission lue (data\\script\\main.scm).", "No mission read (data\\script\\main.scm).")); return; }
+    uint32_t now = GetTickCount();
+    if (g_missionArmed >= 0 && now - g_missionArmedAt > 5000) g_missionArmed = -1;
+    const int cols = 3, rows = 9, per = cols * rows;
+    int total = (int)g_missionList.size(), pages = (total + per - 1) / per;
+    if (Hover(x0, y, x1, y1) && g_wheel) { g_missionScroll += g_wheel; g_wheel = 0; }
+    if (g_missionScroll > pages - 1) g_missionScroll = (float)(pages - 1);
+    if (g_missionScroll < 0) g_missionScroll = 0;
+    int first = (int)g_missionScroll * per;
+    float bw = (x1 - x0 - (cols - 1) * 8 * k) / cols, bh = (y1 - y - 22 * k - (rows - 1) * 6 * k) / rows;
+    for (int i = 0; i < per && first + i < total; i++) {
+        const MissionEntry &e = g_missionList[first + i];
+        float bx = x0 + (i % cols) * (bw + 8 * k), by = y + (i / cols) * (bh + 6 * k);
+        char label[80];
+        bool armed = g_missionArmed == e.index;
+        if (armed) sprintf(label, "%s", L("Cliquer encore : lancer", "Click again to start"));
+        else sprintf(label, "%d  %.40s", e.index, e.title.c_str());
+        if (Button(bx, by, bx + bw, by + bh, label, armed, true, 12 * k)) {
+            if (armed) { Queue(A_MISSION, e.index); g_missionArmed = -1; g_open = false; }
+            else { g_missionArmed = e.index; g_missionArmedAt = now; }
+        }
+    }
+    char pg[32];
+    sprintf(pg, "%d / %d", (int)g_missionScroll + 1, pages);
+    UiText(x1, y1 - 16 * k, 12 * k, C_GREY, UI_RIGHT, pg);
+}
+
 static void DrawMenu()
 {
     float k = K(), sw = (float)ScreenW(), sh = (float)ScreenH();
@@ -712,13 +825,13 @@ static void DrawMenu()
     UiText(x1 - 56 * k, y0 + 19 * k, 11.5f * k, C_GREY, UI_RIGHT, SACOOP_VERSION "  -  " SACOOP_FORK);
     if (Button(x1 - 44 * k, y0 + 12 * k, x1 - 14 * k, y0 + 40 * k, "X")) g_open = false;
     UiRect(x0 + 16 * k, y0 + 48 * k, x1 - 16 * k, y0 + 50 * k, 1 * k, 0xFFFFFF70, 0xFFFFFF70);
-    static const char *tabFr[] = { "JOUEURS", "V\xC9" "HICULES", "OUTILS", "TENUE", "AFFICHAGE", "MONDE", "H\xD4" "TE" }, *tabEn[] = { "PLAYERS", "VEHICLES", "TOOLS", "OUTFIT", "DISPLAY", "WORLD", "HOST" };
+    static const char *tabFr[] = { "JOUEURS", "V\xC9" "HICULES", "OUTILS", "TENUE", "AFFICHAGE", "MISSIONS", "MONDE", "H\xD4" "TE" }, *tabEn[] = { "PLAYERS", "VEHICLES", "TOOLS", "OUTFIT", "DISPLAY", "MISSIONS", "WORLD", "HOST" };
     int tabs = g_cfg.host ? T_COUNT : T_WORLD;   // (MONDE et HOTE : l'hote)
     if (g_tab >= tabs) g_tab = 0;
     float tw = (w - 32 * k - (tabs - 1) * 8 * k) / tabs;
     for (int t = 0; t < tabs; t++) {
         float bx = x0 + 16 * k + t * (tw + 8 * k);
-        if (Button(bx, y0 + 60 * k, bx + tw, y0 + 94 * k, (g_fr ? tabFr : tabEn)[t], g_tab == t)) g_tab = t;
+        if (Button(bx, y0 + 60 * k, bx + tw, y0 + 94 * k, (g_fr ? tabFr : tabEn)[t], g_tab == t, true, 12.5f * k)) g_tab = t;
     }
     float cx0 = x0 + 16 * k, cy0 = y0 + 108 * k, cx1 = x1 - 16 * k, cy1 = y1 - 34 * k;
     switch (g_tab) {
@@ -727,6 +840,7 @@ static void DrawMenu()
     case T_TOOLS: ToolsTab(cx0, cy0, cx1, cy1); break;
     case T_OUTFIT: OutfitTab(cx0, cy0, cx1, cy1); break;
     case T_DISPLAY: DisplayTab(cx0, cy0, cx1, cy1); break;
+    case T_MISSIONS: MissionsTab(cx0, cy0, cx1, cy1); break;
     case T_WORLD: WorldTab(cx0, cy0, cx1, cy1); break;
     case T_HOST: HostTab(cx0, cy0, cx1, cy1); break;
     }

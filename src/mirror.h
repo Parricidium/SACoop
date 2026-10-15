@@ -8,6 +8,7 @@ void MirrorMenuFrame();                   // chaque tour de boucle, menu compris
 void MirrorTestStuckCamera(const float *pos);   // autotest "camcoince" (invite)
 void MirrorTestObject(int step, const float *pos);   // autotest "objet" (hote)
 bool CutsceneActive();                     // a cutscene is running on this PC now
+void MissionStartRequest(int mission);      // F10 > Missions: start story mission n (host: now; guest: asks the host)
 void MissionStopRequest();                 // F10 button: stop the running mission (two clicks within 6 s; a guest asks the host)
 void InstallBigMessageLog();               // dllmain: log every big on-screen message and its caller (diagnostic)
 void SkipCutsceneNow();                    // F10 button: skip it (first press); a second press within 8 s, or none running: end it by force, controls and camera given back

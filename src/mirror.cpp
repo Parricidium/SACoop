@@ -40,7 +40,7 @@
 
 using namespace game;
 
-enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */, RL_OBJECT_DAMAGED = 9 /* guest -> host: a mission object damaged by the guest (host handle) */, RL_CUT_END = 10 /* host -> guests: his cutscene ends, skipped or not */ };
+enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */, RL_OBJECT_DAMAGED = 9 /* guest -> host: a mission object damaged by the guest (host handle) */, RL_CUT_END = 10 /* host -> guests: his cutscene ends, skipped or not */, RL_MISSION_REQUEST = 11 /* guest -> host: start story mission n (F10 > Missions) */, RL_NOTICE = 12 /* host -> guests: a line for the screen */ };
 static uint32_t *OnMissionVar();   // (below: the host's ONMISSION flag)
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
@@ -679,6 +679,7 @@ static Pending g_queue[QUEUE];
 static int g_qHead, g_qTail;
 
 static void HostStopMission(int who);
+static void HostStartMission(int mission, int who);
 static bool g_hostCutSkipped = true;   // guest: the host skipped his last cutscene (RL_CUT_END; true: old hosts)
 static void MissionCancelledToast(const char *name);
 static void *ObjectAt(int handle);
@@ -707,6 +708,14 @@ static void OnReliable(int from, const uint8_t *data, int len)
         return;
     }
     if (g_cfg.host && len >= 1 && data[0] == RL_MISSION_STOP) { HostStopMission(from > 0 && from < MAX_PLAYERS ? from : 1); return; }
+    if (g_cfg.host && len >= 3 && data[0] == RL_MISSION_REQUEST) { HostStartMission(*(const int16_t *)(data + 1), from > 0 && from < MAX_PLAYERS ? from : 1); return; }
+    if (!g_cfg.host && len >= 2 && data[0] == RL_NOTICE) {
+        char t[120] = {};
+        memcpy(t, data + 1, len - 1 < 119 ? len - 1 : 119);
+        HudToast(t, 5000);
+        Log("hote : %s", t);
+        return;
+    }
     // RL_CUT_END goes through the replay queue like the commands (below): it is about the CLEAR_CUTSCENE that follows it
     // there, which may be replayed much later (review of 15/10: applied on arrival, a lagging queue used it for the
     // wrong cutscene).
@@ -1697,6 +1706,58 @@ void MissionStopRequest()
     uint8_t m = RL_MISSION_STOP;
     NetSendReliable(&m, 1);
     Log("mission: stop requested from this guest, sent to the host");
+    HudToast(fr ? "Demande envoyee a l'hote" : "Request sent to the host", 3000);
+}
+
+// --- F10 > Missions (0.54.37, debug tool asked for on 15/10): start any story mission from the menu ---
+// The host's game starts it the way the main script does, START_MISSION (0417, checked in gta_sa.exe 1.0 US: it only reads
+// its parameter, loads the mission from main.scm at CTheScripts::MultiScriptArray[n] 0xA444C8 into the mission block and
+// sets bAlreadyRunningAMissionScript 0xA444B1), run by the ghost script, then MirrorMissionStart as for a mission started
+// by the game: the guests follow it as any other (regroup, mirrored commands). A guest's choice is a request to the host.
+// Refused while a mission runs (its block would be overwritten), during a cutscene, or when the host is dead.
+static void Notice(const char *text)
+{
+    HudToast(text, 5000);
+    uint8_t m[1 + 120] = { RL_NOTICE };
+    lstrcpynA((char *)m + 1, text, 120);
+    if (NetRunning()) NetSendReliable(m, 1 + lstrlenA((char *)m + 1) + 1);
+}
+
+static void HostStartMission(int mission, int who)
+{
+    bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    const char *by = g_players[who].state.name[0] ? g_players[who].state.name : who == 0 ? "the host" : "a guest";
+    uint32_t *om = OnMissionVar();
+    void *me = FindPlayerPed();
+    const char *why = nullptr;
+    if (!IsStoryMission(mission)) why = fr ? "pas une mission de l'histoire" : "not a story mission";
+    else if (*(uint8_t *)0xA444B1 || (om && *om) || RunningMissionScript()) why = fr ? "une mission est deja en cours (Outils > Arreter la mission)" : "a mission is already running (Tools > Stop mission)";
+    else if (CutsceneRunning()) why = fr ? "cinematique en cours" : "a cutscene is playing";
+    else if (!me || Field<float>(me, PED_HEALTH) <= 0.0f) why = fr ? "l'hote n'est pas pret" : "the host is not ready";
+    char t[120];
+    if (why) {
+        wsprintfA(t, fr ? "Mission %d non lancee : %s" : "Mission %d not started: %s", mission, why);
+        Log("missions : %d demandee par %s, refusee (%s)", mission, by, why);
+        Notice(t);
+        return;
+    }
+    int arg = mission;
+    RunScriptCommand(0x0417, 1, &arg);   // START_MISSION
+    Log("missions : %d lancee depuis le menu (demandee par %s)", mission, by);
+    MirrorMissionStart();
+    wsprintfA(t, fr ? "Mission %d lancee par %s" : "Mission %d started by %s", mission, by);
+    Notice(t);
+}
+
+void MissionStartRequest(int mission)
+{
+    bool fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
+    if (g_cfg.host || !NetRunning()) { HostStartMission(mission, 0); return; }
+    uint8_t m[3] = { RL_MISSION_REQUEST };
+    int16_t v = (int16_t)mission;
+    memcpy(m + 1, &v, 2);
+    NetSendReliable(m, 3);
+    Log("missions : %d demandee a l'hote", mission);
     HudToast(fr ? "Demande envoyee a l'hote" : "Request sent to the host", 3000);
 }
 
