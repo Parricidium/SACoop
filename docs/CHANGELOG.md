@@ -20,8 +20,7 @@ From the host and client logs of the 15/10 night test (0.54.17, Robbing Uncle Sa
   frame. A removal the game refuses is now noted once and not retried (`upgrade ... stays (the game keeps it)`).
 - Checked in the same logs: the waypoint hold of 0.54.17 found the ground every time; the passenger followed the host's
   car into the garage interior and back out (`passager : interieur 0 -> 2`, `2 -> 0`); the shared radio followed the
-  driver without fighting. The call's ring: the host's call script (`mob_la1`) uses no sound command before the answer
-  (its commands are in the host log), so the ring comes from elsewhere; still open.
+  driver without fighting. Phone calls (0.54.16 / 0.54.17): working, the players confirmed it.
 
 ## 0.54.19-vcport (network version 27 unchanged: plays with 0.54.18, both need it for the object fix)
 
