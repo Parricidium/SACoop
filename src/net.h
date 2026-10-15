@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 28, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 29, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -30,6 +30,7 @@ enum MsgType : uint8_t {
     MSG_HUD,         // host -> guests: the on-screen mission timer and counters (msnhud.cpp), 4 times a second
     MSG_SPEECH,      // a line said by a player or (host) a shared ped: bank and sound (speech.cpp); relayed by the host
     MSG_GARAGE,      // garage doors the sender is the nearest to: state and position (garages.cpp); relayed by the host
+    MSG_MOBJECT,     // host -> guests: a mission object's place, area and visibility (objects.cpp)
 };
 
 #pragma pack(push, 1)
@@ -133,6 +134,8 @@ enum { PF_DEAD = 1, PF_AMBIENT = 2 /* passant ordinaire (population partagee) */
 struct MsgSpeech { uint8_t type, from, kind, voiceType; uint32_t id; int16_t bank, sound, context; float volume; uint8_t forceAudible, frontEnd; };
 // Garage doors (garages.cpp): up to 8 garages (index in CGarages::aGarages), door state and position.
 struct MsgGarage { uint8_t type, from, count, pad; struct { uint8_t idx, state; float pos; } e[8]; };
+// Mission object (objects.cpp): the host's script handle, its pose, area and CEntity flags (+0x1C: 0x80 visible, 1 uses collision).
+struct MsgMObject { uint8_t type, area; int16_t model; int handle; uint32_t flags; float pos[3], right[3], fwd[3], speed[3]; };
 struct MsgObject { uint8_t type, from; int16_t model; float orig[3], pos[3], right[3], fwd[3], speed[3]; };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 // Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).
@@ -240,6 +243,7 @@ void NetFillPings(uint8_t *out);                    // host: MAX_PLAYERS pings f
 extern void (*g_onClothes)(const MsgClothes &c);   // vetements d'un autre joueur
 extern void (*g_onVehicle)(const MsgVehicle &v);   // etat d'un vehicule d'un autre joueur
 extern void (*g_onDamage)(const MsgDamage &d);     // coup porte par un joueur a un autre
+extern void (*g_onMObject)(const MsgMObject &o);   // objects.cpp: a host's mission object
 extern void (*g_onObject)(const MsgObject &o);     // objet du decor deplace par un autre joueur
 extern void (*g_onPed)(const MsgPed &p);           // invite : personnage de mission de l'hote
 extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite sur un personnage de mission

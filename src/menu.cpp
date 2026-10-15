@@ -105,7 +105,14 @@ static const char *CoopText(const char *key)
 typedef const char *(__thiscall *TextGet_t)(void *, const char *);
 static TextGet_t o_TextGet;
 static void *g_textObj;   // the game's CText object (seen in the calls): GxtLookup below
-const char *GxtLookup(const char *key) { return g_textObj && o_TextGet && key ? o_TextGet(g_textObj, key) : nullptr; }
+// (TheText 0xC1B340, CText::Get 0x6A0050 when the hook is not in yet: a guest who joined without opening a menu had no
+// object seen here, and every mission key "had no text" in the 0.54.28 log of 15/10.)
+const char *GxtLookup(const char *key)
+{
+    if (!key) return nullptr;
+    void *obj = g_textObj ? g_textObj : (void *)0xC1B340;
+    return o_TextGet ? o_TextGet(obj, key) : ((TextGet_t)0x6A0050)(obj, key);
+}
 static const char *__fastcall h_TextGet(void *text, void *, const char *key)
 {
     g_textObj = text;

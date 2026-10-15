@@ -6,6 +6,27 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.29-vcport (network version 29: both players need 0.54.29, untested)
+
+From the host and client logs of the 15/10 test (0.54.28, Just Business and Robbing Uncle Sam).
+
+- **Host crash while driving the van in Robbing Uncle Sam** (`0x465CB4`): fixed. The mod's ghost script (which replays
+  commands) had its "external script type" byte at 0 instead of the game's -1, so a task command it ran took its first
+  local variable (a coordinate, 1013.7) as the handle of "the ped this script belongs to" and read far outside the ped
+  pool. The byte is now -1, as the game sets it for every ordinary script.
+- **Mission objects for the guest:** the host now sends each mission object near a guest (crates, boxes, anything the
+  mission created) with its place, rotation, area and visibility, 5 times a second while it moves and every 2 s
+  otherwise. The guest's copy is put there, so crates carried, pushed by a forklift or shown later look the same on both
+  screens. The log says when a copy was wrong (`objet de mission ... -> corrige`) or missing (`pas de copie chez
+  l'invite`).
+- **Weapon pickups for each player:** a gun picked up by one player stays for the others; each player takes their own.
+  A mission waiting for that pickup still sees it collected. Setting `WeaponPickupsEach` (default `1`; `0` = one for
+  the group, as before).
+- **Text lookups on the guest** always use the game's text table (they returned nothing when the guest had not opened a
+  menu yet, so the mission title / help checks in the log said "no text").
+- The `choc :` log line (car stopping dead) now also fires from 40 km/h (was 70), to catch the guest's car stopping on
+  another car and sinking into the road.
+
 ## 0.54.28-vcport (network version 28 unchanged, untested)
 
 Request of 15/10: aiming at an enemy kept locking on to the other player.

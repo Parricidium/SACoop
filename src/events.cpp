@@ -84,6 +84,18 @@ static void ApplyPickup(const EvPickup &e)
     if (best < 0) { if (said < 30) { said++; Log("pickup ramasse par le joueur %d (modele %d) : pas chez nous", e.from, e.model); } return; }
     uint8_t *p = Pickup(best);
     int t = p[0x1C];
+    if (g_cfg.weaponPickupsEach && e.model >= 321 && e.model <= 372) {
+        // A weapon (0.54.29, request of 15/10): left for the others, each player takes his own. A script waiting for it
+        // (HAS_PICKUP_BEEN_COLLECTED) still sees it taken: its handle goes into the collected list, nothing is removed.
+        if (t != 2 && t != 15) {
+            uint32_t handle = ((uint32_t)*(uint16_t *)(p + 0x1A) << 16) | (uint32_t)best;
+            uint16_t &n = *(uint16_t *)0x978624;
+            ((uint32_t *)0x978628)[n] = handle;
+            if (++n >= 20) n = 0;
+        }
+        if (said < 30) { said++; Log("pickup d'arme ramasse par le joueur %d (modele %d, type %d) : laisse chez nous", e.from, e.model, t); }
+        return;
+    }
     if (t == 2 || t == 15) {   // reapparait : desactive comme le jeu
         if (!(p[0x1D] & 1)) {
             *(uint32_t *)(p + 0xC) = *(uint32_t *)0xB7CB84 + (t == 15 ? 360000 : 30000);

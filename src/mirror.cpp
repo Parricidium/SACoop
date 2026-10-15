@@ -832,6 +832,10 @@ static void ExecCommand(int op)
 {
     *(uint8_t **)(g_script + 0x10) = g_code;
     *(uint8_t **)(g_script + 0x14) = g_code + 2;
+    // +0xC9: external script type, -1 for an ordinary script (as CRunningScript::Init sets it). Left at 0 (zeroed ghost),
+    // the task commands (GivePedScriptedTask 0x465C20: types 0, 2, 3, 5) took local 0 as the handle of "the ped this
+    // brain script runs on": a float left there (1013.7) was read as a handle and the host crashed at 0x465CB4 (15/10).
+    g_script[0xC9] = 0xFF;
     ScriptOriginalHandler(op / 100)(g_script, op);
 }
 
@@ -1508,6 +1512,7 @@ void RunScriptCommandTyped(int op, int nargs, const char *types, const int *args
     }
     ExecCommand(op);
 }
+int MirrorGuestObject(int hostHandle) { return MapGet(g_objects, hostHandle); }
 int ScriptGhostVar(int i) { return *(int *)(g_script + 0x3C + i * 4); }
 
 // Execute une commande a parametres entiers dans le script fantome (autotests, retablissement de l'ecran).

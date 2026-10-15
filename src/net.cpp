@@ -29,6 +29,7 @@ void (*g_onVehicle)(const MsgVehicle &v);
 void (*g_onDamage)(const MsgDamage &d);
 void (*g_onPed)(const MsgPed &p);
 void (*g_onObject)(const MsgObject &o);
+void (*g_onMObject)(const MsgMObject &o);
 void (*g_onPedHit)(const MsgPedHit &h);
 void (*g_onMarker)(const MsgMarker &m);
 void (*g_onTrain)(const MsgTrain &t);
@@ -634,6 +635,9 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         break;
     case MSG_GARAGE:
         if (len >= (int)sizeof(MsgGarage) && g_onGarage) g_onGarage(*(const MsgGarage *)buf);
+        break;
+    case MSG_MOBJECT:
+        if (len >= (int)sizeof(MsgMObject) && g_onMObject) g_onMObject(*(const MsgMObject *)buf);
         break;
     case MSG_SPEECH:
         if (len >= (int)sizeof(MsgSpeech) && g_onSpeech) g_onSpeech(*(const MsgSpeech *)buf);

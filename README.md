@@ -93,7 +93,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**. Everybody's game starts together.
    - Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a virtual LAN.
    - A player who arrives late uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.28-vcport (Zebra's forked repo) loaded`. If it does
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.29-vcport (Zebra's forked repo) loaded`. If it does
    not, that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -118,11 +118,11 @@ Then copy `build\dinput8.dll` into the game folder **on both PCs**.
 ## What this fork adds
 
 The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was added on top of it, in `0.49.0-vcport` to
-`0.54.28-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
+`0.54.29-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
 > [!NOTE]
-> **New in 0.54.9 to 0.54.28** is marked with 🆕. Most of it has been tried by two players; the newest items
+> **New in 0.54.9 to 0.54.29** is marked with 🆕. Most of it has been tried by two players; the newest items
 > (helper-script dialogue, the cutscene loading wait) still need a real test.
 
 ### 🎬 Missions and cutscenes
@@ -141,6 +141,7 @@ The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was adde
   - Doubles of the other players are hidden during the scene.
 - 🆕 **Phone calls:** the host's call rings for the guest too, and the guest's call starts when the host's does.
 - 🆕 **"Mission cancelled by \<name\>"** pops up for everybody.
+- 🆕 **Mission objects match:** crates and boxes the mission creates are in the same place, and seen, on every screen.
 - 🆕 **Mission objects:** a guest's shots count, even from far away (the control panel and switches of Robbing Uncle Sam).
 - 🆕 **Mission characters** no longer fall over on the spot in scripted scenes.
 - **F10 > Tools > SKIP CUTSCENE** and **STOP MISSION** for when something gets stuck.
@@ -170,6 +171,7 @@ The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was adde
   same moment, at the same volume, on every PC.
 - 🆕 **Wanted level clears for everybody** when any player dies.
 - **Weapons come back** after a death, with their ammo.
+- 🆕 **Weapon pickups for each player:** a gun picked up by one player stays there for the others.
 
 ### 🛠️ F10 > Tools
 
@@ -210,7 +212,7 @@ Each player only changes their own character, weapons and money.
 - **Precise clock** for what is sent and played back (driving no longer looks jerky).
 - **World sanitizer:** absurd positions are caught before they crash the game.
 - **30 FPS by default** (stable); 60 FPS with frame-rate fixes is still an option.
-- **Crashes fixed:** vehicle model pool filling up (Sweet's Girl), a crate exploding next to a car (Robbing Uncle Sam),
+- **Crashes fixed:** vehicle model pool filling up (Sweet's Girl), a crate exploding next to a car and 🆕 a host crash in the van (Robbing Uncle Sam),
   the Display Setup > Advanced menu, a host address typed as `address:port`.
 - **Alt+Tab** gives the mouse back at once; **Alt+Enter** switches between borderless and windowed.
 
@@ -232,10 +234,10 @@ Each player only changes their own character, weapons and money.
 | 0.54.9 to 0.54.12 | Wanted level cleared on death, interior cutscenes, suicide / weapons / money tools |
 | 0.54.13 to 0.54.18 | Speech sync, waypoint teleport, extras, entry fixes, phone calls, garage doors, drive-bys, nitro |
 | 0.54.19 to 0.54.23 | Mission objects for the guest, HUD without blinking, mission title, vehicle offer (Y/N), exact hit points |
-| 0.54.24 to 0.54.28 | Firing animation, cutscene fixes, passenger and helper-script dialogue, cutscene loading wait, no lock-on to players |
+| 0.54.24 to 0.54.29 | Firing animation, cutscene fixes, helper-script dialogue, no lock-on to players, mission objects synced, weapon pickups for each player, van crash fixed |
 
-**Network versions:** both players must use the same build. The last network changes were in 0.54.13, 0.54.15, 0.54.18
-and **0.54.26** (network version 28).
+**Network versions:** both players must use the same build. The last network changes were in 0.54.13, 0.54.15, 0.54.18,
+0.54.26 and **0.54.29** (network version 29).
 
 ## What the original mod does
 
@@ -315,6 +317,7 @@ sync options. **The key names are still the original French ones**; they are exp
 | `SauvegardesLocales=1` | Settings and saves in the game folder, apart from your solo saves |
 | `Tenue=0` | Your outfit: 0 = CJ with your clothes, 1 to 299 = a pedestrian of the game |
 | `TirAmi=1` | Friendly fire: 1 = other players can hurt you, 0 = no (each player chooses for themselves) |
+| `WeaponPickupsEach=1` | 1 = a weapon pickup taken by one player stays for the others, 0 = one for the whole group |
 | `TargetPlayers=0` | Lock-on: 0 = the other players can never be locked on to (aiming picks the enemies), 1 = like the original game |
 | `VuePremierePersonne=1`, `ToucheVue=F6` | First-person view on foot, and its key |
 | `OcclusionAmbiante=1`, `Anticrenelage=1` | Modern rendering: ambient occlusion and FXAA |
@@ -364,9 +367,11 @@ ready).
 
 Play a session and tick these off. Newest first:
 
-- [ ] Both `sacoop.log` files start with the same version (`0.54.28-vcport (Zebra's forked repo)`).
+- [ ] Both `sacoop.log` files start with the same version (`0.54.29-vcport (Zebra's forked repo)`).
 - [ ] **Mission dialogue in a car:** the guest hears the host's passengers and the mission's lines.
 - [ ] **Cutscenes:** the guest sees the scenery loaded (indoors and outdoors) and the cutscene is not cut short.
+- [ ] **Mission objects:** the guest sees the crates of Home Invasion and the boxes of Robbing Uncle Sam, in the same place.
+- [ ] **Weapon pickups:** one player takes a gun; it is still there for the other.
 - [ ] **Lock-on:** aim at an enemy standing next to the other player: the lock goes to the enemy, never to the player.
 - [ ] **Firing:** the other player's shots show the firing animation and muzzle flash.
 - [ ] **Mission title and subtitles** show on the guest.
@@ -421,11 +426,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.28-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.29-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.28-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.28-vcport.zip`.
+`v0.54.29-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.29-vcport.zip`.
 
 ## Known gaps and roadmap
 
@@ -441,7 +446,7 @@ Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **
 8. The host's mission characters and mission vehicles are copies on the guest, placed from the host's state: the
    guest's collisions cannot push them, so they feel like walls. Letting a hit move them needs the guest to take them
    over for a moment; not done yet.
-9. Mission dialogue from helper scripts and the cutscene loading wait (0.54.27) still need a real test.
+9. Mission objects sync, weapon pickups for each player and the van crash fix (0.54.29) still need a real test.
 
 ## Credits and license
 

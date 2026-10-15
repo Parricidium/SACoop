@@ -1178,7 +1178,7 @@ void VehiclesFrame()
 
 // Crash probe (0.54.9, report of 15/10: "far from the host, the guest's car stops dead on lamp posts, NPCs and cars at
 // high speed, nothing moves"). Runs after the physics on every player: when the local player's own car loses more than
-// half its speed in one step above ~70 km/h, the entities it touches are logged. CPhysical +0xB9: number of entities
+// half its speed in one step above ~40 km/h (70 until 0.54.28), the entities it touches are logged. CPhysical +0xB9: number of entities
 // collided, +0xBC: their list (6); +0xD8 / +0xDC: damage intensity / damage entity of this step. For each one: type
 // (CEntity +0x36 low 3 bits: 2 car, 3 ped, 4 object), model, CEntity flags (+0x1C: bit 2 bIsStatic, bit 18
 // bIsStaticWaitingForCollision), CPhysical flags (+0x40: bit 13 bDontApplySpeed), mass (+0x8C) and whether it is a mod copy.
@@ -1212,7 +1212,7 @@ void VehicleHitProbe()
     float before = veh == lastVeh ? lastSpeed : 0.0f;
     lastVeh = veh;
     lastSpeed = speed;
-    if (before < 0.4f || speed > before * 0.5f || said >= 40 || GetTickCount() - lastLog < 1000) return;
+    if (before < 0.22f || speed > before * 0.5f || said >= 40 || GetTickCount() - lastLog < 1000) return;
     said++;
     lastLog = GetTickCount();
     const float *pos = EntityPos(veh);
