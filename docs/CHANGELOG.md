@@ -6,6 +6,23 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.22-vcport (network version 27 unchanged)
+
+From the host and client logs of the 15/10 test (0.54.20, Robbing Uncle Sam).
+
+- **Switches a guest could not shoot, the cause** (mirror.cpp, `HostObjectsForGuests`). The 0.54.19 watch never fired (no
+  `objet de mission` line in the client log). Checked in gta_sa.exe 1.0 US, `CObject::ObjectDamage`: an object with CPhysical
+  flag 0x400000 (+0x40), which mission scripts set on such switches, drops any damage that does not come from the player or
+  his vehicle (0x5A0E34). The guest's shots reach the host as his puppet's replayed shots, so the host's switch ignored
+  them. The host now lifts that flag on any object within 80 m of a guest (every 0.5 s); the puppet's replayed shots then
+  damage it as the host's would, and the mission goes on. Log: `objet de mission (modele ...) : plus seulement
+  endommageable par l'hote`. (The 0.54.19 watch stays as a second way.)
+- **Mission HUD still blinking a few times a second** (msnhud.cpp, interp.cpp). With 0.54.20 the counters were still put
+  back every 0.3 to 1 s (client log: claims 1 to 20 in 5 s), so something clears them during the frame. They used to be
+  put back only once per loop turn, after the frame was drawn: one frame without them each time, the blink. They are now
+  also put back right after `CGame::Process`, before the frame is drawn. The claim lines now give what the slot held
+  (`the slot held id ...`) to find what clears it.
+
 ## 0.54.21-vcport (network version 27 unchanged)
 
 From the players' test of 15/10.

@@ -3,3 +3,4 @@
 #pragma once
 
 void MissionHudFrame();   // every game loop turn, in game: host sends, guests apply (and drop what they put up when it ends)
+void MissionHudBeforeDraw();   // interp.cpp: after CGame::Process, before the frame is drawn

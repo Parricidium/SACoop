@@ -7,6 +7,7 @@
 #include "interp.h"
 #include "trains.h"
 #include "vehicles.h"
+#include "msnhud.h"
 #include <math.h>
 #include <string.h>
 
@@ -211,6 +212,7 @@ static void __cdecl h_GameProcess()
     if (g_cfg.placeFoot) PuppetsAfterProcess();
     if (g_cfg.placeVeh) VehiclesAfterProcess();
     if (g_cfg.placeFoot) GhostsAfterProcess();
+    MissionHudBeforeDraw();
 }
 
 // The call to CGame::Process (0x53BEE0, cdecl, no argument) lives in Idle (0x53E920). Its exact address is found at

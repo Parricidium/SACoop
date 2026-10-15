@@ -719,6 +719,41 @@ static void GuestObjectDamageWatch()
     }
 }
 
+// Host: objects a mission made "damaged only by the player" (the switches of Robbing Uncle Sam). Checked in gta_sa.exe 1.0
+// US, CObject::ObjectDamage: with CPhysical flag 0x400000 (+0x40) the damage is dropped unless it comes from the player or
+// his vehicle (0x5A0E34). A guest's shots reach the host as his puppet's replayed shots: the switch ignored them, and the
+// guest could not do that part of the mission (test of 15/10, also with the 0.54.19 watch above, which never fired).
+// While a guest is within 80 m of such an object, the flag is lifted: his replayed shots damage it like the host's.
+static void HostObjectsForGuests()
+{
+    static uint32_t last;
+    uint32_t now = GetTickCount();
+    if (now - last < 500) return;
+    last = now;
+    uint8_t *pool = *(uint8_t **)0xB7449C;
+    if (!pool) return;
+    uint8_t *objs = *(uint8_t **)pool, *flags = *(uint8_t **)(pool + 4);
+    int n = *(int *)(pool + 8);
+    for (int i = 0; i < n; i++) {
+        if (flags[i] & 0x80) continue;
+        uint8_t *o = objs + i * 0x19C;
+        uint32_t &pf = *(uint32_t *)(o + 0x40);
+        if (!(pf & 0x400000)) continue;
+        const float *p = EntityPos(o);
+        bool guestClose = false;
+        for (int g = 1; g < MAX_PLAYERS && !guestClose; g++) {
+            const NetPlayer &np = g_players[g];
+            if (!np.connected || !np.state.inGame) continue;
+            float dx = np.state.pos[0] - p[0], dy = np.state.pos[1] - p[1], dz = np.state.pos[2] - p[2];
+            guestClose = dx * dx + dy * dy + dz * dz < 80.0f * 80.0f;
+        }
+        if (!guestClose) continue;
+        pf &= ~0x400000u;
+        static int said;
+        if (said++ < 20) Log("objet de mission (modele %d) : plus seulement endommageable par l'hote (un invite est a moins de 80 m)", *(int16_t *)(o + 0x22));
+    }
+}
+
 static void ExecCommand(int op)
 {
     *(uint8_t **)(g_script + 0x10) = g_code;
@@ -1676,7 +1711,7 @@ static void PhoneFollowFrame(uint32_t now)
 void MirrorFrame()
 {
     g_onReliable = OnReliable;
-    if (g_cfg.host) { if (NetRunning()) HostGlobalsFrame(); return; }
+    if (g_cfg.host) { if (NetRunning()) { HostGlobalsFrame(); if (GameState() == 9) HostObjectsForGuests(); } return; }
     if (GameState() != 9 || !FindPlayerPed()) { g_havePrev = false; g_omForced = false; return; }
     UnstickFade();
     CameraWatch();

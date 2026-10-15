@@ -187,7 +187,7 @@ void GuestApply()
             s[0x3F] = 0;   // steady: no "flash when first displayed" on the guest (it blinked at the update rate, test of 15/10)
             if (!mine) {
                 static int claims;
-                if (++claims <= 20) Log("mission HUD: counter %d (%s) type %d, value %d (claim %d)", i, c.key, c.type, (int)c.value, claims);
+                if (++claims <= 20) Log("mission HUD: counter %d (%s) type %d, value %d (claim %d, the slot held id %08X)", i, c.key, c.type, (int)c.value, claims, id);
             }
             g_offSince[i] = 0;
         } else if (mine) {
@@ -201,6 +201,13 @@ void GuestApply()
 }
 
 }   // namespace
+
+// Also right after CGame::Process, before the frame is drawn (interp.cpp): whatever cleared a counter during the frame
+// (client log of 15/10: still put back every 0.3 - 1 s), it is back before the HUD is drawn, so it no longer blinks.
+void MissionHudBeforeDraw()
+{
+    if (!g_cfg.host && NetRunning() && g_have) GuestApply();
+}
 
 void MissionHudFrame()
 {
