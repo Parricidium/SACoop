@@ -148,6 +148,7 @@ void *NetVehicleById(uint32_t id)
 // caught it, and the owner's driver was warped back in at every state.
 void VehicleTakeOverForEntry(void *veh)
 {
+    if (!g_cfg.jackTakeover) return;
     NetVeh *n = FindByVeh(veh);
     if (!n || n->owner == g_localId || !Alive(*n)) return;
     if (void *d = Field<void *>(veh, VEH_DRIVER)) if (PuppetIndex(d) >= 0) return;   // a player drives it
@@ -1129,7 +1130,7 @@ static void HostTrafficGuard()
             if (!pup || !g_players[g].connected) continue;
             const float *gp = EntityPos(pup);
             float dx = cp[0] - gp[0], dy = cp[1] - gp[1], d = sqrtf(dx * dx + dy * dy);
-            if (d > 90.0f || d < 0.1f) continue;
+            if (d > (float)g_cfg.trafficGuardRange || d < 0.1f) continue;   // (TrafficGuardRange, 90 m by default)
             float fx, fy;
             if (void *gv = PedVehicle(pup)) { uint8_t *m = *(uint8_t **)((uint8_t *)gv + 0x14); fx = m ? ((float *)m)[4] : 0; fy = m ? ((float *)m)[5] : 1; }
             else { float h = Field<float>(pup, PED_ROTATION); fx = -sinf(h); fy = cosf(h); }
@@ -1303,7 +1304,7 @@ static void OnVehPush(const MsgVehPush &m)
 void VehiclePushProbe()
 {
     g_onVehPush = OnVehPush;
-    if (!NetRunning()) return;
+    if (!NetRunning() || !g_cfg.pushCopies) return;
     uint32_t now = GetTickCount();
     void *me = FindPlayerPed();
     void *mine = me ? PedVehicle(me) : nullptr;

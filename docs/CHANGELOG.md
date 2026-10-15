@@ -6,6 +6,23 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.38-vcport (network version 31 unchanged)
+
+To find why a guest out of the host's sight (short to medium range) has little traffic and sees other cars than the
+host (report of 15/10). Nothing changes by default; new switches and log lines:
+
+- `sacoop.ini` switches for each feature added since 0.54.29 that runs all the time, to switch them off one at a time:
+  `SyncMissionObjects` (mission objects placed on the guests), `PushCopies` (a copy hit by a car is pushed),
+  `JackTakeover` (a copy being jacked becomes the guest's at the door), `RenderListGuard` (removed entities leave the
+  render lists). All `1` by default.
+- `TrafficGuardRange` (default `90`): the host removes a car of his traffic that the game makes appear closer than this
+  in front of a guest (so it does not pop in under his eyes). The game only makes traffic where the host is not looking,
+  which is often where a guest near him looks: lower it (e.g. `40`) for more traffic around the guest, with some cars
+  appearing at a distance; `0` never removes any.
+- Log: the population line (every 10 s) also gives the guest's density multipliers, his mode (0 next to the host, 1 in
+  his zone, 2 his own) and the host's mission densities; a guest away from the host logs it every 30 s too. The network
+  line (every 30 s) is followed by the busiest message types sent and received.
+
 ## 0.54.37-vcport (network version 31 unchanged, untested)
 
 - **F10 > MISSIONS** (debug tool): every story mission of `main.scm`, by number and title (or script name). Two clicks

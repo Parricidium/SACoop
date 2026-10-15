@@ -221,6 +221,11 @@ static void LoadConfig()
     g_cfg.placeVeh = GetPrivateProfileIntA("SACoop", "PlacementVehicules", 1, ini) != 0;
     g_cfg.freezeCopies = GetPrivateProfileIntA("SACoop", "GelerCopies", 1, ini) != 0;
     g_cfg.speechSync = GetPrivateProfileIntA("SACoop", "SyncParole", 1, ini) != 0;
+    g_cfg.syncMissionObjects = GetPrivateProfileIntA("SACoop", "SyncMissionObjects", 1, ini) != 0;
+    g_cfg.pushCopies = GetPrivateProfileIntA("SACoop", "PushCopies", 1, ini) != 0;
+    g_cfg.jackTakeover = GetPrivateProfileIntA("SACoop", "JackTakeover", 1, ini) != 0;
+    g_cfg.trafficGuardRange = GetPrivateProfileIntA("SACoop", "TrafficGuardRange", 90, ini);
+    g_cfg.renderGuard = GetPrivateProfileIntA("SACoop", "RenderListGuard", 1, ini) != 0;
     g_cfg.weaponPickupsEach = GetPrivateProfileIntA("SACoop", "WeaponPickupsEach", 1, ini) != 0;
     g_cfg.targetPlayers = GetPrivateProfileIntA("SACoop", "TargetPlayers", 0, ini) != 0;
     g_cfg.syncGarages = GetPrivateProfileIntA("SACoop", "SyncGarages", 1, ini) != 0;

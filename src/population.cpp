@@ -260,7 +260,8 @@ static void Report()
     lastReport = GetTickCount();
     bool any = PopulationShared();
     for (int i = 1; i < MAX_PLAYERS; i++) any |= g_cfg.host && g_shared[i];
-    if (!any) return;
+    static int quiet;
+    if (!any && (g_cfg.host || ++quiet % 3)) return;   // (a guest away from the host: every 30 s, to see his own population too)
     int copies = 0, local = 0, inOther = 0, cars = 0, localCars = 0;
     Pool *peds = *(Pool **)0xB74490;
     for (int i = 0; i < peds->size; i++) {
@@ -277,7 +278,8 @@ static void Report()
     }
     float dh = g_cfg.host ? 0.0f : sqrtf(Dist2D(EntityPos(FindPlayerPed()), g_players[0].state.pos));
     Log("population fusionnee : %d personnages et %d vehicules du reseau, %d passants (%d dans la zone d'un autre) et %d vehicules locaux, "
-        "%d passants et %d vehicules retires, hote a %.0f m, recherche %d", copies, cars, local, inOther, localCars, g_removedPeds, g_removedCars, dh, WantedLevel());
+        "%d passants et %d vehicules retires, hote a %.0f m, recherche %d, densites passants %.2f vehicules %.2f (mode %d, mission de l'hote %.2f / %.2f)",
+        copies, cars, local, inOther, localCars, g_removedPeds, g_removedCars, dh, WantedLevel(), *(float *)0x8D2530, *(float *)0x8A5B20, g_densityMode, g_hostPed, g_hostCar);
     g_removedPeds = g_removedCars = 0;
 }
 

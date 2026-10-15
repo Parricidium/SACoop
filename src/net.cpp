@@ -5,6 +5,23 @@
 #include "net.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
+
+// Messages sent and received per type, for the 30 s network line (0.54.38: which feature fills the link).
+static uint32_t g_typeSent[64], g_typeRecv[64];
+static void TypeLine(char *out, size_t cap, uint32_t *counts)
+{
+    out[0] = 0;
+    for (int pass = 0; pass < 5; pass++) {
+        int best = -1;
+        for (int t = 0; t < 64; t++) if (counts[t] && (best < 0 || counts[t] > counts[best])) best = t;
+        if (best < 0) break;
+        size_t l = strlen(out);
+        _snprintf(out + l, cap - l, "%s%d:%u", l ? " " : "", best, counts[best]);
+        counts[best] = 0;
+    }
+    memset(counts, 0, 64 * sizeof(uint32_t));
+}
 
 NetPlayer g_players[MAX_PLAYERS];
 int g_localId = -1;
@@ -688,12 +705,16 @@ void NetPoll()
                 int l = *(const uint16_t *)(buf + p);
                 p += 2;
                 if (l <= 0 || p + l > len) break;
+                g_typeRecv[buf[p] & 63]++;
                 if (g_cfg.host) HostReceive(buf + p, l, from);
                 else GuestReceive(buf + p, l, from);
                 p += l;
             }
-        } else if (g_cfg.host) HostReceive(buf, len, from);
-        else GuestReceive(buf, len, from);
+        } else {
+            g_typeRecv[buf[0] & 63]++;
+            if (g_cfg.host) HostReceive(buf, len, from);
+            else GuestReceive(buf, len, from);
+        }
         InterlockedExchange(&g_rxTail, g_rxTail + 1);
     }
 
@@ -704,6 +725,10 @@ void NetPoll()
         float sec = (now - statSince) / 1000.0f;
         Log("network: ping %.1f %.1f %.1f %.1f ms (players 0-3, 0 = unknown), received %.0f packets/s (%.1f kB/s), sent %.0f packets/s (%.1f kB/s), %ld dropped by the queue",
             g_pingMs[0], g_pingMs[1], g_pingMs[2], g_pingMs[3], g_recvPackets / sec, g_recvBytes / sec / 1024.0f, g_sentPackets / sec, g_sentBytes / sec / 1024.0f, (long)g_rxDropped);
+        char st[96], rt[96];
+        TypeLine(st, sizeof(st), g_typeSent);
+        TypeLine(rt, sizeof(rt), g_typeRecv);
+        Log("network: busiest messages in 30 s (type:count), sent %s, received %s", st, rt);
         g_recvPackets = g_recvBytes = 0;
         g_sentPackets = g_sentBytes = 0;
         statSince = now;
@@ -759,8 +784,10 @@ static void BatchFlush(int i)
     b.n = 0;
     b.len = 2;
 }
+
 static void BatchAdd(int i, const void *data, int len)
 {
+    g_typeSent[*(const uint8_t *)data & 63]++;
     if (len > 1000) { SendTo(BatchAddr(i), data, len); return; }
     Batch &b = g_batch[i];
     if (b.n == 0) b.len = 2;

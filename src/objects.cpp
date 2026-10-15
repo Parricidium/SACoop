@@ -226,7 +226,7 @@ static void PlaceObject(uint8_t *o, const MsgMObject &m, float ahead)
 
 static void OnMObject(const MsgMObject &m)
 {
-    if (g_cfg.host || !InGame()) return;
+    if (g_cfg.host || !InGame() || !g_cfg.syncMissionObjects) return;
     int h = MirrorGuestObject(m.handle);
     static int saidNone, saidFix;
     if (!h) {   // (not created here: the creation was not repeated or is still waiting for its model)
@@ -389,7 +389,8 @@ static void __cdecl h_WorldRemove(void *e)
 void InstallObjects()
 {
     static const uint8_t wr[] = { 0x56, 0x8B, 0x74, 0x24, 0x08, 0x8B, 0x06 };
-    o_WorldRemove = (WorldRemove_t)MakeDetour(0x563280, wr, sizeof(wr), (void *)h_WorldRemove);
+    if (g_cfg.renderGuard) o_WorldRemove = (WorldRemove_t)MakeDetour(0x563280, wr, sizeof(wr), (void *)h_WorldRemove);
+    else Log("objets : garde des listes de rendu desactivee (RenderListGuard=0)");
     static const uint8_t pro[] = { 0x83, 0xEC, 0x10, 0x56, 0x8B, 0xF1 };
     o_ObjRender = (ObjRender_t)MakeDetour(0x59FD50, pro, sizeof(pro), (void *)h_ObjRender);
 }
@@ -401,5 +402,5 @@ void ObjectsFrame()
     g_onMObjPush = OnMObjPush;
     if (!InGame() || !NetRunning()) return;
     SendFrame();
-    if (g_cfg.host) HostMissionObjects(); else GuestFollowObjects();
+    if (g_cfg.syncMissionObjects) { if (g_cfg.host) HostMissionObjects(); else GuestFollowObjects(); }
 }

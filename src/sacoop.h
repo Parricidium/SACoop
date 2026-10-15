@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.54.37-vcport"
+#define SACOOP_VERSION "0.54.38-vcport"
 #define SACOOP_FORK "Zebra's forked repo"   // shown in the log, the F10 menu and the launcher: tells this build from the original
 
 struct Config {
@@ -48,6 +48,11 @@ struct Config {
     int interpDelay;        // DelaiInterpolation : retard d'affichage en ms (110)
     bool placeFoot;         // PlacementPietons : pantins et copies de PNJ places par interpolation
     bool placeVeh;          // PlacementVehicules : copies de vehicules placees par interpolation
+    bool syncMissionObjects; // SyncMissionObjects : the host's mission objects placed on the guests (objects.cpp, 0.54.29)
+    bool pushCopies;        // PushCopies : a copy hit by our car is pushed and its owner told (vehicles.cpp, 0.54.31)
+    bool jackTakeover;      // JackTakeover : a copy we are about to jack becomes ours at the door (vehicles.cpp, 0.54.35)
+    bool renderGuard;
+    int trafficGuardRange;  // TrafficGuardRange : host, a car of his traffic born this close in front of a guest is removed (m, 0 = never)       // RenderListGuard : removed entities leave the render lists (objects.cpp, 0.54.33)
     bool weaponPickupsEach; // WeaponPickupsEach : 1 = a weapon pickup taken by one player stays for the others (events.cpp)
     bool targetPlayers;     // TargetPlayers : 1 = the other players can be locked on to (0 = never, coop.cpp)
     bool syncGarages;       // SyncGarages : garage doors follow the nearest player (garages.cpp)

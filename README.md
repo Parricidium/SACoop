@@ -93,7 +93,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**. Everybody's game starts together.
    - Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a virtual LAN.
    - A player who arrives late uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.37-vcport (Zebra's forked repo) loaded`. If it does
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.38-vcport (Zebra's forked repo) loaded`. If it does
    not, that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -118,11 +118,11 @@ Then copy `build\dinput8.dll` into the game folder **on both PCs**.
 ## What this fork adds
 
 The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was added on top of it, in `0.49.0-vcport` to
-`0.54.37-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
+`0.54.38-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
 > [!NOTE]
-> **New in 0.54.9 to 0.54.37** is marked with 🆕. Most of it has been tried by two players; the newest items
+> **New in 0.54.9 to 0.54.38** is marked with 🆕. Most of it has been tried by two players; the newest items
 > (Ryder in the van, boxes moved by the guest, pushing other players' cars) still need a real test.
 
 ### 🎬 Missions and cutscenes
@@ -243,7 +243,7 @@ Each player only changes their own character, weapons and money.
 | 0.54.9 to 0.54.12 | Wanted level cleared on death, interior cutscenes, suicide / weapons / money tools |
 | 0.54.13 to 0.54.18 | Speech sync, waypoint teleport, extras, entry fixes, phone calls, garage doors, drive-bys, nitro |
 | 0.54.19 to 0.54.23 | Mission objects for the guest, HUD without blinking, mission title, vehicle offer (Y/N), exact hit points |
-| 0.54.24 to 0.54.37 | Firing animation, cutscene fixes, helper-script dialogue, no lock-on to players, mission objects synced, weapon pickups for each player, Ryder in the van, pushing copies, crash fixes |
+| 0.54.24 to 0.54.38 | Firing animation, cutscene fixes, helper-script dialogue, no lock-on to players, mission objects synced, weapon pickups for each player, Ryder in the van, pushing copies, crash fixes |
 
 **Network versions:** both players must use the same build. The last network changes were in 0.54.13, 0.54.15, 0.54.18,
 0.54.26, 0.54.29, 0.54.30 and **0.54.31** (network version 31).
@@ -348,6 +348,8 @@ sync options. **The key names are still the original French ones**; they are exp
 | `SyncGarages=1` | Garage doors open and close the same for everybody (the nearest player leads) |
 | `SyncParole=1` | What players and shared pedestrians say (remarks, pain) is the same line at the same moment on every PC |
 | `GuestMissionLock=1` | A guest cannot start a story mission by walking into its marker (the marker is still drawn); only the host starts missions. 0 = like before |
+| `TrafficGuardRange=90` | Host: a car of his traffic that appears closer than this (m) in front of a guest is removed. Lower it (e.g. 40) for more traffic around a guest out of the host's sight; 0 = never |
+| `SyncMissionObjects=1`, `PushCopies=1`, `JackTakeover=1`, `RenderListGuard=1` | Newer features (mission objects on guests, pushing copies, jacking the host's traffic, render-list crash guard): 0 switches one off, to find what causes a problem |
 | `TrainSync=1` | The host's trains run the same on every guest's rails; the guest's own random trains are off. 0 = every PC runs its own trains |
 | `Profil=0` | 1 = sampling profiler for stutter hunting (the log always carries the 10 s load report) |
 | `AffiniteCoeur=0` | CPU core the game is limited to at launch (0 = first core; fixes the drifting mouse cursor), -1 = no restriction |
@@ -376,7 +378,7 @@ ready).
 
 Play a session and tick these off. Newest first:
 
-- [ ] Both `sacoop.log` files start with the same version (`0.54.37-vcport (Zebra's forked repo)`).
+- [ ] Both `sacoop.log` files start with the same version (`0.54.38-vcport (Zebra's forked repo)`).
 - [ ] **Mission dialogue in a car:** the guest hears the host's passengers and the mission's lines.
 - [ ] **Cutscenes:** the guest sees the scenery loaded (indoors and outdoors) and the cutscene is not cut short.
 - [ ] **Mission objects:** the guest sees the crates of Home Invasion and the boxes of Robbing Uncle Sam, in the same place.
@@ -435,11 +437,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.37-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.38-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.37-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.37-vcport.zip`.
+`v0.54.38-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.38-vcport.zip`.
 
 ## Known gaps and roadmap
 
