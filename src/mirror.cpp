@@ -898,6 +898,35 @@ static void SetGuestArea(int area, const char *why)
     if (said++ < 40) Log("miroir : zone de l'invite %d -> %d (%s)", cur, area, why);
 }
 
+// Guest, interior cutscenes (report of 15/10: "cutscenes that involve interiors aren't loading"): the host's script sets
+// the visible area (04BB) for its cutscene without moving the player, so the rule above (zone only with a scripted move)
+// left the guest's cutscene playing in area 0: the street, no interior. Between the host's LOAD_CUTSCENE and the end of the
+// guest's cutscene, the host's 04BB is applied to the guest's VISIBLE area only (the ped keeps his own); when the cutscene
+// is over the visible area goes back to the guest ped's own zone (a scripted move after it sets both again, SetGuestArea).
+static bool g_cutAreaWatch;    // LOAD_CUTSCENE replayed, cutscene not over yet
+static uint32_t g_cutAreaAt;   // when (the watch ends after 90 s if no cutscene ever ran)
+static bool g_cutAreaChanged;  // the visible area was changed for it
+static void CutsceneVisibleArea(int area, const char *why)
+{
+    int cur = *(int *)0xB72914;
+    if (area < 0 || area > 255 || area == cur) return;
+    uint8_t saved[sizeof(g_code)];   // (the command being replayed is in g_code, see SetGuestArea)
+    memcpy(saved, g_code, sizeof(saved));
+    RunScriptCommand(0x04BB, 1, &area);
+    memcpy(g_code, saved, sizeof(saved));
+    g_cutAreaChanged = true;
+    Log("miroir : cinematique, zone visible de l'invite %d -> %d (%s)", cur, area, why);
+}
+static void CutsceneVisibleAreaEnd()
+{
+    void *me = FindPlayerPed();
+    if (g_cutAreaChanged && me) {
+        int own = EntityArea(me), cur = *(int *)0xB72914;
+        if (own != cur) { RunScriptCommand(0x04BB, 1, &own); Log("miroir : fin de cinematique, zone visible de l'invite %d -> %d (la sienne)", cur, own); }
+    }
+    g_cutAreaWatch = g_cutAreaChanged = false;
+}
+
 // Text commands (PRINT*, PRINT_HELP*): the host's mission text table must be loaded on the guest too, or the key gives
 // nothing and the popup never shows (Home Invasion, 14/10: the guest saw none of the help boxes although PRINT_HELP_FOREVER
 // was replayed). The last LOAD_MISSION_TEXT (054C) is remembered; if a key comes back empty the table is loaded again.
@@ -1013,6 +1042,11 @@ static bool Replay(const uint8_t *d, int len)
     int op = *(const uint16_t *)(d + 1), n = d[3];
     if (IsWeaponOp(op) && len > 4 && d[4] != 'H') return true;   // armes d'un personnage de mission : sa copie suit le reseau
     if (op == 0x02E7 && !CutsceneLoaded()) return false;                           // chargement en cours
+    if (op == 0x02E4) {
+        g_cutAreaWatch = true;
+        g_cutAreaAt = GetTickCount();
+        if (g_areaOp.at && GetTickCount() - g_areaOp.at < 15000) CutsceneVisibleArea(g_areaOp.area, "zone choisie par le script de l'hote avant LOAD_CUTSCENE");
+    }
     if (op == 0x02EA && CutsceneRunning() && !CutsceneFinished()) {
         // L'hote a fini (ou passe) sa cinematique : on passe celle de l'invite, comme un appui sur Croix
         // (PCTempJoyState de la manette 0, +0x20), une image sur deux.
@@ -1159,6 +1193,11 @@ static bool Replay(const uint8_t *d, int len)
         memcpy(&area, g_code + 3, 4);
         g_areaOp.area = area;
         g_areaOp.at = GetTickCount();
+        if (g_cutAreaWatch && !CutsceneRunning() && GetTickCount() - g_cutAreaAt > 90000) CutsceneVisibleAreaEnd();
+        if ((g_cutAreaWatch || CutsceneRunning()) && GetTickCount() - g_teleportedAt > 3000) {
+            CutsceneVisibleArea(area, "SET_AREA_VISIBLE de l'hote pendant sa cinematique");
+            return true;
+        }
         if (GetTickCount() - g_teleportedAt <= 3000) {   // (the move came first: the zone follows it, with the scenery of the new place)
             SetGuestArea(area, "zone de l'hote apres son deplacement");
             if (void *me = FindPlayerPed()) { int sc[3]; memcpy(sc, EntityPos(me), 12); RunScriptCommandTyped(0x03CB, 3, "fff", sc); NoteLocalRelocated(); }
@@ -1431,8 +1470,8 @@ static void CutsceneDiagFrame(uint32_t now)
     static uint32_t since, lastLog, startedAt;
     static bool wasRunning;
     bool running = CutsceneRunning();
-    if (running && !wasRunning) { startedAt = now; lastLog = now; Log("cinematique de l'invite : debut (chargement %d, file %d commandes)", *(uint8_t *)0xB5F84C, (g_qTail - g_qHead + QUEUE) % QUEUE); }
-    if (!running && wasRunning) Log("cinematique de l'invite : fin apres %u ms (passee par l'invite : %d)", now - startedAt, (int)*(uint8_t *)0xB5F854);
+    if (running && !wasRunning) { startedAt = now; lastLog = now; Log("cinematique de l'invite : debut (chargement %d, file %d commandes, zone visible %d, zone du joueur %d)", *(uint8_t *)0xB5F84C, (g_qTail - g_qHead + QUEUE) % QUEUE, *(int *)0xB72914, FindPlayerPed() ? (int)EntityArea(FindPlayerPed()) : -1); }
+    if (!running && wasRunning) { Log("cinematique de l'invite : fin apres %u ms (passee par l'invite : %d)", now - startedAt, (int)*(uint8_t *)0xB5F854); CutsceneVisibleAreaEnd(); }
     wasRunning = running;
     if (!running) { since = 0; return; }
     if (now - lastLog >= 5000) {

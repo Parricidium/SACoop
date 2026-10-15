@@ -208,6 +208,7 @@ static void GuestFrame(uint32_t now)
     }
     if (a->station != h.station || mode != 2) { mismatchSince = 0; return; }
     if (*(uint8_t *)(0xBA6748 + 0x5C)) return;   // game menu open
+    if (*(const uint8_t *)0xB5F851 || *(const uint8_t *)0xB5F84C) { mismatchSince = 0; return; }   // a cutscene loaded or playing: its speech uses the same audio stream as the radio, never restart it then
     if (h.station == RADIO_USER) {
         uint32_t mine = LibrarySignature();
         if (!h.userSig || h.userSig != mine) {

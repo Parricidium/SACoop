@@ -6,6 +6,25 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.11-vcport (network version 24 unchanged)
+
+From the player's report of 15/10: on the guest, cutscenes set in an interior show no interior, and cutscenes have no
+voices.
+
+- **Interior cutscenes** (mirror.cpp, `CutsceneVisibleArea`). Since 0.54.3 the guest only takes the host's zone
+  (`SET_AREA_VISIBLE` 04BB / `LINK_CHAR_WITH_INTERIOR` 0860) together with a scripted move of the player, so that each
+  player goes through doors by himself. An interior cutscene sets the visible area without moving anybody: the guest's
+  cutscene played in area 0, in the street, and the interior never showed. Now, from the replayed `LOAD_CUTSCENE` to the
+  end of the guest's cutscene, the host's 04BB (or the one the script chose up to 15 s before `LOAD_CUTSCENE`) is applied
+  to the guest's visible area only; when the cutscene ends the visible area goes back to the guest ped's own zone (a
+  scripted move afterwards sets both, as before). The watch ends after 90 s if no cutscene ran. Log:
+  `miroir : cinematique, zone visible de l'invite a -> b (...)`, `miroir : fin de cinematique, zone visible ...`; the
+  `cinematique de l'invite : debut` line now gives the visible area and the player's zone.
+- **Radio sync paused during cutscenes** (radio.cpp). The speech of a cutscene is played on the same audio stream as the
+  radio; a radio restart by the sync while a cutscene was loaded or playing could cut it. The guest's follow now waits
+  while `CCutsceneMgr` has a cutscene loaded (0xB5F84C) or running (0xB5F851). This may not be the whole story of the
+  missing voices: the guest's log of a cutscene without voices is needed.
+
 ## 0.54.10-vcport (network version 24 unchanged: plays with 0.54.8 and 0.54.9, but both players need it for the fix)
 
 From the player's report of 15/10: the wanted level did not follow deaths.
