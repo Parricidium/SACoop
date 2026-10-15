@@ -6,6 +6,20 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.35-vcport (network version 31 unchanged, untested)
+
+- **Jacking the host's traffic on the guest** (report of 15/10: "reset to where it was, the driver back in, the guest
+  outside, again and again", worst on moving cars): the host's driver kept driving on the host, so every state of his
+  said "at the wheel" and the guest's copy of him was warped straight back in, out went the guest, and the car went
+  back to following the host's moving car. Now:
+  - the guest at the door of such a car (getting in at the wheel, within 4.5 m) takes it over at once: it runs on his
+    physics, its copied driver has no orders and brakes, the jack plays as in the game;
+  - the guest never warps a copy back into the driver's seat of a car he took over, nor touches the one his jack is
+    pulling out;
+  - the host, told by the guest's next state, takes his own driver out on the driver's side, and keeps the car (it is
+    no longer a random car the game may drop while the guest drives it; it becomes traffic again if the host takes it
+    back).
+
 ## 0.54.34-vcport (network version 31 unchanged, untested)
 
 Review of the 0.54.28 to 0.54.33 changes for anything that could get in the way of play.

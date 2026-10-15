@@ -319,6 +319,17 @@ static void UpdateCopy(Copy &c, uint32_t now)
         if (said < 20) { said++; Log("copie %08X detachee de son vehicule", c.id); }
         return;
     }
+    // A vehicle we took over (we are jacking it, or drive it now): its owner's ped may still say he sits in it, or our copy
+    // of him may still be in it being dragged out by our jack. Neither is undone here: the jack goes on, and the owner
+    // pulls his own driver out when our state reaches him (vehicles.cpp).
+    // Only the driver's seat: the host's people riding as passengers in our car (a mission character with the guest at the
+    // wheel) still get in and out as before.
+    if (m.vehicleId && m.seat == 0 && VehicleIdIsOurs(m.vehicleId)) { c.moveState = 0; return; }
+    if (inVeh && VehicleIsOurs(inVeh)) {
+        void *me = FindPlayerPed();
+        void *task = me ? ActiveTask(me) : nullptr;
+        if (TaskVtable(task) == VT_TaskEnterCarAsDriver && Field<void *>(task, 0xC) == inVeh) { c.moveState = 0; return; }   // our jack is pulling him out
+    }
     if (m.vehicleId) {
         void *veh = NetVehicleById(m.vehicleId);
         if (!veh) {

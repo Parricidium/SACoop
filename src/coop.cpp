@@ -300,6 +300,11 @@ static void SendLocalState()
         uintptr_t vt = TaskVtable(task);
         if (vt == VT_TaskEnterCarAsDriver || vt == VT_TaskEnterCarAsPassenger || vt == VT_TaskLeaveCar) {
             void *veh = Field<void *>(task, 0xC);
+            if (veh && vt == VT_TaskEnterCarAsDriver) {   // at the door of a copy: ours now (jacking, VehicleTakeOverForEntry)
+                const float *a = EntityPos(ped), *b = EntityPos(veh);
+                float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+                if (dx * dx + dy * dy + dz * dz < 4.5f * 4.5f) VehicleTakeOverForEntry(veh);
+            }
             if (veh) {
                 s.carTask = vt == VT_TaskEnterCarAsDriver ? 1 : vt == VT_TaskEnterCarAsPassenger ? 2 : 3;
                 s.carDoor = (uint8_t)Field<int>(task, 0x1C);

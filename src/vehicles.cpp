@@ -51,6 +51,7 @@ struct NetVeh {
     bool modNew;         // (copies) a MsgVehMod is waiting to be applied
     uint32_t pushUntil;  // (copies) pushed by our car: left to our physics until then, its place sent to the owner
     uint32_t takenAt;    // (ours) when we took it over from another player (LocalVehicleId)
+    uint8_t wasRandom;   // (copies) one of our random / parked cars taken by another player: CreatedBy it had (1 or 3)
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -140,6 +141,21 @@ void *NetVehicleById(uint32_t id)
     return n && Alive(*n) ? n->veh : nullptr;
 }
 
+// Jacking (0.54.35): the local player about to get in at the wheel of a copy that no player drives (a car of the other
+// player's traffic, its driver a copy of his ped) takes it over at once, before the door: from then on it runs on our
+// physics (its copied driver has no orders: it brakes, the car stops as for a jack in the game) and its owner, told by
+// our next state, pulls his own driver out. Before, the copy kept following its owner's moving car, the jack hardly ever
+// caught it, and the owner's driver was warped back in at every state.
+void VehicleTakeOverForEntry(void *veh)
+{
+    NetVeh *n = FindByVeh(veh);
+    if (!n || n->owner == g_localId || !Alive(*n)) return;
+    if (void *d = Field<void *>(veh, VEH_DRIVER)) if (PuppetIndex(d) >= 0) return;   // a player drives it
+    LocalVehicleId(veh, true);
+}
+bool VehicleIsOurs(void *veh) { NetVeh *n = veh ? FindByVeh(veh) : nullptr; return n && n->owner == g_localId; }
+bool VehicleIdIsOurs(uint32_t id) { NetVeh *n = FindById(id); return n && n->owner == g_localId && Alive(*n); }
+
 // Identifiant reseau du vehicule occupe par le joueur local (enregistre au besoin : il en devient proprietaire).
 uint32_t LocalVehicleId(void *veh, bool driver)
 {
@@ -156,6 +172,7 @@ uint32_t LocalVehicleId(void *veh, bool driver)
     } else if (driver && n->owner != g_localId) {
         n->owner = (uint8_t)g_localId;   // au volant d'une copie : elle devient la notre
         n->takenAt = GetTickCount();
+        if (n->wasRandom && ((uint8_t *)veh)[0x4A4] == 2) { ((uint8_t *)veh)[0x4A4] = n->wasRandom; n->wasRandom = 0; }   // our traffic again
         n->track.Clear();
         FreezeCopy(veh, false);
         Log("vehicule %08X : on en prend la propriete", n->id);
@@ -681,6 +698,23 @@ static void OnVehicle(const MsgVehicle &m)
         }
         // Un autre joueur a pris le volant de notre vehicule : il devient une copie chez nous.
         Log("vehicule %08X : le joueur %d en prend la propriete", m.id, m.owner);
+        // Jacked from one of our people (0.54.35): the other player pulled him out on his screen, ours was still driving
+        // and his copy was warped back in there, the jack never ended (the car back where it was, the guest outside, test
+        // of 15/10). He gets out on the driver's side here too. And a car of our traffic is no longer ours to drop: the
+        // game would remove it as a far random car while the other player drives it (it vanished).
+        uint8_t *v = (uint8_t *)n->veh;
+        void *drv = Field<void *>(v, VEH_DRIVER);
+        if (drv && drv != FindPlayerPed() && PuppetIndex(drv) < 0) {
+            float out[3];
+            const float *vp = EntityPos(v);
+            uint8_t *mat = *(uint8_t **)(v + 0x14);
+            for (int k = 0; k < 3; k++) out[k] = vp[k] - (mat ? ((float *)mat)[k] * 2.2f : 0.0f);
+            out[2] += 0.3f;
+            WarpPuppetOut(drv, out);
+            Log("vehicule %08X : son conducteur (modele %d) en sort, le joueur %d le lui a pris", m.id, *(int16_t *)((uint8_t *)drv + 0x22), m.owner);
+        }
+        if (v[0x4A4] == 1 || v[0x4A4] == 3) { n->wasRandom = v[0x4A4]; v[0x4A4] = 2; }
+        n->ambient = false;
     }
     if (!n) {
         n = NewSlot();
