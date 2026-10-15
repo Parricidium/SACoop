@@ -6,6 +6,31 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.36-vcport (network version 31 unchanged, untested)
+
+Review of everything since 0.54.9 for what could get in the way of play.
+
+- **A guest riding in the host's car could not be hurt** by mission enemies or police (since 0.54.18): the rule that
+  drops hits between two players in the same vehicle also dropped the host's people's hits on that guest. It now only
+  drops the local player's own hits.
+- **Garage doors:** between two checks of who is nearest, any other player's door state was applied, even to a garage
+  this PC is in charge of: two PCs could flap a door, or cut into a Pay'n'Spray. The last check is kept, the reference's
+  state only is followed, and a passenger is never the reference (the driver's game runs the doors).
+- **Phone calls:** a guest's contact call waits for the host's 15 s at most (it could be held until the host's next call,
+  a mission later), and only the contacts' call scripts are held.
+- **Interior cutscenes:** the mission-start regroup no longer puts area 0 back while a host cutscene is loading on the
+  guest; a cutscene that never starts (dropped, mission stopped, host gone) gives the guest his own visible area back after
+  40 s, at the mission's end, or at once without a host.
+- **Mission objects only the player may damage:** only mission objects are opened to the guests' shots, and the
+  protection is put back once no guest is within 80 m (it was lifted for good on any object).
+- **Replay queue:** mission sounds at a ped or vehicle the guest has no copy of are dropped instead of holding the queue
+  3 s; the host's phone-call audio is not waited for while the guest's own call says it; the host's "cutscene skipped"
+  goes through the queue, in order with the CLEAR_CUTSCENE it is about.
+- **Passenger drive-by permission:** put back as a script set it during the ride (a mission starting or ending), not
+  always as it was before the ride (it is saved with the game).
+- **Y / N vehicle offer:** keys only read with the game in front and its pause menu closed.
+- **Waypoint teleport at the wheel inside an interior:** the car comes out of the interior too (it was left invisible).
+
 ## 0.54.35-vcport (network version 31 unchanged, untested)
 
 - **Jacking the host's traffic on the guest** (report of 15/10: "reset to where it was, the driver back in, the guest

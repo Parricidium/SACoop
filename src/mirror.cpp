@@ -707,7 +707,9 @@ static void OnReliable(int from, const uint8_t *data, int len)
         return;
     }
     if (g_cfg.host && len >= 1 && data[0] == RL_MISSION_STOP) { HostStopMission(from > 0 && from < MAX_PLAYERS ? from : 1); return; }
-    if (!g_cfg.host && len >= 2 && data[0] == RL_CUT_END) { g_hostCutSkipped = data[1] != 0; return; }
+    // RL_CUT_END goes through the replay queue like the commands (below): it is about the CLEAR_CUTSCENE that follows it
+    // there, which may be replayed much later (review of 15/10: applied on arrival, a lagging queue used it for the
+    // wrong cutscene).
     if (!g_cfg.host && len >= 2 && data[0] == RL_MISSION_STOPPED) {
         char name[24] = {};
         memcpy(name, data + 1, len - 1 < 23 ? len - 1 : 23);
@@ -808,11 +810,16 @@ static void HostObjectsForGuests()
     if (!pool) return;
     uint8_t *objs = *(uint8_t **)pool, *flags = *(uint8_t **)(pool + 4);
     int n = *(int *)(pool + 8);
-    for (int i = 0; i < n; i++) {
-        if (flags[i] & 0x80) continue;
+    // Only mission objects (CObject +0x13C type 2 / 6), and the flag is put back once no guest is near any more (review of
+    // 15/10: it was lifted for good on any object, which then took damage from anybody).
+    static uint8_t lifted[1024];   // pool slot -> its flags byte + 1 when we lifted it
+    for (int i = 0; i < n && i < 1024; i++) {
+        if (flags[i] & 0x80) { lifted[i] = 0; continue; }
         uint8_t *o = objs + i * 0x19C;
         uint32_t &pf = *(uint32_t *)(o + 0x40);
-        if (!(pf & 0x400000)) continue;
+        if (lifted[i] && lifted[i] != (uint8_t)(flags[i] + 1)) lifted[i] = 0;   // (another object in that slot now)
+        if (o[0x13C] != 2 && o[0x13C] != 6) continue;
+        if (!(pf & 0x400000) && !lifted[i]) continue;
         const float *p = EntityPos(o);
         bool guestClose = false;
         for (int g = 1; g < MAX_PLAYERS && !guestClose; g++) {
@@ -821,8 +828,13 @@ static void HostObjectsForGuests()
             float dx = np.state.pos[0] - p[0], dy = np.state.pos[1] - p[1], dz = np.state.pos[2] - p[2];
             guestClose = dx * dx + dy * dy + dz * dz < 80.0f * 80.0f;
         }
-        if (!guestClose) continue;
+        if (!guestClose) {
+            if (lifted[i]) { pf |= 0x400000; lifted[i] = 0; }
+            continue;
+        }
+        if (lifted[i]) continue;
         pf &= ~0x400000u;
+        lifted[i] = (uint8_t)(flags[i] + 1);
         static int said;
         if (said++ < 20) Log("objet de mission (modele %d) : plus seulement endommageable par l'hote (un invite est a moins de 80 m)", *(int16_t *)(o + 0x22));
     }
@@ -1137,12 +1149,18 @@ static void TextCheck(int op, const uint8_t *d, int len)
     }
 }
 
+// Mission sounds at a ped or vehicle (REPORT_MISSION_AUDIO_EVENT_AT_CHAR 09F1, ..._AT_CAR 09F7, 0949): with no copy of
+// it here the sound is dropped at once instead of holding the whole queue 3 s (review of 15/10).
+static bool OptionalEntityOp(int op) { return op == 0x09F1 || op == 0x09F7 || op == 0x0949; }
+
 // Rejoue une commande ; faux si une entite manque encore (on reessaiera).
 static bool Replay(const uint8_t *d, int len)
 {
+    if (d[0] == RL_CUT_END) { if (len >= 2) g_hostCutSkipped = d[1] != 0; return true; }
     if (d[0] == RL_MISSION_END) {
         g_syncUntil = 0;
         g_areaOp.at = 0;
+        if (g_cutAreaWatch && !CutsceneRunning()) CutsceneVisibleAreaEnd();
         BlipsMissionState(false);
         MissionFlagRestore();
         VehiclesMissionEnded();
@@ -1233,6 +1251,10 @@ static bool Replay(const uint8_t *d, int len)
     // the host and his mission passenger (test of 15/10). Checked in gta_sa.exe 1.0 US: 03D0 asks
     // CAudioEngine::GetMissionAudioLoadingStatus (0x5072A0 on AudioEngine 0xB6BC90, slot - 1), 1 = loaded. The play waits
     // for that (in order, 3 s at most like any command that waits).
+    if (op == 0x03D1 && !g_hostMission && PhoneCallOp(op) && GuestOwnCall()) {   // (dropped below anyway: not waited for)
+        void *me = FindPlayerPed();
+        if (me && HasTaskType(me, 1600)) return true;
+    }
     if (op == 0x03D1 && len >= 9 && d[4] == 'i') {
         int slot;
         memcpy(&slot, d + 5, 4);
@@ -1308,7 +1330,7 @@ static bool Replay(const uint8_t *d, int len)
         switch (kind) {
         case 'P': {
             void *ped = MissionCopyById((uint32_t)v);
-            if (!ped) return false;
+            if (!ped) return OptionalEntityOp(op);
             v = PedRef(ped);
             break;
         }
@@ -1322,7 +1344,7 @@ static bool Replay(const uint8_t *d, int len)
         }
         case 'V': {
             void *veh = NetVehicleByOwnerRef(0, v);
-            if (!veh) return false;
+            if (!veh) return OptionalEntityOp(op);
             v = VehicleRef(veh);
             break;
         }
@@ -1698,6 +1720,10 @@ static void CutsceneDiagFrame(uint32_t now)
     if (running && !wasRunning) { startedAt = now; lastLog = now; Log("cinematique de l'invite : debut (chargement %d, file %d commandes, zone visible %d, zone du joueur %d)", *(uint8_t *)0xB5F84C, (g_qTail - g_qHead + QUEUE) % QUEUE, *(int *)0xB72914, FindPlayerPed() ? (int)EntityArea(FindPlayerPed()) : -1); }
     if (!running && wasRunning) { Log("cinematique de l'invite : fin apres %u ms (passee par l'invite : %d), sous-titres %d affiches sur %d", now - startedAt, (int)*(uint8_t *)0xB5F854, *(int *)0xBC3FF0, *(int *)0xBC3FEC); CutsceneVisibleAreaEnd(); }
     wasRunning = running;
+    // A cutscene loaded for the host's that never started here (dropped after its wait, mission stopped between load and
+    // start, host gone): the visible area is the guest's own again after 40 s, or at once without a host (review of
+    // 15/10: it stayed on the host's interior, and later 04BB changed only the visible area).
+    if (!running && g_cutAreaWatch && (now - g_cutAreaAt > 40000 || !g_players[0].connected)) CutsceneVisibleAreaEnd();
     if (!running) { since = 0; return; }
     {   // Scenery where the cutscene camera looks, not only around the player (test of 15/10: the far garage of Robbing Uncle
         // Sam's second shot was half loaded on the guest, textures out of place). LOAD_SCENE at the camera when the cutscene
@@ -1781,7 +1807,9 @@ static void AreaRegroupFrame(uint32_t now)
     static int streak;   // regroups in a row without the zones ever matching in between: gives up after 3
     void *me = FindPlayerPed(), *host = PuppetOf(0);
     const NetPlayer &h = g_players[0];
-    if (!g_hostMission || !h.connected || !h.state.inGame || !me || !host || PedVehicle(me) || CutsceneActive() ||
+    // (Also while a host cutscene is being loaded here, g_cutAreaWatch: its interior was set as the visible area only, and a
+    // regroup put area 0 back, the interior cutscene played in the street - review of 15/10.)
+    if (!g_hostMission || !h.connected || !h.state.inGame || !me || !host || PedVehicle(me) || CutsceneActive() || g_cutAreaWatch ||
         Field<float>(me, PED_HEALTH) <= 0.0f || !InSync(now) || *(int32_t *)0x96A7CC != 0) { since = 0; return; }
     int hostArea = h.state.area, mine = EntityArea(me), cur = *(int *)0xB72914;
     if (mine == hostArea && cur == hostArea) { since = 0; streak = 0; return; }

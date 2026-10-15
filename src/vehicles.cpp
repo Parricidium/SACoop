@@ -1074,7 +1074,9 @@ static void GuestVehicleOffer()
 {
     static const bool g_fr = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_FRENCH;
     static bool yWas, nWas;
-    bool y = (GetAsyncKeyState('Y') & 0x8000) != 0, nk = (GetAsyncKeyState('N') & 0x8000) != 0;
+    // (Only with the game in front and its pause menu closed: GetAsyncKeyState also sees keys typed in another window.)
+    bool keys = GameHasFocus() && !*(uint8_t *)(0xBA6748 + 0x5C);
+    bool y = keys && (GetAsyncKeyState('Y') & 0x8000) != 0, nk = keys && (GetAsyncKeyState('N') & 0x8000) != 0;
     bool yDown = y && !yWas, nDown = nk && !nWas;
     yWas = y; nWas = nk;
     if (!g_offerModel) return;

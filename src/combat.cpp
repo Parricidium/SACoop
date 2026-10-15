@@ -220,9 +220,11 @@ static void __fastcall h_Damage(int *calc, void *edx, void *victim, float *resp,
     // Pantin touche : rien en local (son joueur fait foi) ; un coup du joueur local est envoye a son joueur.
     bool fresh = !*((uint8_t *)resp + 10);
     void *me = FindPlayerPed();
-    // Two players in the same vehicle (a passenger's drive-by): never a hit between them.
-    if (me && PedVehicle(me) && PedVehicle(me) == PedVehicle(victim)) fresh = false;
     bool mine = damager && (damager == me || ((*((uint8_t *)damager + 0x36) & 7) == 2 && Field<void *>(damager, VEH_DRIVER) == me));
+    // Two players in the same vehicle (a passenger's drive-by): never a hit between them. Only our own hits: the shots of
+    // the host's people on a guest riding with him must still reach that guest (review of 15/10: dropped since 0.54.18,
+    // a guest in the host's car could not be hurt).
+    if (mine && me && PedVehicle(me) && PedVehicle(me) == PedVehicle(victim)) fresh = false;
     float damage = *(float *)&calc[1];
     if (fresh && mine && damage > 0) {
         MsgDamage d = { MSG_DAMAGE, (uint8_t)(g_localId < 0 ? 0 : g_localId), (uint8_t)victimPlayer, (uint8_t)calc[3], (uint8_t)calc[2], {}, damage, 0 };

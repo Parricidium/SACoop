@@ -39,13 +39,16 @@ static int Nearest(const float *g)
     float bestD = 30.0f * 30.0f;
     for (int i = 0; i < MAX_PLAYERS; i++) {
         const float *p;
+        // (A passenger is never the reference: the driver's game runs the doors for his car.)
         if (i == g_localId) {
             void *me = FindPlayerPed();
             if (!me || EntityArea(me) != 0) continue;
+            if (void *veh = PedVehicle(me)) if (Field<void *>(veh, VEH_DRIVER) != me) continue;
             p = EntityPos(me);
         } else {
             const NetPlayer &np = g_players[i];
             if (!np.connected || !np.state.inGame || np.state.area != 0) continue;
+            if (np.state.vehicleId && np.state.seat != 0) continue;
             p = np.state.pos;
         }
         float d = Dist2D(p, g);
@@ -81,7 +84,14 @@ void GaragesFrame()
         uint8_t *g = Garage(i);
         const float *pos = (const float *)g;
         int st = g[0x4D];
-        int ref = scan ? Nearest(pos) : -2;
+        // The reference found at the last scan is kept in between (0.54.36 review: on the frames between two scans any
+        // remote state was applied, even to a garage this PC is the reference of: two PCs that each thought they were
+        // the nearest wrote each other's door state on most frames, the door flapped).
+        static int8_t refOf[MAX_GARAGES];
+        static bool refInit;
+        if (!refInit) { refInit = true; memset(refOf, -1, sizeof(refOf)); }
+        if (scan) refOf[i] = (int8_t)Nearest(pos);
+        int ref = refOf[i];
         if (ref == g_localId) {
             bool changed = OpenIsh(st) != OpenIsh(g_sentState[i]);
             if ((changed || now - g_sentAt[i] >= 500) && m.count < 8) {
@@ -97,7 +107,7 @@ void GaragesFrame()
         }
         const Remote &r = g_remote[i];
         if (!r.at || now - r.at > 1500) continue;
-        if (ref != -2 && ref != r.from) continue;   // (someone else is nearer now)
+        if (ref != r.from) continue;   // (only the reference's doors: nobody near, or someone else is nearer now)
         bool want = OpenIsh(r.state);
         if (want == OpenIsh(st)) continue;
         g[0x4D] = want ? 3 : 2;   // opening / closing: the game moves the door and its objects

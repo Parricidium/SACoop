@@ -2304,6 +2304,7 @@ static void PassengerDriveByFrame()
 {
     static bool forced;
     static uint8_t before;
+    static uint32_t seq;
     uint8_t &flag = *(uint8_t *)(0xB7CD98 + 0x153);
     void *me = InGame() ? FindPlayerPed() : nullptr;
     void *veh = me ? PedVehicle(me) : nullptr;
@@ -2312,6 +2313,7 @@ static void PassengerDriveByFrame()
     if (passenger && !forced) {
         forced = true;
         before = flag;
+        seq = g_driveByScriptSeq;
         if (!flag) Log("passager : tir par la fenetre permis (il etait coupe par le script)");
     }
     static void *loggedVeh;
@@ -2323,7 +2325,9 @@ static void PassengerDriveByFrame()
     }
     if (!passenger) loggedVeh = nullptr;
     if (forced && passenger) flag = 1;
-    if (forced && !passenger) { forced = false; flag = before; }
+    // Put back as it was, or as a script set it during the ride (a mission starting or ending: review of 15/10, the old
+    // value overwrote the story's, and it is saved with the game).
+    if (forced && !passenger) { forced = false; flag = g_driveByScriptSeq != seq ? g_driveByScriptValue : before; }
 }
 
 static void PassengerAreaFrame()

@@ -61,16 +61,26 @@ static bool GuestPhoneHold(void *script)
     bool hostThere = h.connected && h.state.inGame && GetTickCount() - h.lastStateAt < 3000;
     bool hostPhone = hostThere && (h.state.gear & 4);
     static uint32_t saidAt;
-    if (hostThere && !hostPhone) {
+    // Held 15 s at most, and only a contact's call script (mob_*): the host's own call may be over already (the guest's
+    // replay running late), and a call held for good played at the host's next phone call, a mission later (review of
+    // 15/10). After that the guest's call goes on by itself.
+    static void *heldScript;
+    static uint32_t heldSince;
+    bool callScript = _strnicmp(ScriptName(script), "mob_", 4) == 0;
+    if (heldScript != script) { heldScript = script; heldSince = GetTickCount(); }
+    if (hostThere && !hostPhone && callScript && GetTickCount() - heldSince < 15000) {
         if (GetTickCount() - saidAt > 10000) { saidAt = GetTickCount(); Log("telephone : appel du script %.8s retenu chez l'invite jusqu'a ce que l'hote decroche", ScriptName(script)); }
         ip = args - 2;   // back on the opcode
         return true;
     }
+    heldScript = nullptr;
     g_ownCallUntil = GetTickCount() + 60000;
     Log("telephone : appel du script %.8s de l'invite libere (%s)", ScriptName(script), hostPhone ? "l'hote est au telephone" : "pas d'hote");
     return false;
 }
 
+extern uint8_t g_driveByScriptValue;
+extern uint32_t g_driveByScriptSeq;
 static char Dispatch(int index, void *script, int op)
 {
     if (op == 0x0729 && !g_cfg.host && NetRunning() && strncmp(ScriptName(script), "sacoop", 6) != 0 && GuestPhoneHold(script)) return 1;
@@ -111,11 +121,21 @@ static char Dispatch(int index, void *script, int op)
     NpcScriptCommand(script, op);
     MirrorBefore(script, op);
     ConditionBefore(script, op);
+    uint8_t driveBy = *(uint8_t *)(0xB7CD98 + 0x153);
     char r = g_orig[index](script, op);
+    if (op == 0x0501 || *(uint8_t *)(0xB7CD98 + 0x153) != driveBy) {   // (0501 SET_PLAYER_CAN_DO_DRIVE_BY: even to the value it had)
+        g_driveByScriptValue = *(uint8_t *)(0xB7CD98 + 0x153);
+        g_driveByScriptSeq++;
+    }
     ConditionAfter();
     MirrorAfter(script, op);
     return r;
 }
+
+// The player's "can do drive-by" (CPlayerInfo +0x153) as a script last set it, and how many times (coop.cpp puts it back
+// after a ride as a passenger: a change made by a script during the ride is the one to keep).
+uint8_t g_driveByScriptValue;
+uint32_t g_driveByScriptSeq;
 
 template <int N> static char __fastcall Handler(void *script, void *, int op) { return Dispatch(N, script, op); }
 template <int N> static void InstallHandler()

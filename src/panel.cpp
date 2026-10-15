@@ -232,6 +232,7 @@ static void TeleportToWaypoint(void *me)
     memcpy(g_wp.from, EntityPos(veh ? veh : me), 12);
     g_wp.fromArea = EntityArea(me);
     LeaveInterior(me);
+    if (veh) EntityArea(veh) = 0;   // (the car out of the interior too: it stayed in its area, unseen outside)
     float gz;
     if (GroundAt(pos[0], pos[1], &gz)) {   // already loaded (close by, or been there): straight there
         pos[2] = gz + 1.0f;
