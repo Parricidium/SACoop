@@ -30,7 +30,7 @@ join the same world and the same missions, with modern options on top.
 **This is Zebra's fork of [Parricidium/SACoop](https://github.com/Parricidium/SACoop).** It is the `vcport` line: the
 same mod, plus the robustness and sync work that made [VCCoop](https://github.com/Parricidium/VCCoop) (the Vice City
 co-op by the same author) so smooth, plus a long list of fixes and new features (see
-[Everything this fork adds](#everything-this-fork-adds)).
+[What this fork adds](#what-this-fork-adds)).
 
 ## Thank you, Parricidium
 
@@ -67,295 +67,177 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 ## Contents
 
 1. [Quick start](#quick-start)
-2. [Everything this fork adds](#everything-this-fork-adds)
-3. [What the mod does (full feature list)](#what-the-mod-does)
-4. [Keys](#keys)
-5. [Settings (`sacoop.ini`)](#settings-sacoopini)
-6. [The launcher](#the-launcher)
-7. [Testing checklist and sending logs](#testing-checklist-and-sending-logs)
-8. [Building from source](#building-from-source)
-9. [Publishing your own build to GitHub](#publishing-your-own-build-to-github)
-10. [Known gaps and roadmap](#known-gaps-and-roadmap)
-11. [Credits and license](#credits-and-license)
+2. [Updating to the latest version](#updating-to-the-latest-version)
+3. [What this fork adds](#what-this-fork-adds)
+4. [What the original mod does](#what-the-original-mod-does)
+5. [Keys](#keys)
+6. [Settings (`sacoop.ini`)](#settings-sacoopini)
+7. [The launcher](#the-launcher)
+8. [Testing checklist and sending logs](#testing-checklist-and-sending-logs)
+9. [Building from source](#building-from-source)
+10. [Publishing your own build to GitHub](#publishing-your-own-build-to-github)
+11. [Known gaps and roadmap](#known-gaps-and-roadmap)
+12. [Credits and license](#credits-and-license)
 
 ## Quick start
 
 1. You need GTA San Andreas **1.0 US**. The current Steam version (3.0) must be downgraded first (a downgrader tool
    does it). The mod refuses to run on any other version.
-2. **Both players must run the same build** of `dinput8.dll` (the network messages changed in 0.49, 0.52, 0.53 and 0.54; a
-   mismatched pair is refused). Either:
+2. **Both players need the same build** of `dinput8.dll`. A mismatched pair is refused. Either:
    - download the zip from this repository's **Releases** page and copy its contents next to `gta_sa.exe`, or
-   - build it yourself (see [Building from source](#building-from-source)) and copy `build\dinput8.dll` over the
-     `dinput8.dll` in the game folder, **on both machines**.
-3. Start the game with **`SACoop.exe`** (the launcher) or with the shortcuts `SACoop - Heberger.cmd` (host) /
+   - build it yourself (see [Building from source](#building-from-source)) and copy `build\dinput8.dll` into the game
+     folder **on both machines**.
+3. Start the game with **`SACoop.exe`** (the launcher), or with the shortcuts `SACoop - Heberger.cmd` (host) and
    `SACoop - Rejoindre.cmd` (join).
-4. The host clicks **HOST** (it opens the lobby). The others type the host's IP address, click **JOIN**, then
-   **READY**.
-5. The host picks a new game or a save and clicks **START**: every game starts, and guests follow the host (same save
-   when they have it). Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a
-   virtual LAN. A player who arrives after the start uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.27-vcport (Zebra's forked repo) loaded`. If it does not,
-   that machine is running another DLL.
+4. The host clicks **HOST**. The others type the host's IP address, click **JOIN**, then **READY**.
+5. The host picks a new game or a save and clicks **START**. Everybody's game starts together.
+   - Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a virtual LAN.
+   - A player who arrives late uses **JOIN IN GAME**.
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.27-vcport (Zebra's forked repo) loaded`. If it does
+   not, that machine is running another DLL.
 
 > [!IMPORTANT]
-> The `SACoop.exe` launcher updates the mod by itself on every start. **Zebra's fork launcher** (this repository's
-> version) checks *this* repository's releases. An `SACoop.exe` built from the original repository checks the
-> original's releases instead, and could replace the fork's `dinput8.dll` with the original release. Use the
-> `SACoop.exe` from this fork's zip or from `build-exe.cmd` / `build.cmd`.
+> The launcher updates the mod by itself on every start. Use the `SACoop.exe` from **this fork** (its zip, or
+> `build-exe.cmd` / `build.cmd`). One built from the original repository checks the original's releases and could
+> replace the fork's `dinput8.dll`.
 
 Uninstall: delete `dinput8.dll`, `SACoop.exe`, the `SACoop` folder, `sacoop*.ini`, `sacoop.log` and `logs\`.
 
-## Everything this fork adds
+## Updating to the latest version
 
-Versions are `0.49.0-vcport` to `0.54.27-vcport`; the original's last release is `0.48.4-prealpha`. The same list, with
-per-version detail, is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and the technical notes are in
+From your clone (for example `C:\sacoop`), in PowerShell, with this fork as the `fork` remote:
+
+```powershell
+cd C:\sacoop
+git pull fork vcport
+.\build-dll.cmd
+```
+
+Then copy `build\dinput8.dll` into the game folder **on both PCs**.
+
+## What this fork adds
+
+The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was added on top of it, in `0.49.0-vcport` to
+`0.54.27-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
-### At a glance: what this fork adds over the original (`0.48.4-prealpha`)
+> [!NOTE]
+> **New in 0.54.9 to 0.54.27** is marked with 🆕. Most of it has been tried by two players; the newest items
+> (helper-script dialogue, the cutscene loading wait) still need a real test.
 
-The original is Parricidium's mod as it stood at `0.48.4-prealpha`. Everything below was added on top of it, in
-`0.49.0-vcport` to `0.54.27-vcport`. Each point is described in detail in the sections that follow.
+### 🎬 Missions and cutscenes
 
-- **Smoother play:** other players, vehicles and mission characters are interpolated between received states and placed
-  after the game's physics, so they no longer jitter; vehicle copies are frozen against the local physics; absurd
-  positions are caught before they crash the game; a precise clock is used for what is sent and played back; 30 FPS by
-  default, 60 FPS still an option.
-- **Missions:** about 120 more mission commands are repeated on the guest; only the host starts story missions; the
-  guest's radar follows the host's; cutscene handling (the guest's skip, doubles hidden, a forced end when one is
-  stuck); fixes for Home Invasion, new games and interiors; the mission **timer, counters and health bars** (Ryder's
-  health, the crates left) show on the guest's screen; **F10 > Tools > STOP MISSION** for a mission that is stuck.
-- **Vehicles:** spawned and parked vehicles stay for the other players; copies no longer appear inside a player or
-  on top of the guest's own traffic; colours, **paintjobs and upgrades** follow the owner (Pay'n'Spray, workshops);
-  rotors and propellers turn; any player in a shared vehicle can change the radio; F10 can remove the vehicles you
-  spawned, even after another player took the wheel.
-- **World:** trains run the same on every PC; weather and sky no longer flicker on the guest; the radio follows the
-  host's station, song and position.
-- **Players:** ping on the F5 board and in F10; weapons come back after a death; go to a player from anywhere
-  (interiors too) and to where you died; rescue from an endless fall; a pause indicator; Alt+Tab and Alt+Enter
-  (borderless or windowed) behave.
-- **Crashes fixed:** the game's pool of vehicle models filling up (Sweet's Girl), a crate exploding next to a car
-  (Robbing Uncle Sam), the Display Setup > Advanced menu, a host address typed as `address:port`.
-- **Diagnostics and tooling:** load diagnostics and many new lines in `sacoop.log`; a launcher and release script that
-  work with this repository; build scripts that find Visual Studio 2019 to 2026 by themselves.
+- **Only the host starts story missions.** A guest who walks into a marker starts nothing, but still sees the marker.
+- **The guest sees the whole mission:**
+  - 🆕 The **mission title** at the start.
+  - 🆕 The **subtitles and dialogue**: what the host and their passengers say, including lines from the mission's helper
+    scripts and phone calls.
+  - The mission **timer, counters and health bars** (Ryder's health, crates left), 🆕 without blinking.
+  - The objective blips, matching the host's map (no stray mission letters or contact icons).
+- **Cutscenes:**
+  - 🆕 Interior cutscenes show the interior, and a guest inside sees an outdoor cutscene.
+  - 🆕 The scenery loads where the camera looks, and the cutscene waits for it before starting.
+  - 🆕 The guest's cutscene is not cut short when the host lets theirs play to the end.
+  - Doubles of the other players are hidden during the scene.
+- 🆕 **Phone calls:** the host's call rings for the guest too, and the guest's call starts when the host's does.
+- 🆕 **"Mission cancelled by \<name\>"** pops up for everybody.
+- 🆕 **Mission objects:** a guest's shots count, even from far away (the control panel and switches of Robbing Uncle Sam).
+- 🆕 **Mission characters** no longer fall over on the spot in scripted scenes.
+- **F10 > Tools > SKIP CUTSCENE** and **STOP MISSION** for when something gets stuck.
+- Fixes for Home Invasion, new games and interiors.
 
-**What is not proven yet:** `0.54.7` and `0.54.8` were written and compiled but have not been played for real by two
-players when this was written (the mission HUD, the vehicle colour / upgrade sync and STOP MISSION are the newest).
+### 🚗 Vehicles
 
-### Smoother play (VCCoop's robustness layer, 0.49.0)
+- 🆕 **Mission vehicle offer:** instead of appearing at once, the guest's copy of the mission vehicle is offered at the
+  top of the screen. Press **Y** to spawn it where you stand, **N** to decline (30 s to choose).
+- 🆕 **Passenger drive-bys:** passengers can shoot from the car, and never hurt the others inside.
+- 🆕 **Nitro flame** shows on the other players' screens.
+- 🆕 **Extras** match (van adverts and other optional parts).
+- **Colours, paintjobs and upgrades** follow the owner (Pay'n'Spray, TransFender), 🆕 including hydraulics.
+- 🆕 **Getting in:** no more double entry, no more both players jacking each other, no more feet through the floor.
+- 🆕 A passenger follows the driver into **garages and TransFender**.
+- **Radio:** any player in a shared car can change the station, and everybody ends on the same one.
+- Spawned and parked vehicles stay for everybody; copies no longer appear inside a player or on top of local traffic.
+- Helicopter rotors and plane propellers turn.
 
-- **Interpolation:** other players, vehicles and mission characters are shown about 110 ms in the past, between two
-  real received states (the last 10 are kept per entity), instead of being extrapolated and snapped. Every vehicle
-  and character message now carries a timestamp, and each sender's clock offset is tracked.
-- **Placement after the physics step:** remote players, mission characters (on the guest) and vehicle copies are
-  placed right after the game's physics, so they no longer jitter or fight the local physics.
-- **Frozen vehicle copies:** the local physics can no longer push or bounce the copy of someone else's car.
-- **World sanitizer:** a vehicle or character whose position, matrix or speed becomes absurd (NaN...) gets its last
-  sane pose back before it can crash the game.
-- **Extended mission mirror:** about 120 more mission commands are repeated on the guest (texts, blips, camera and
-  fades, mission audio, cutscene helpers, roads, garages, objects, pickups).
-- **30 FPS by default** (the original game timing, as VCCoop does). 60 FPS with the frame-rate corrections is still
-  there as an option.
+### 🔫 Combat and voices
 
-### Worlds that match better
+- 🆕 **Firing animation and muzzle flash** for the other players' shots.
+- 🆕 **Exact hits:** shots are replayed where they really landed, so small targets take one bullet.
+- 🆕 **Speech sync:** what players and shared pedestrians say (remarks, pain grunts, dialogue) is the same line, at the
+  same moment, at the same volume, on every PC.
+- 🆕 **Wanted level clears for everybody** when any player dies.
+- **Weapons come back** after a death, with their ammo.
 
-- **Radar blip sync:** the host's coordinate and contact blips (the next mission's marker, the ones after a mission...)
-  are copied to the guests; during a mission, the guest's map follows the host's strictly, so a joining player no
-  longer keeps mission-letter blips the host does not have.
-- **Weather and sky:** the guest's game never starts a weather change by itself, so the sky colours at dusk and dawn
-  no longer flicker. Clock and weather are not applied during cutscenes.
-- **Cutscenes:** the other players' doubles (player copies, mission character copies, vehicle copies) are hidden
-  while a cutscene plays, instead of standing in the scene on top of the actors.
-- **Vehicles stay:** cars spawned from the F10 menu or by a cheat code are shared, and parked vehicles keep being sent
-  while another player is within 350 m (they used to vanish for the other player 10 s later).
-- **No overlaps:** when a copy of the host's vehicle is about to appear, an ordinary car of the guest's own traffic
-  that is already there is removed (with its occupants), and a copy no longer pops into a player standing next to
-  it.
-- **Mission vehicle for the guest:** the guest's own copy of the host's mission vehicle is sent to the host the
-  moment it spawns, so the host sees it appear.
+### 🛠️ F10 > Tools
 
-### Trains
+| Button | What it does |
+|--------|--------------|
+| 🆕 **TELEPORT TO WAYPOINT** | Takes you to the map waypoint, held in the air until the ground loads (your car comes too) |
+| 🆕 **SUICIDE** | Kills your own character |
+| 🆕 **REMOVE ALL MY WEAPONS** | Empties your weapon slots |
+| 🆕 **Money field** | Click it, type an amount, press Enter or SET |
+| **SKIP CUTSCENE** | The game's own skip; a second click forces the end and gives the controls back |
+| **STOP MISSION** | Two clicks within 6 s; the mission ends cleanly, as if failed (a guest's click asks the host) |
+| **REMOVE MY LAST VEHICLE / ALL MY VEHICLES** | Removes the cars you spawned, on every screen |
 
-- **Trains are synced.** The host's trains (the random ones and the mission ones) run on every guest's rails: same
-  place, same speed, same direction, and they stop at the stations together. Before, every PC ran its own trains.
-- Whoever drives a train owns it: a guest who gets in the cab drives it for everybody, and it goes back to the host
-  when they get out.
-- The guest's own random trains are switched off while the host shares its trains. Setting `TrainSync`.
-- Limits: the game only builds trains near the host, so a guest far away from the host sees none; a player inside a
-  train is shown standing in it (no seat animation yet); a derailed train is not synced.
+Each player only changes their own character, weapons and money.
 
-### Missions, vehicles and the F10 menu (0.54.0 to 0.54.8)
+### 🌍 A world that matches
 
-- **Only the host starts story missions.** A guest who walks into a mission-start marker no longer starts anything,
-  but still sees the marker, so a guest can show the host where it is. Setting `GuestMissionLock`.
-- **Blips during a mission:** the guest's map now looks like the host's. Mission-start letters and contact icons (OG, BS...)
-  that the guest's own game keeps re-creating are removed within a tenth of a second; only the host's objective blips
-  and what the mission puts on the map stay.
-- **F10 > Tools > SKIP CUTSCENE:** uses the game's own skip; a second click (or a click when the controls or camera are
-  stuck after a cutscene) ends it by force and gives the controls and camera back.
-- **F10 > Tools > STOP MISSION:** for a mission that is stuck. Two clicks within 6 s (a guest's click asks the host); the
-  mission ends through its own clean-up, as if the game's `FAIL_CURRENT_MISSION` had run: no reward, the contact can start
-  it again.
-- **Mission timer and counters** (Ryder's health, the crates left, the time left) are shown on the guest's screen too.
-- **Colours, paintjobs and upgrades** of a vehicle (Pay'n'Spray, workshops) are seen by the other players.
-- **F10 > Tools > REMOVE MY LAST VEHICLE / REMOVE ALL MY VEHICLES:** removes the vehicles you spawned (menu or cheat code),
-  also on the other players' screens at once.
-- **Alt+Tab:** leaving the game gives the mouse back to Windows at once (cursor shown and free, no longer held by
-  the game); coming back takes the mouse and keyboard again.
-- **Alt+Enter** switches between borderless full screen and a window. The game keeps its resolution; the picture is scaled
-  into the window. The choice is saved in `sacoop.ini` (`Fenetre`).
-- **Helicopter rotors and plane propellers** turn on the other players' screens (they were frozen).
-- **Radio in a shared vehicle:** any player in the vehicle can change the station and everybody ends up on the last choice
-  (the driver's game decides when several people change it at once). Track and position still follow the host's radio.
-- **Home Invasion fixes (to be confirmed in play):** a guest moved into the host's interior now has the scenery and
-  collisions loaded around them (no more sky-only view and fall), the host's scene loading (`LOAD_SCENE`) is repeated
-  on the guest, and a player stuck still in the jump-landing animation for 2.5 s is freed automatically.
-- **Home Invasion, second round (0.54.1, from the two logs of 14/10):** the guest was put into the interior before the game
-  had loaded its collisions, fell 40 m, was "rescued" back outside, and the host's interior scene then played around
-  nobody (sky only, the old man falling). Now a player put into an interior is held in place until there is ground under
-  him; a fall rescue inside a mission goes to the host's interior, not back outside; and during a host mission a guest who
-  is not in the host's zone for 4 s is put next to him. The stuck-landing check also reacts after 1.2 s following a
-  teleport. The help text keys are looked up on the guest and logged (the table is reloaded if a key is unknown).
+- 🆕 **Garage doors** open and close the same for everybody.
+- **Trains** run the same on every PC: same place, speed and stations. Whoever drives one owns it.
+- **Weather and sky** no longer flicker on the guest.
+- **Radio** follows the host's station, song, position and adverts (custom User Tracks too, if both libraries match).
+- **Radar blips** of the host are copied to the guests.
+- 🆕 The pause-menu **map** lines up with its blips on wide screens.
 
-- **Third round (0.54.2, from the 0.54.1 logs of 14/10):** the **radio** of a shared vehicle now really retunes the driver's
-  radio when a passenger changes the station (before, only the station number changed and the music did not). The guest's
-  **radar** loses the contact icons during a host mission (the guest's game is told it is "on a mission", as the host's
-  is; it is put back when the mission ends). **Alt+Tab** shows the cursor again whatever the game did to its hide
-  counter, and the cursor over the game window is an arrow while it is in the background. A player held in place while
-  the scenery loads is no longer "freed" by the stuck-landing check, and a guest who falls after the host went back
-  outside is put next to the host outside. The mission people the host placed with a script no longer show the falling
-  pose on the guest. A **"commandes :"** line in the log says what the game sees when the player pushes a direction and
-  does not move (for the "cannot move left or right after the cutscene" bug).
+### 👥 Players
 
-- **Fourth round (0.54.3, from the 0.54.2 logs of 14/10):** a guest who is **in a vehicle** when the host's script moves
-  the player (a mission cutscene, the move into an interior) is now taken out of it on the spot - no exit animation, no
-  damage, the vehicle stays where it is - and arrives with the host, instead of watching the interior from outside. What
-  the host does **by himself** afterwards (walking through a door) is no longer followed: after the scripted move the
-  guest is only brought back to the host's zone for a few seconds if he did not make it, and each player then goes in
-  and out of interiors when he chooses (the guest used to be dragged out and back in 4 s after the host). The guest's
-  zone fields (visible area, ped area) are always set together. The host's **clear-area** commands (cutscene set-up)
-  now also clear the guest's own passers-by and parked cars there (extra pedestrians next to the van). When the host's
-  CJ takes out his **phone**, the guest's does too, and the call's dialogue is mirrored even from non-mission scripts
-  while the phone is out (`telephone :` log lines tell which script starts a call). The launcher **lobby ping** is
-  measured with a high-resolution clock, one send per message and no Nagle delay, first measured right on arrival
-  (shown as "..." until then), once a second, smoothed, and not while a guest downloads the host's mods. New log line
-  `objet porte :` for the crate-drops-when-crouching bug.
-- **0.54.4:** a guest leaving the house at the start of a session was left outside with no scenery at all (0.54.3 forced
-  the interior's zone back during the game's own exit transition); that extra zone check is gone, and the "back to the
-  host's zone" step waits for the game's entry/exit transition to end.
-- **0.54.5:** at the start of a new game the guest was put at x = 0 (in the void) by the host's first scripted move (0.54.3's
-  zone step overwrote the command being replayed), and could not get out of the opening cutscene for 21 s (seven pickups
-  that did not load held the replay queue up 3 s each, and a cutscene the guest skipped only ended when the host's script
-  cleared it). Fixed: the command buffer is kept, a pickup whose model does not load waits 0.8 s once and is then skipped, and
-  a cutscene the guest skips (Enter, Space, click, cross or F10) is cleared at once with controls, camera and screen given
-  back. The guest's cutscenes are logged (`cinematique de l'invite :` start, every 5 s, end).
-- **0.54.6:** a guest who joined with `address:port` (the launcher's lobby accepts it, then handed the text to the game
-  as typed) never connected: the game could not resolve `61.245.130.116:7800`, stayed at the main menu, and "Start game"
-  made a solo game and a black screen. The game now takes `address:port` (the port after the colon wins over the setting),
-  the in-game join box accepts a colon, and an address that cannot be found shows a message box instead of staying silent.
-- **0.54.7:** the game crashed (both players) when too many different vehicle models had been loaded: the mod kept every
-  vehicle model it had asked for in memory for good, and the game has room for 50 (Sweet's Girl brought the guest to 48).
-  The models are now let go of a few seconds after the vehicle exists, and a new one waits when the pool is nearly full. A
-  vehicle spawned with F10 can be removed after another player took the wheel (it came straight back before). The
-  guest riding in a host vehicle that the host's clean-up removed is put out of it first (he died with it at the end of Home
-  Invasion). Driving looked jerky for the other player: the game's clock moves in 15.6 ms steps, which cut the 30 updates a
-  second to 15 and rounded every timestamp; the mod now uses a precise clock for what it sends and plays back. The black
-  screen a guest could be left with after a cutscene is undone after 1 s instead of 2.
-- **0.54.8:** the guest crashed when a box Ryder threw hit a car and it exploded (Robbing Uncle Sam): a stale animation
-  callback of the "fall out of the car" task; patched. New: the mission HUD (timer, counters, Ryder's health) on the guest's
-  screen, colours / paintjobs / upgrades of vehicles seen by everyone, and F10 > Tools > STOP MISSION. Network version 24:
-  everybody needs the same dll.
-- **0.54.9:** diagnostic build for "the guest's car stops dead on lamp posts, NPCs and cars at high speed, away from the
-  host". No fix yet: when the local player's car loses more than half its speed above ~70 km/h, `sacoop.log` gets a
-  `choc :` line with what it hit and that thing's state (static, waiting for collision, frozen copy, mass). Network
-  version unchanged (24).
-- **0.54.10:** when any player dies, the wanted level is cleared for everybody at once (a guest who died came back clean
-  while the host kept his stars; a guest stayed chased until the host respawned). Network version unchanged (24).
-- **0.54.11:** interior cutscenes on the guest show the interior (the host's `SET_AREA_VISIBLE` is applied to the guest's
-  view for the cutscene, then his own zone comes back); the radio sync never restarts the radio while a cutscene is
-  loaded or playing (cutscene speech uses the same audio stream). Network version unchanged (24).
-- **0.54.12:** F10 > Tools: SUICIDE, REMOVE ALL MY WEAPONS, and a money field (click it, type the amount, Enter or SET).
-  Each player only changes his own. Network version unchanged (24).
-- **0.54.13:** speech sync: what a player says (CJ's remarks, his pain when hurt) and what the host's shared pedestrians
-  say is the same line, at the same moment, on every PC; the copies no longer say their own random lines. **Network
-  version 25: both players need 0.54.13.**
-- **0.54.14:** F10 > Tools > TELEPORT TO WAYPOINT: to the waypoint set on the map, on the ground (the scenery is loaded
-  first); at the wheel, the vehicle comes along. Network version unchanged (25).
-- **0.54.15:** vehicle copies get the same extras as the original (van adverts...); the waypoint teleport waits for the
-  ground; "Mission cancelled by <name>" for everybody; the pause-menu map lines up with its blips and cursor on wide
-  screens; no more feet through the car floor; no more double entry or both players jacking each other for the wheel.
-  **Network version 26: both players need 0.54.15.**
-- **0.54.16:** phone calls: the guest cannot answer a contact's call before the host does; his call starts when the
-  host's does. Network version unchanged (26).
-- **0.54.17:** waypoint teleport holds the player above the spot until the ground loads (never a fall: back to the
-  start if it does not load); the host's call rings for the guest too; a passenger follows the driver's interior (garages,
-  TransFender); the shared-vehicle radio no longer fights the driver. Network version unchanged (26).
-- **0.54.18:** garage doors synced; passengers can do drive-bys (never hurting the others in the vehicle); nitro flame
-  synced; a passenger only follows the driver's interior while the driver is at the wheel; mission characters no longer
-  fall on the spot in scripted scenes. **Network version 27: both players need 0.54.18.**
-- **0.54.19:** a guest can damage mission objects for the mission (the control panel of Robbing Uncle Sam); the
-  guest's mission HUD no longer blinks. Network version unchanged (27).
-- **0.54.20:** the real cause of the blinking mission HUD (a counter dropped on one "off" message), and no more endless
-  "upgrade removed" on vehicle copies with hydraulics. Network version unchanged (27).
-- **0.54.21:** the mission title shows for the guest too; the guest's mission vehicle is offered (Y = spawn it where
-  you stand, N = no, 30 s) instead of appearing at once; mission dialogue (host and his passenger) is heard by the guest.
-  Network version unchanged (27).
-- **0.54.22:** a guest can shoot the mission objects only the player may damage (the switches of Robbing Uncle Sam);
-  the guest's mission HUD is put back before every frame is drawn (no blinking). Network version unchanged (27).
-- **0.54.23:** shots are replayed at the exact point they hit (small targets take one bullet); a guest's shot on a
-  mission object counts for the host even from far away; the guest's cutscenes load the scenery where the camera looks;
-  the vehicle offer is shown at the top of the screen. Network version unchanged (27).
-- **0.54.24:** diagnostics for the missing mission title and cutscene subtitles on the guest (log only). Network
-  version unchanged (27).
-- **0.54.25:** the other player's shots show the firing animation and muzzle flash; a guest's cutscene is no longer cut
-  short when the host lets his play to the end; a guest inside an interior sees the outdoor cutscene. Network version
-  unchanged (27), both players need 0.54.25.
-- **0.54.26:** the mission title shows for the guest; the dialogue of the host's passenger in a mission car is heard
-  by the guest (said as on the host: volume, always audible, in the cabin). **Network version 28: both players need
-  0.54.26.**
-- **0.54.27:** mission dialogue said by a mission's helper scripts reaches the guest; the guest's cutscene waits for
-  the scenery to load before it starts. Network version unchanged (28).
+- **Ping** on the F5 board and in F10 > Players.
+- **Go to a player** from anywhere, interiors included, and **go back to where you died**.
+- **Endless-fall rescue** for a player under the world.
+- A **pause indicator** next to the name of a player in the pause menu.
+- No more players stuck in the falling animation after a teleport or leaving a safe house.
 
-### Players
+### ⚡ Smoother and more stable
 
-- **Ping:** every player's ping to the host shows on the **F5** board and in the **F10 > Players** tab. Ping is timed
-  by a separate network thread (it used to include the game's frame delay and read far too high), and the host shares
-  everyone's ping.
-- **Radio sync (experimental):** when you are tuned to the same station as the host, you hear the same song at the
-  same point in it, and the same adverts. The custom "User Tracks" radio syncs too when both players have an identical
-  track library (checked automatically; if the libraries differ you get a message and no sync).
-- **Weapons kept on death:** the weapons you held come back (with their ammo) about 1.5 s after you respawn, instead of
-  being lost. Only what is missing is given back.
-- **Go to player:** teleporting to another player works from anywhere, including inside interiors: the right interior
-  is selected, the scenery is loaded on the spot, and you leave your vehicle first.
-- **Where I died:** **F10 > Players > "Where I died" > GO THERE** takes you back to your last death spot.
-- **Endless-fall rescue:** a player who falls under the world, or falls for a long time without a parachute or jetpack,
-  is put back on their last safe position (or next to the host).
-- **Falling animation fixed:** after leaving an interior (a safe house...) or teleporting, the other players no longer
-  see your character stuck in the falling animation until you move.
-- **Pause indicator:** a player in the pause menu stands still for the others and shows "(paused)" next to their name.
-- **F10 and F1 keys:** holding the key no longer makes the menu flicker open and shut.
-- **Save disk:** picking up a save disk no longer opens the save menu for the other players too.
+- **Interpolation:** other players, cars and mission characters are shown between real received states (about 110 ms
+  in the past), placed after the game's physics, so they no longer jitter.
+- **Frozen vehicle copies:** your physics can no longer push someone else's car.
+- **Precise clock** for what is sent and played back (driving no longer looks jerky).
+- **World sanitizer:** absurd positions are caught before they crash the game.
+- **30 FPS by default** (stable); 60 FPS with frame-rate fixes is still an option.
+- **Crashes fixed:** vehicle model pool filling up (Sweet's Girl), a crate exploding next to a car (Robbing Uncle Sam),
+  the Display Setup > Advanced menu, a host address typed as `address:port`.
+- **Alt+Tab** gives the mouse back at once; **Alt+Enter** switches between borderless and windowed.
 
-### Stability and diagnostics
+### 🔧 Fork tooling and diagnostics
 
-- Fixed a crash when opening Display Setup > Advanced.
-- **Core-0 CPU affinity** at launch (setting `AffiniteCoeur`): fixes the mouse cursor that drifted.
-- **Load diagnostics** in the log every 10 s: CPU per thread, process and machine, disk reads, the heaviest
-  processes, plus an optional sampling profiler (`Profil=1`).
-- Many new log lines (`radio:`, `relocated:`, `death:`, `network: ping ...`, `radar:`, `teleportation`, `sanitizer:`)
-  so a problem can be traced from the two `sacoop.log` files.
+- The launcher updates from **this** repository's releases and shows "Zebra's forked repo".
+- `build-dll.cmd` and `build-exe.cmd` find Visual Studio 2019 to 2026 by themselves.
+- `dist\make-release.ps1` publishes to this fork by default.
+- Many log lines (`parole :`, `garage :`, `radio:`, `death:`, `network:`, `teleportation`...) so a problem can be traced
+  from the two `sacoop.log` files, plus a 10 s load report and an optional profiler.
 
-### Fork tooling
+### 📜 Version history
 
-- The launcher updates from **this** repository's releases (`zebra032-cyber/SACoop`) and shows "Zebra's forked
-  repo" under the logo and in its window title. The F10 menu header and the first line of the log show it too.
-  A repository with no release yet counts as "up to date", not "offline".
-- `build-dll.cmd` and `build-exe.cmd` find Visual Studio 2019 to 2026 by themselves; `build.cmd` builds both.
-- `dist\make-release.ps1` publishes to this fork by default (`-Repo` to change it).
+| Versions | Highlights |
+|----------|------------|
+| 0.49 | Smoothness layer from VCCoop: interpolation, frozen copies, sanitizer, extended mission mirror, 30 FPS |
+| 0.50 to 0.53 | Radar blips, vehicles that stay, pause indicator, go to player, where I died, fall rescue, ping, radio sync, weapons kept on death, trains |
+| 0.54.0 to 0.54.8 | Host-only missions, skip cutscene, stop mission, mission HUD, colours / upgrades, Home Invasion fixes, crash fixes |
+| 0.54.9 to 0.54.12 | Wanted level cleared on death, interior cutscenes, suicide / weapons / money tools |
+| 0.54.13 to 0.54.18 | Speech sync, waypoint teleport, extras, entry fixes, phone calls, garage doors, drive-bys, nitro |
+| 0.54.19 to 0.54.23 | Mission objects for the guest, HUD without blinking, mission title, vehicle offer (Y/N), exact hit points |
+| 0.54.24 to 0.54.27 | Firing animation, cutscene fixes, passenger and helper-script dialogue, cutscene loading wait |
 
-## What the mod does
+**Network versions:** both players must use the same build. The last network changes were in 0.54.13, 0.54.15, 0.54.18
+and **0.54.26** (network version 28).
 
-Everything below comes from the original SACoop and still works.
+## What the original mod does
+
+Everything below comes from Parricidium's original SACoop and still works.
 
 - Host and join over UDP (default port 7800), up to 4 players.
 - Each player sees the others as **CJ wearing that player's own clothes** (shops and wardrobe included), walking,
@@ -409,10 +291,11 @@ Everything below comes from the original SACoop and still works.
 | Key | What it does |
 |-----|--------------|
 | **G** (also **F**) | Ride as a passenger in another player's car |
+| **Y** / **N** | Accept or decline the mission vehicle offered to a guest |
 | **T** | Chat (Enter to send; `/join` brings you back next to the host) |
 | **F5** (hold) | Players board: name, health, distance and ping |
 | **F6** | First-person view on foot |
-| **F10** | In-game menu, used with the mouse: **Players** (go to a player, where I died, friendly fire, ping), **Vehicles** (3D thumbnails, a click spawns it in front of you), **Tools** (health and armour, weapons, money, repair, clear wanted level, jetpack, skip cutscene, stop mission, remove my vehicles), **Outfit**, and for the host **World** (time, weather) and **Host** settings |
+| **F10** | In-game menu (mouse): **Players**, **Vehicles**, **Tools**, **Outfit**, and for the host **World** and **Host** |
 | **F1** | Help (keys, tips) |
 | **Alt+Enter** | Borderless full screen <-> window |
 
@@ -474,34 +357,25 @@ ready).
   <img src="docs/img/lanceur.png" width="49%" alt="SACoop launcher">
   <img src="docs/img/salon.png" width="49%" alt="SACoop launcher lobby">
 </p>
-
 ## Testing checklist and sending logs
 
-Versions 0.49 to 0.54 have been written and checked for build errors, but are still being tested in real play. If you
-want to help, play a session and look at these:
+Play a session and tick these off. Newest first:
 
-- [ ] The first line of **both** `sacoop.log` files shows the same version (`0.54.27-vcport (Zebra's forked repo)`).
-- [ ] **Ping** shows in F5 and F10 > Players and looks like the real ping (a few ms on the same PC or network).
-- [ ] The **sky** no longer flickers at dusk and dawn.
-- [ ] After a **teleport** or leaving a safe house, the other player is not stuck in the falling animation.
-- [ ] A mission **vehicle for the guest** appears for the host as well.
-- [ ] The guest's **map** has no extra mission-letter blips during a mission.
-- [ ] **Die** with weapons: you get them back about 1.5 s after the respawn.
-- [ ] **Radio:** the same station, then wait for a song change and an advert; try the custom radio with the same
-      "User Tracks" on both PCs.
-- [ ] **Missions:** a guest standing in a mission-start marker starts nothing; the marker is still drawn. During the host's
-      mission the guest's map shows no other mission letters (OG, BS...).
-- [ ] **F10 > Tools:** skip a cutscene; spawn a car, remove it (also gone for the other player); spawn two and remove all.
-- [ ] **Alt+Tab** away and back: the mouse works at once. **Alt+Enter** toggles full screen / window.
-- [ ] **Helicopter:** the other player's helicopter has turning blades (also on the ground with the engine on).
-- [ ] **Radio in a car:** the passenger changes the station, the driver changes it again: both end on the same one.
-- [ ] **Home Invasion:** the guest sees the interior and the sleeping man; the host is not stuck after the jump.
-- [ ] **Trains:** stand next to a railway (Market station in Los Santos is handy) on both PCs: the same train, in the same
-      place, on both screens; try driving one from the guest and from the host. The logs say `trains:` for each train.
+- [ ] Both `sacoop.log` files start with the same version (`0.54.27-vcport (Zebra's forked repo)`).
+- [ ] **Mission dialogue in a car:** the guest hears the host's passengers and the mission's lines.
+- [ ] **Cutscenes:** the guest sees the scenery loaded (indoors and outdoors) and the cutscene is not cut short.
+- [ ] **Firing:** the other player's shots show the firing animation and muzzle flash.
+- [ ] **Mission title and subtitles** show on the guest.
+- [ ] **Vehicle offer:** the guest gets the Y/N prompt at the top of the screen; Y spawns the car, N declines.
+- [ ] **Garage doors** open for both players; **drive-bys** from the passenger seat work; **nitro** flames show.
+- [ ] **Phone calls** ring for both, and the guest's call waits for the host's.
+- [ ] **F10 > Tools:** waypoint teleport, suicide, remove weapons, money; skip cutscene, stop mission, remove vehicles.
+- [ ] **Speech:** pain grunts and remarks are heard the same on both PCs.
+- [ ] **Death:** the wanted level clears for everybody, and your weapons come back after the respawn.
+- [ ] **Trains**, **radio** (station, then a song change), **sky** at dusk, **ping** in F5.
 
 When something goes wrong, send **both players' `sacoop.log`** (next to `gta_sa.exe`; older sessions are in `logs\`,
-or use the launcher's logs button) and say roughly when it happened. Useful log lines start with `radio:`,
-`relocated:`, `death:`, `network:`, `radar:`, `sanitizer:` and `teleportation`.
+or use the launcher's logs button) and say roughly when it happened.
 
 ## Building from source
 
@@ -563,8 +437,7 @@ Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **
 8. The host's mission characters and mission vehicles are copies on the guest, placed from the host's state: the
    guest's collisions cannot push them, so they feel like walls. Letting a hit move them needs the guest to take them
    over for a moment; not done yet.
-9. Vehicle colour / upgrade / paintjob sync and the mission HUD (0.54.8) are new and untested. The HUD label shows
-   only if the guest's game has the mission's text.
+9. Mission dialogue from helper scripts and the cutscene loading wait (0.54.27) still need a real test.
 
 ## Credits and license
 
