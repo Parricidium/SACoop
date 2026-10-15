@@ -6,6 +6,13 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.40-vcport (network version 32 unchanged, untested)
+
+- **F10 > MISSIONS names:** the title now comes from the key the game builds from the mission's script name (`RYDER2` ->
+  `RYDER_2`, "Robbing Uncle Sam"), then from the mission's own big texts other than "mission passed / failed"; it used to
+  be the first big text of the mission, which for many is "Mission failed". Each name found is in the log
+  (`missions : 38 RYDER2 -> Robbing Uncle Sam`); the script name shows when no title is found.
+
 ## 0.54.39-vcport (network version 32: both players need 0.54.39, untested)
 
 Reports of 15/10: "the client looking behind sees people pop in and vanish", "after a teleport, massive desync that

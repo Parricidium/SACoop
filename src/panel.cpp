@@ -755,22 +755,45 @@ static void LoadMissionList()
         size_t end = b.size() < (size_t)at + 69000 ? b.size() : (size_t)at + 69000;
         for (size_t q = at; q + 11 <= end && q < (size_t)at + 4000; q++)
             if (b[q] == 0xA4 && b[q + 1] == 0x03 && b[q + 2] == 0x09 && KeyChars(&b[q + 3], 8, true)) { memcpy(e.script, &b[q + 3], 8); break; }
-        for (size_t q = at; q + 11 <= end; q++)
+        for (char &c : e.script) if (c >= 'a' && c <= 'z') c = (char)(c - 32);
+        // Title: the GXT key made from the script name ("RYDER2" -> "RYDER_2", the mission's title as the game prints it),
+        // or the name itself; else the first big text of the mission that is not "mission passed / failed" (M_*). The
+        // first big text alone was "Mission failed" for many (their failure part comes first, 15/10).
+        auto clean = [](const char *t) {
+            std::string title;
+            for (const char *c = t; c && *c && title.size() < 40; c++) {
+                if (*c == '~') { const char *e2 = strchr(c + 1, '~'); if (!e2) break; c = e2; continue; }   // (~r~ colour codes)
+                title += (*c >= 32 && *c < 127) ? *c : ' ';
+            }
+            return title;
+        };
+        auto tryKey = [&](const char *key) {
+            const char *t = key[0] ? GxtLookup(key) : nullptr;
+            if (!t || !t[0]) return false;
+            std::string title = clean(t);
+            if (title.empty() || _strnicmp(title.c_str(), "mission", 7) == 0) return false;
+            e.title = title;
+            return true;
+        };
+        char k1[12] = {};
+        {   // underscore before the first digit
+            int o = 0;
+            for (int c = 0; c < 8 && e.script[c] && o < 10; c++) {
+                if (e.script[c] >= '0' && e.script[c] <= '9' && c > 0 && !(e.script[c - 1] >= '0' && e.script[c - 1] <= '9') && !strchr(k1, '_')) k1[o++] = '_';
+                k1[o++] = e.script[c];
+            }
+            k1[o > 8 ? 8 : o] = 0;
+        }
+        bool named = tryKey(k1) || tryKey(e.script);
+        for (size_t q = at; !named && q + 11 <= end; q++)
             if (b[q] == 0xBA && b[q + 1] == 0x00 && b[q + 2] == 0x09 && KeyChars(&b[q + 3], 8, false)) {
                 char key[9] = {};
                 memcpy(key, &b[q + 3], 8);
-                if (const char *t = GxtLookup(key)) {
-                    std::string title;
-                    for (const char *c = t; *c && title.size() < 40; c++) {
-                        if (*c == '~') { const char *e2 = strchr(c + 1, '~'); if (!e2) break; c = e2; continue; }   // (~r~ colour codes)
-                        title += (*c >= 32 && *c < 127) ? *c : ' ';
-                    }
-                    e.title = title;
-                }
-                break;
+                if (key[0] == 'M' && key[1] == '_') continue;   // (M_FAIL, M_PASS...)
+                named = tryKey(key);
             }
-        for (char &c : e.script) if (c >= 'a' && c <= 'z') c = (char)(c - 32);
         if (e.title.empty()) e.title = e.script[0] ? e.script : "?";
+        Log("missions : %d %s -> %s", i, e.script, e.title.c_str());
         g_missionList.push_back(e);
     }
     Log("missions : %d missions de l'histoire lues dans main.scm", (int)g_missionList.size());
