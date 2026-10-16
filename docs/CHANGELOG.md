@@ -6,6 +6,22 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.43-vcport (network version 33 unchanged, untested)
+
+From the logs of 16/10 (0.54.42).
+
+- **Get-in animation seen twice:** a puppet's get-in was started again when the game's task was cut short (the copy
+  moving, a driver being pulled out); it now starts once per get-in of the player. The car leaving during the second
+  one dropped the puppet on the ground before it was put in its seat.
+- **Getting in by a door where the host's people sit:** while the local player gets in (at the wheel or as a
+  passenger), the copies in that vehicle are left to the game's task (it pulls them out) and none is put back in.
+- **G picks the seat on your side:** front or back right when standing on the right, back left on the left (G always
+  took the back left seat).
+- **Drive-by pose stuck** ("holding the gun behind the head" after a drive-by): when a puppet's or a copy's drive-by ends
+  it is seated again, which resets the arm.
+- Log: what the game has while the guest aims as a passenger (tasks, drive-by permission, camera mode, weapon), for the
+  "the guest cannot drive-by" report.
+
 ## 0.54.42-vcport (network version 33 unchanged, untested)
 
 From the logs of 16/10 (0.54.40).

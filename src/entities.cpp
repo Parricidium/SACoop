@@ -272,6 +272,17 @@ static void CreateCopy(Copy &c)
     Log("copie du personnage de mission %08X (modele %d%s%.8s) creee", c.id, m.model, m.special[0] ? " " : "", m.special);
 }
 
+// The local player is getting into veh (the game's get-in task, at the wheel or as a passenger): copies in it or wanting
+// to be in it are left to that task (it pulls them out), not warped back (16/10: the guest could not get in by the
+// passenger side of a car with two of the host's passengers, they were put back in at every state).
+static bool LocalEntering(void *veh)
+{
+    void *me = FindPlayerPed();
+    void *task = me ? ActiveTask(me) : nullptr;
+    uintptr_t vt = TaskVtable(task);
+    return veh && (vt == VT_TaskEnterCarAsDriver || vt == VT_TaskEnterCarAsPassenger) && Field<void *>(task, 0xC) == veh;
+}
+
 static void UpdateCopy(Copy &c, uint32_t now)
 {
     const MsgPed &m = c.last;
@@ -330,6 +341,7 @@ static void UpdateCopy(Copy &c, uint32_t now)
     if (m.vehicleId && m.seat == 0 && VehicleIdIsOurs(m.vehicleId)) { c.moveState = 0; return; }
     // (being pulled out by a player's puppet getting in at the wheel: left to that jack)
     if (inVeh && Field<void *>(inVeh, VEH_DRIVER) == ped && !m.vehicleId && PuppetWantsWheel(inVeh)) { c.moveState = 0; return; }
+    if (inVeh && !m.vehicleId && LocalEntering(inVeh)) { c.moveState = 0; return; }   // (pulled out by our own get-in)
     if (inVeh && VehicleIsOurs(inVeh)) {
         void *me = FindPlayerPed();
         void *task = me ? ActiveTask(me) : nullptr;
@@ -360,7 +372,9 @@ static void UpdateCopy(Copy &c, uint32_t now)
         } else if (!wantDb && c.driveby) {
             SetPrimaryTask(ped, nullptr, 3);
             c.driveby = false;
+            if (placed) WarpPuppetIn(ped, veh, m.seat);   // (seated again: the drive-by pose stayed otherwise)
         }
+        if (!placed && LocalEntering(veh)) { c.moveState = 0; return; }   // (we are getting in: our jack decides, 16/10)
         if (!placed && m.seat == 0 && PuppetWantsWheel(veh)) {   // a player takes that seat: not put back in (his jack pulls him out)
             c.moveState = 0;
             static int said;

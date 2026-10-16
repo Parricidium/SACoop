@@ -29,9 +29,26 @@ static int FreeSeat(void *veh)
     return -1;
 }
 
+// The free seat on the side the player stands (0.54.43: G always took the first free seat, the back left one; a guest by
+// the back right door of the host's car, Big Smoke in front, could never get in there). Passenger seats: 0 front right,
+// 1 back left, 2 back right (more on buses: any).
+static int SeatNear(void *me, void *veh)
+{
+    int maxPass = Field<uint8_t>(veh, VEH_MAXPASS);
+    uint8_t *mat = *(uint8_t **)((uint8_t *)veh + 0x14);
+    if (!mat || maxPass > 3) return FreeSeat(veh);
+    const float *vp = EntityPos(veh), *mp = EntityPos(me), *r = (const float *)mat, *f = (const float *)(mat + 0x10);
+    float dx = mp[0] - vp[0], dy = mp[1] - vp[1];
+    bool right = dx * r[0] + dy * r[1] > 0, front = dx * f[0] + dy * f[1] > 0;
+    static const int rightFront[] = { 0, 2, 1 }, rightBack[] = { 2, 0, 1 }, left[] = { 1, 0, 2 };
+    const int *order = right ? (front ? rightFront : rightBack) : left;
+    for (int k = 0; k < 3; k++) if (order[k] < maxPass && !Field<void *>(veh, VEH_PASSENGERS + order[k] * 4)) return order[k];
+    return -1;
+}
+
 static bool EnterAsPassenger(void *me, void *veh)
 {
-    int seat = FreeSeat(veh);
+    int seat = SeatNear(me, veh);
     if (seat < 0) return false;
     int door = ((int(__cdecl *)(void *, int))0x64F190)(veh, seat);
     void *task = NewEnterCarTask(veh, door);

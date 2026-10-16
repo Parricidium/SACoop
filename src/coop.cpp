@@ -54,6 +54,8 @@ struct Puppet {
     uint32_t builtAt;    // GetTickCount de la derniere construction (pas plus d'une toutes les 2 s)
     int carTask;         // montee (1 volant, 2 passager) / descente (3) en cours, jouee par la tache du jeu
     void *carVeh;
+    int seenCarTask;     // the remote get-in last acted on (carTask, vehicle): a new one only when it changes (0.54.43)
+    void *seenCarVeh;
     uint32_t carTaskAt;
     bool meleeKnown;     // compteur de coups deja vu (rien a rejouer a la creation)
     uint8_t meleeSeq;
@@ -743,7 +745,12 @@ static void UpdatePuppet(int id)
         // in the game means pulling us out (test of 15/10: both players jacked each other). The seat is settled below.
         void *meNow = FindPlayerPed();
         if (veh && s.carTask == 1 && meNow && Field<void *>(veh, VEH_DRIVER) == meNow) veh = nullptr;
-        if (veh && (p.carTask != s.carTask || p.carVeh != veh)) {
+        // Started once per get-in of the player: when the game's task was cut short (the copy moving, a driver pulled out)
+        // it used to be started again, both players saw the animation twice, and the car could leave during the second
+        // one (the puppet fell to the ground, then was put in its seat). (16/10)
+        bool fresh = veh && (p.seenCarTask != s.carTask || p.seenCarVeh != veh);
+        if (veh) { p.seenCarTask = s.carTask; p.seenCarVeh = veh; }
+        if (fresh && (p.carTask != s.carTask || p.carVeh != veh)) {
             if (void *task = NewEnterCarTask(veh, s.carTask == 1 ? -1 : s.carDoor)) {
                 SetPrimaryTask(ped, task, 3);
                 p.carTask = s.carTask; p.carVeh = veh; p.carTaskAt = now; p.moveState = 0;
@@ -752,6 +759,7 @@ static void UpdatePuppet(int id)
         }
         if (p.carTask == s.carTask) return;
     }
+    if (s.carTask != 1 && s.carTask != 2) { p.seenCarTask = 0; p.seenCarVeh = nullptr; }
     if (s.carTask == 3 && inVeh && p.carTask != 3) {
         if (void *task = NewLeaveCarTask(inVeh)) {
             SetPrimaryTask(ped, task, 3);
@@ -792,7 +800,10 @@ static void UpdatePuppet(int id)
                 static int said;
                 if (said < 10) { said++; Log("pantin du joueur %d : tir par la fenetre", id); }
             } else if (!db && has) {
-                SetPrimaryTask(ped, nullptr, 3);
+                // Out of the drive-by: the task off, then the puppet seated again (the game's seating resets the arm: the
+                // pose of the drive-by stayed, "holding the gun" behind the head, 16/10).
+                for (int k = 0; k < 5; k++) { void *t = PrimaryTasks(ped)[k]; if (t && ((int(__thiscall *)(void *))(*(void ***)t)[4])(t) == 1022) SetPrimaryTask(ped, nullptr, k); }
+                WarpPuppetIn(ped, veh, s.seat);
             }
             return;
         }
@@ -2364,6 +2375,20 @@ static void PassengerDriveByFrame()
             *(int16_t *)((uint8_t *)veh + 0x22), Field<int>(me, PED_WEAPONS + slot * 0x1C), slot, before);
     }
     if (!passenger) loggedVeh = nullptr;
+    if (passenger && GameHasFocus() && (GetAsyncKeyState(VK_RBUTTON) & 0x8000)) {   // (drive-by report of 16/10: what the game has while he aims)
+        static uint32_t lastLog;
+        static int said;
+        if (GetTickCount() - lastLog > 1500 && said < 15) {
+            lastLog = GetTickCount();
+            said++;
+            void **t = PrimaryTasks(me);
+            auto ty = [](void *k) { return k ? ((int(__thiscall *)(void *))(*(void ***)k)[4])(k) : -1; };
+            uint8_t *cam = (uint8_t *)0xB6F028;
+            Log("passager : vise (clic droit), taches %d %d %d %d, secondaire %d, drapeau %d, camera mode %d, arme %d",
+                ty(t[0]), ty(t[1]), ty(t[2]), ty(t[3]), ty(t[5]), flag, *(int16_t *)(cam + 0x174 + (cam[0x59] % 3) * 0x238 + 0xC),
+                Field<int>(me, PED_WEAPONS + Field<uint8_t>(me, PED_WEAPONSLOT) * 0x1C));
+        }
+    }
     if (forced && passenger) flag = 1;
     // Put back as it was, or as a script set it during the ride (a mission starting or ending: review of 15/10, the old
     // value overwrote the story's, and it is saved with the game).
