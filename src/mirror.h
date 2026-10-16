@@ -19,3 +19,5 @@ void RunScriptCommandTyped(int op, int nargs, const char *types, const int *args
 int MirrorGuestObject(int hostHandle);   // guest: his copy of the host's mission object (0: none)
 int ScriptGhostVar(int i);   // variable locale du script fantome (sortie d'une commande)
 void RunScriptCommand(int op, int nargs, const int *args);   // commande a parametres entiers (script fantome)                        // invite : rejeu de la file, chaque tour de la boucle en partie
+void MirrorSendJacked(int player, unsigned int vehicleId);   // host: tell a guest one of our people jacks him
+void CoopJacked(unsigned int vehicleId);                    // coop.cpp, guest: get out

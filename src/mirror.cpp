@@ -40,7 +40,7 @@
 
 using namespace game;
 
-enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */, RL_OBJECT_DAMAGED = 9 /* guest -> host: a mission object damaged by the guest (host handle) */, RL_CUT_END = 10 /* host -> guests: his cutscene ends, skipped or not */, RL_MISSION_REQUEST = 11 /* guest -> host: start story mission n (F10 > Missions) */, RL_NOTICE = 12 /* host -> guests: a line for the screen */ };
+enum : uint8_t { RL_MIRROR = 1, RL_MISSION_END = 2, RL_MISSION_START = 3, RL_GLOBALS = 4, RL_SESSION = 5, RL_BLIPS = 6, RL_MISSION_STOP = 7 /* guest -> host: stop the mission (F10) */, RL_MISSION_STOPPED = 8 /* host -> guests: stopped, by whom (name) */, RL_OBJECT_DAMAGED = 9 /* guest -> host: a mission object damaged by the guest (host handle) */, RL_CUT_END = 10 /* host -> guests: his cutscene ends, skipped or not */, RL_MISSION_REQUEST = 11 /* guest -> host: start story mission n (F10 > Missions) */, RL_NOTICE = 12 /* host -> guests: a line for the screen */, RL_JACKED = 13 /* host -> a guest: one of the host's people jacks him (vehicle id) */ };
 static uint32_t *OnMissionVar();   // (below: the host's ONMISSION flag)
 
 // Signature de chaque commande : i entier, f reel, s texte, P personnage, V vehicule, b/B marqueur (entree/sortie),
@@ -709,6 +709,7 @@ static void OnReliable(int from, const uint8_t *data, int len)
     }
     if (g_cfg.host && len >= 1 && data[0] == RL_MISSION_STOP) { HostStopMission(from > 0 && from < MAX_PLAYERS ? from : 1); return; }
     if (g_cfg.host && len >= 3 && data[0] == RL_MISSION_REQUEST) { HostStartMission(*(const int16_t *)(data + 1), from > 0 && from < MAX_PLAYERS ? from : 1); return; }
+    if (!g_cfg.host && len >= 5 && data[0] == RL_JACKED) { uint32_t v; memcpy(&v, data + 1, 4); CoopJacked(v); return; }
     if (!g_cfg.host && len >= 2 && data[0] == RL_NOTICE) {
         char t[120] = {};
         memcpy(t, data + 1, len - 1 < 119 ? len - 1 : 119);
@@ -1542,6 +1543,12 @@ void RunScriptCommandTyped(int op, int nargs, const char *types, const int *args
         g_code[c++] = types[k] == 'f' ? 6 : 1; memcpy(g_code + c, &args[k], 4); c += 4;
     }
     ExecCommand(op);
+}
+void MirrorSendJacked(int player, uint32_t vehicleId)
+{
+    uint8_t m[5] = { RL_JACKED };
+    memcpy(m + 1, &vehicleId, 4);
+    NetSendReliableTo(player, m, 5);
 }
 int MirrorGuestObject(int hostHandle) { return MapGet(g_objects, hostHandle); }
 int ScriptGhostVar(int i) { return *(int *)(g_script + 0x3C + i * 4); }

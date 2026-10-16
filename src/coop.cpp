@@ -54,6 +54,7 @@ struct Puppet {
     uint32_t builtAt;    // GetTickCount de la derniere construction (pas plus d'une toutes les 2 s)
     int carTask;         // montee (1 volant, 2 passager) / descente (3) en cours, jouee par la tache du jeu
     void *carVeh;
+    uint32_t jackedAt;   // (host) one of our people is jacking him: not put back in his seat for a while (0.54.44)
     int seenCarTask;     // the remote get-in last acted on (carTask, vehicle): a new one only when it changes (0.54.43)
     void *seenCarVeh;
     uint32_t carTaskAt;
@@ -500,6 +501,35 @@ void *PuppetOf(int id)
 // A player (his puppet here) is getting in at the wheel of veh, or is at it, or his state says he is: the copy of a ped the
 // owner still has driving it must not be put back in that seat (0.54.42: the guest warped the NPC copy back in on every
 // state, the host's jack never pulled him out, the puppet was then warped in from outside, "the driver stood up in the car").
+// Host: one of our own people (not a player's puppet nor a copy) getting in at the wheel of veh, within 4 m: he is jacking
+// whoever sits there.
+static void *JackerOf(void *veh, void *sitter)
+{
+    Pool *peds = *(Pool **)0xB74490;
+    const float *vp = EntityPos(veh);
+    for (int i = 0; i < peds->size; i++) {
+        if (peds->flags[i] & 0x80) continue;
+        void *ped = peds->objects + i * 0x7C4;
+        if (ped == sitter || ped == FindPlayerPed() || PuppetIndex(ped) >= 0 || IsMissionCopy(ped)) continue;
+        void *task = ActiveTask(ped);
+        if (TaskVtable(task) != VT_TaskEnterCarAsDriver || Field<void *>(task, 0xC) != veh) continue;
+        const float *pp = EntityPos(ped);
+        float dx = pp[0] - vp[0], dy = pp[1] - vp[1];
+        if (dx * dx + dy * dy < 4.0f * 4.0f) return ped;
+    }
+    return nullptr;
+}
+
+// Guest: the host says one of his people is pulling us out of our vehicle: we get out (the game's get-out task).
+void CoopJacked(uint32_t vehicleId)
+{
+    void *me = FindPlayerPed();
+    void *veh = me ? PedVehicle(me) : nullptr;
+    if (!veh || NetVehicleById(vehicleId) != veh || Field<void *>(veh, VEH_DRIVER) != me) return;
+    if (void *task = NewLeaveCarTask(veh)) SetPrimaryTask(me, task, 3);
+    Log("jacke : un personnage de l'hote nous sort du vehicule %08X", vehicleId);
+}
+
 bool PuppetWantsWheel(void *veh)
 {
     if (!veh) return false;
@@ -776,6 +806,17 @@ static void UpdatePuppet(int id)
         void *veh = NetVehicleById(s.vehicleId);
         if (!veh) return;   // copie pas encore creee (modele en chargement)
         bool placed = inVeh == veh && (s.seat == 0 ? Field<void *>(veh, VEH_DRIVER) == ped : Field<void *>(veh, VEH_PASSENGERS + (s.seat - 1) * 4) == ped);
+        // Jacked by one of our people (0.54.44, 16/10: "NPCs trying to jack the client out of a car or off a bike can't"):
+        // the jack plays here on his puppet, and his own game is told (RL_JACKED, mirror.cpp) to get him out; meanwhile the
+        // puppet is not put back in its seat.
+        if (g_cfg.host && s.seat == 0 && JackerOf(veh, ped)) {
+            if (!p.jackedAt || now - p.jackedAt > 6000) {
+                p.jackedAt = now;
+                MirrorSendJacked(id, s.vehicleId);
+                Log("pantin du joueur %d : un de nos personnages le sort du vehicule %08X, son jeu est prevenu", id, s.vehicleId);
+            }
+        }
+        if (!placed && p.jackedAt && now - p.jackedAt < 6000) return;
         if (placed) {
             if (p.carTask != 3) p.carTask = 0;
             // Animations du joueur dans son vehicule (bunny hop, pedalage debout, gestes...) et tir par la fenetre : le

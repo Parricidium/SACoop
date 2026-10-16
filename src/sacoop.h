@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.54.43-vcport"
+#define SACOOP_VERSION "0.54.44-vcport"
 #define SACOOP_FORK "Zebra's forked repo"   // shown in the log, the F10 menu and the launcher: tells this build from the original
 
 struct Config {

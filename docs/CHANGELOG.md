@@ -6,6 +6,13 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.44-vcport (network version 33 unchanged, untested)
+
+- **The host's people can jack a guest** (out of a car, off a bike), request of 16/10: the jack only plays on the host
+  (on the guest's puppet), and the puppet was put back in its seat at once because the guest still drove on his side.
+  Now the host tells the guest's game (RL_JACKED) when one of his people is getting in at the wheel the guest's puppet
+  holds; the guest gets out, and his puppet is not put back in its seat meanwhile.
+
 ## 0.54.43-vcport (network version 33 unchanged, untested)
 
 From the logs of 16/10 (0.54.42).
