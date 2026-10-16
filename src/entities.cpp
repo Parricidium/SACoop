@@ -328,6 +328,8 @@ static void UpdateCopy(Copy &c, uint32_t now)
     // Only the driver's seat: the host's people riding as passengers in our car (a mission character with the guest at the
     // wheel) still get in and out as before.
     if (m.vehicleId && m.seat == 0 && VehicleIdIsOurs(m.vehicleId)) { c.moveState = 0; return; }
+    // (being pulled out by a player's puppet getting in at the wheel: left to that jack)
+    if (inVeh && Field<void *>(inVeh, VEH_DRIVER) == ped && !m.vehicleId && PuppetWantsWheel(inVeh)) { c.moveState = 0; return; }
     if (inVeh && VehicleIsOurs(inVeh)) {
         void *me = FindPlayerPed();
         void *task = me ? ActiveTask(me) : nullptr;
@@ -358,6 +360,12 @@ static void UpdateCopy(Copy &c, uint32_t now)
         } else if (!wantDb && c.driveby) {
             SetPrimaryTask(ped, nullptr, 3);
             c.driveby = false;
+        }
+        if (!placed && m.seat == 0 && PuppetWantsWheel(veh)) {   // a player takes that seat: not put back in (his jack pulls him out)
+            c.moveState = 0;
+            static int said;
+            if (said < 20) { said++; Log("copie %08X : pas remise au volant de %08X, un joueur le prend", c.id, m.vehicleId); }
+            return;
         }
         if (!placed) {
             if (inVeh) WarpPuppetOut(ped, m.pos);

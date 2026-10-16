@@ -6,6 +6,21 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.42-vcport (network version 33 unchanged, untested)
+
+From the logs of 16/10 (0.54.40).
+
+- **Guest crash at the second cutscene of Big Smoke's mission** (again, no crash line this time): the host's script
+  cleared the area and 17 copies went at once. Removed entities are now also taken off the list of peds whose weapon
+  is drawn after them (CVisibilityPlugins::RenderWeaponPedsForPC, 0x732F30), the last render list a deleted ped could
+  stay on.
+- **Getting into the other side's traffic:** the copy of the owner's driver was warped back into the driver's seat on
+  every state while a player's puppet was jacking him (the guest log has the host's puppet warped into the seat 60
+  times a second; "the driver stood up in the car"). A copy is no longer put back at a wheel a player is getting in at
+  or driving, and is left alone while the puppet's jack pulls him out. The host no longer teleports his own driver out
+  the moment the guest takes the car: the guest's puppet jacks him with the game's animation, and he is only put out if
+  still at the wheel 4 s later.
+
 ## 0.54.41-vcport (network version 33: both players need 0.54.41, untested)
 
 From the Robbing Uncle Sam test of 15/10.

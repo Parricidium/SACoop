@@ -384,6 +384,12 @@ static void __cdecl h_WorldRemove(void *e)
     uint8_t *node = *(uint8_t **)0xC88130;
     for (int guard = 0; node && node != (uint8_t *)0xC88134 && guard < 4096; guard++, node = *(uint8_t **)(node + 0x10))
         if (*(void **)node == e) *(void **)(node + 4) = (void *)NoAlphaRender;
+    // (0.54.42) The peds whose weapon is drawn after them, CVisibilityPlugins::RenderWeaponPedsForPC 0x732F30: link list from
+    // 0xC88234 to 0xC88224, node +0 ped, +4 next; a null ped is skipped there. A deleted ped left on it crashed the guest at
+    // the start of the second cutscene of Big Smoke's mission (the host's area cleared, 17 copies gone at once, 16/10).
+    node = *(uint8_t **)0xC88234;
+    for (int guard = 0; node && node != (uint8_t *)0xC88224 && guard < 4096; guard++, node = *(uint8_t **)(node + 4))
+        if (*(void **)node == e) *(void **)node = nullptr;
 }
 
 void InstallObjects()

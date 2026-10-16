@@ -52,6 +52,7 @@ struct NetVeh {
     uint32_t pushUntil;  // (copies) pushed by our car: left to our physics until then, its place sent to the owner
     uint32_t takenAt;    // (ours) when we took it over from another player (LocalVehicleId)
     uint8_t wasRandom;   // (copies) one of our random / parked cars taken by another player: CreatedBy it had (1 or 3)
+    uint32_t ejectAt;    // (copies) taken by another player with our driver in it: he is put out then if the puppet's jack has not
 };
 static NetVeh g_veh[MAX_NETVEH];
 static uint32_t g_vehCounter;
@@ -710,15 +711,9 @@ static void OnVehicle(const MsgVehicle &m)
         // game would remove it as a far random car while the other player drives it (it vanished).
         uint8_t *v = (uint8_t *)n->veh;
         void *drv = Field<void *>(v, VEH_DRIVER);
-        if (drv && drv != FindPlayerPed() && PuppetIndex(drv) < 0) {
-            float out[3];
-            const float *vp = EntityPos(v);
-            uint8_t *mat = *(uint8_t **)(v + 0x14);
-            for (int k = 0; k < 3; k++) out[k] = vp[k] - (mat ? ((float *)mat)[k] * 2.2f : 0.0f);
-            out[2] += 0.3f;
-            WarpPuppetOut(drv, out);
-            Log("vehicule %08X : son conducteur (modele %d) en sort, le joueur %d le lui a pris", m.id, *(int16_t *)((uint8_t *)drv + 0x22), m.owner);
-        }
+        // (0.54.42: not at once - the player's puppet jacks him here with the game's animation; only if he is still at the
+        // wheel 4 s later is he put out, the host saw the guest teleport into an empty seat)
+        if (drv && drv != FindPlayerPed() && PuppetIndex(drv) < 0) n->ejectAt = GetTickCount() + 4000;
         if (v[0x4A4] == 1 || v[0x4A4] == 3) { n->wasRandom = v[0x4A4]; v[0x4A4] = 2; }
         n->ambient = false;
     }
@@ -1232,6 +1227,20 @@ void VehiclesFrame()
         if (n.veh && !Alive(n)) { Log("copie du vehicule %08X detruite par le jeu", n.id); n.veh = nullptr; }
         uint32_t timeout = (n.last.flags & VF_MISSION) ? 3000 : 30000;   // mission : l'hote l'envoie tant qu'il existe
         if (now - n.lastRecv > timeout && !PuppetInVehicle(n.veh)) { DestroyCopy(n, true); continue; }
+        if (n.ejectAt && (int)(now - n.ejectAt) >= 0) {   // (our driver still in a car another player took over: out)
+            n.ejectAt = 0;
+            uint8_t *v = (uint8_t *)n.veh;
+            void *drv = v && Alive(n) ? Field<void *>(v, VEH_DRIVER) : nullptr;
+            if (drv && drv != FindPlayerPed() && PuppetIndex(drv) < 0) {
+                float out[3];
+                const float *vp = EntityPos(v);
+                uint8_t *mat = *(uint8_t **)(v + 0x14);
+                for (int k = 0; k < 3; k++) out[k] = vp[k] - (mat ? ((float *)mat)[k] * 2.2f : 0.0f);
+                out[2] += 0.3f;
+                WarpPuppetOut(drv, out);
+                Log("vehicule %08X : son conducteur (modele %d) en sort, le joueur %d le lui a pris", n.id, *(int16_t *)((uint8_t *)drv + 0x22), n.owner);
+            }
+        }
         if (!n.veh) CreateCopy(n);
         if (n.veh) CutsceneHide(n.veh, g_cfg.hideCut && CutsceneNow(), n.cutHidden);
         if (n.veh && now - n.lastRecv < 1500) { if (!g_cfg.placeVeh) UpdateCopy(n); ApplyBody(n); ApplyNitro(n); }

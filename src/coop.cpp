@@ -495,6 +495,24 @@ void *PuppetOf(int id)
     return p.ped && PedFromRef(p.ref) == p.ped ? p.ped : nullptr;
 }
 
+// A player (his puppet here) is getting in at the wheel of veh, or is at it, or his state says he is: the copy of a ped the
+// owner still has driving it must not be put back in that seat (0.54.42: the guest warped the NPC copy back in on every
+// state, the host's jack never pulled him out, the puppet was then warped in from outside, "the driver stood up in the car").
+bool PuppetWantsWheel(void *veh)
+{
+    if (!veh) return false;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (i == g_localId) continue;
+        Puppet &p = g_puppets[i];
+        bool alive = p.ped && PedFromRef(p.ref) == p.ped;
+        if (alive && p.carTask == 1 && p.carVeh == veh) return true;
+        if (alive && PedVehicle(p.ped) == veh && Field<void *>(veh, VEH_DRIVER) == p.ped) return true;
+        const NetPlayer &np = g_players[i];
+        if (np.connected && np.state.inGame && np.state.vehicleId && np.state.seat == 0 && NetVehicleById(np.state.vehicleId) == veh) return true;
+    }
+    return false;
+}
+
 int PuppetIndex(void *ped)
 {
     if (!ped) return -1;

@@ -14,3 +14,4 @@ struct Snap;
 void PlaceFollower(void *ped, const Snap &n);                   // pose interpolee apres la physique (coop.cpp, interp.cpp)
 void *PuppetOf(int id);                                         // pantin du joueur id (nullptr : aucun / soi)
 int PuppetIndex(void *ped);                                     // joueur dont c'est le pantin, sinon -1
+bool PuppetWantsWheel(void *veh);                              // a player's puppet gets in at the wheel of veh, or drives it (coop.cpp)
