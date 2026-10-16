@@ -1178,6 +1178,8 @@ void VehiclesAfterProcess()
 {
     uint32_t now = GetTickCount();
     void *me = FindPlayerPed();
+    void *ourCar = me ? PedVehicle(me) : nullptr;
+    if (ourCar && Field<void *>(ourCar, VEH_DRIVER) != me) ourCar = nullptr;
     for (auto &n : g_veh) {
         if (!n.id || n.owner == g_localId || !n.veh || !Alive(n) || !n.track.count) continue;
         uint8_t *v = (uint8_t *)n.veh;
@@ -1204,7 +1206,16 @@ void VehiclesAfterProcess()
         right[1] = fwd[2] * up[0] - fwd[0] * up[2];
         right[2] = fwd[0] * up[1] - fwd[1] * up[0];
         if (jumped) WorldAdd(v);
-        if (g_cfg.freezeCopies) FreezeCopy(v, true); else FreezeCopy(v, false);
+        // Not frozen near the car we drive (10 m): frozen, a copy is an unmovable wall to our physics, the guest's car
+        // stopped dead on the host's traffic (154 -> 52 km/h into a frozen bike, log of 15/10), and only near the host
+        // (away from him the traffic is the guest's own). Still placed here every frame, it only weighs in a collision.
+        bool nearUs = false;
+        if (ourCar && ourCar != n.veh) {
+            const float *op = EntityPos(ourCar);
+            float ox = op[0] - pos[0], oy = op[1] - pos[1], oz = op[2] - pos[2];
+            nearUs = ox * ox + oy * oy + oz * oz < 10.0f * 10.0f;
+        }
+        FreezeCopy(v, g_cfg.freezeCopies && !nearUs);
         {   // vitesse bornee, jamais NaN (un saut de position donnerait une vitesse enorme : hors du monde, plantage)
             float vel[3] = { s.vel[0], s.vel[1], s.vel[2] };
             float vl = sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]);

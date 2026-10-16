@@ -207,6 +207,9 @@ void AimMirror(void *ped, bool want, const float *aim)
         if (!(ped == g_firePed && g_fireFrame == *(uint32_t *)0xB7CB4C))   // (a shot was just commanded this frame)
             ((bool(__thiscall *)(void *, void *, void *, int))0x61E040)(sec, ped, nullptr, 1);
     } else if (!want && has) {
+        // Aborted first (CTask vtable [6] MakeAbortable, immediate): deleted as it was, the gun task left its arm pose,
+        // the host's people seen "holding a gun" after a shoot-out (16/10).
+        ((bool(__thiscall *)(void *, void *, int, void *))(*(void ***)sec)[6])(sec, ped, 2, nullptr);
         ((void(__thiscall *)(void *, void *, int))0x681B60)(tm, nullptr, 0);
     }
     if (want) {

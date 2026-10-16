@@ -14,6 +14,8 @@
 #include "passenger.h"
 #include "vehicles.h"
 #include <math.h>
+#include <string.h>
+#include <stdio.h>
 
 using namespace game;
 
@@ -79,6 +81,33 @@ void PassengerFrame()
         void *veh = Field<void *>(task, 0xC);
         if (veh && DrivenByPlayer(veh)) {
             if (!EnterAsPassenger(me, veh)) SetPrimaryTask(me, nullptr, 3);
+        }
+    }
+    // (0.54.46 diagnostic, 16/10: "pressing F by a car with several NPCs, CJ jolts for a second and stops") A get-in at a
+    // copy that ends with us still on foot: how long it ran, the vehicle's people, door lock (+0x4F8), status, speed.
+    {
+        static void *watchVeh;
+        static uint32_t since;
+        static int said;
+        void *t = ActiveTask(me);
+        uintptr_t tv = TaskVtable(t);
+        void *target = (tv == VT_TaskEnterCarAsDriver || tv == VT_TaskEnterCarAsPassenger) ? Field<void *>(t, 0xC) : nullptr;
+        if (target && target != watchVeh && IsNetVehicle(target)) { watchVeh = target; since = GetTickCount(); }
+        else if (!target && watchVeh) {
+            if (!PedVehicle(me) && said < 30) {
+                said++;
+                uint8_t *v = (uint8_t *)watchVeh;
+                const float *sp = (const float *)(v + 0x44);
+                char who[96] = "";
+                for (int k = -1; k < 8; k++) {
+                    void *o = k < 0 ? Field<void *>(v, VEH_DRIVER) : Field<void *>(v, VEH_PASSENGERS + k * 4);
+                    if (o) sprintf(who + strlen(who), " %s%d:%d", k < 0 ? "V" : "P", k + 1, PuppetIndex(o) >= 0 ? -1 : *(int16_t *)((uint8_t *)o + 0x22));
+                }
+                Log("vol : montee interrompue apres %u ms, vehicule modele %d (%s), occupants%s, verrou %d, statut %d, vitesse %.0f km/h, physique %08X",
+                    GetTickCount() - since, *(int16_t *)(v + 0x22), IsRemoteVehicle(v) ? "copie" : "a nous", who, *(int *)(v + 0x4F8), v[0x36] >> 3,
+                    sqrtf(sp[0] * sp[0] + sp[1] * sp[1] + sp[2] * sp[2]) * 180.0f, *(uint32_t *)(v + 0x40));
+            }
+            watchVeh = nullptr;
         }
     }
     // F at a copy of the host's vehicle with people inside, and the game started no get-in at all (16/10: "can't jack

@@ -6,6 +6,19 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.46-vcport (network version 33 unchanged, untested)
+
+From the test of 16/10 (0.54.45).
+
+- **Cars stopping dead near the other player:** copies of another player's vehicles are frozen so our physics cannot
+  push them, which made each one an unmovable wall: the guest's car stopped dead on the host's traffic (only near the
+  host, away from him the traffic is the guest's own). Copies within 10 m of the car you drive are no longer frozen;
+  they are still placed every frame, they now only weigh in a collision.
+- **People stuck holding a gun after a shoot-out:** the mirrored aiming task was deleted without being aborted, which
+  left its arm pose on the host's people (and on puppets). It is aborted first now.
+- Log: a get-in at a copy that stops with you still on foot (`vol : montee interrompue`), with its occupants, door
+  lock, status and speed, for "can't jack a car with several NPCs inside".
+
 ## 0.54.45-vcport (network version 33 unchanged, untested)
 
 From the logs of 16/10 (0.54.44).
