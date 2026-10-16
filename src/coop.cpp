@@ -55,6 +55,8 @@ struct Puppet {
     int carTask;         // montee (1 volant, 2 passager) / descente (3) en cours, jouee par la tache du jeu
     void *carVeh;
     uint32_t jackedAt;   // (host) one of our people is jacking him: not put back in his seat for a while (0.54.44)
+    void *jackVeh;       // (host) the vehicle taken from him
+    void *placedVeh;     // (host) last vehicle he was seen seated at the wheel of
     int seenCarTask;     // the remote get-in last acted on (carTask, vehicle): a new one only when it changes (0.54.43)
     void *seenCarVeh;
     uint32_t carTaskAt;
@@ -511,8 +513,10 @@ static void *JackerOf(void *veh, void *sitter)
         if (peds->flags[i] & 0x80) continue;
         void *ped = peds->objects + i * 0x7C4;
         if (ped == sitter || ped == FindPlayerPed() || PuppetIndex(ped) >= 0 || IsMissionCopy(ped)) continue;
-        void *task = ActiveTask(ped);
-        if (TaskVtable(task) != VT_TaskEnterCarAsDriver || Field<void *>(task, 0xC) != veh) continue;
+        // (anywhere in its task tree: an ambient ped's jack runs under its event response, ActiveTask only gave the
+        // root and the jack was never seen, 0.54.45)
+        void *task = FindTaskType(ped, 701);   // CTaskComplexEnterCarAsDriver
+        if (!task || Field<void *>(task, 0xC) != veh) continue;
         const float *pp = EntityPos(ped);
         float dx = pp[0] - vp[0], dy = pp[1] - vp[1];
         if (dx * dx + dy * dy < 4.0f * 4.0f) return ped;
@@ -748,6 +752,35 @@ static void UpdatePuppet(int id)
     if (p.air && (!air || s.vehicleId)) FollowAirEnd(ped, p.air);
     PuppetGear(ped, s, p);
     CombatUpdatePuppet(id, ped, s);
+    // Jacked by one of our people (0.54.44, 16/10: "NPCs trying to jack the client out of a car or off a bike can't"):
+    // the jack plays here on his puppet, and his own game is told (RL_JACKED, mirror.cpp) to get him out; meanwhile the
+    // puppet is not put back in its seat, and its reaction (being dragged out) is not cleared below: cleared, the jacker
+    // started over and over (16/10). Also seen when the jack is already over: he was at that wheel a moment ago and one
+    // of our people sits there now. Once that person is at the wheel, the vehicle becomes ours (it was a frozen copy).
+    uint32_t now = GetTickCount();
+    if (g_cfg.host && s.vehicleId && s.seat == 0) {
+        if (void *veh = NetVehicleById(s.vehicleId)) {
+            void *drv = Field<void *>(veh, VEH_DRIVER);
+            bool placed = PedVehicle(ped) == veh && drv == ped;
+            bool npcAtWheel = drv && drv != ped && drv != local && PuppetIndex(drv) < 0 && !IsMissionCopy(drv);
+            if (JackerOf(veh, ped) || (!placed && npcAtWheel && p.placedVeh == veh)) {
+                p.jackVeh = veh;
+                if (!p.jackedAt || now - p.jackedAt > 6000) {
+                    p.jackedAt = now;
+                    MirrorSendJacked(id, s.vehicleId);
+                    Log("pantin du joueur %d : un de nos personnages le sort du vehicule %08X, son jeu est prevenu", id, s.vehicleId);
+                }
+            }
+        }
+    }
+    bool beingJacked = p.jackedAt && now - p.jackedAt < 6000;
+    if (p.jackVeh && now - p.jackedAt < 10000) {
+        void *drv = Field<void *>(p.jackVeh, VEH_DRIVER);
+        if (drv && drv != ped && drv != local && PuppetIndex(drv) < 0 && !IsMissionCopy(drv)) { VehicleTakeOverForNpc(p.jackVeh); p.jackVeh = nullptr; }
+    } else p.jackVeh = nullptr;
+    // A drive-by pose left on a puppet that is out of the vehicle (16/10: "drive-by animation not reset when he got out").
+    if (!PedVehicle(ped) && FindTaskType(ped, 1022)) DropTaskType(ped, 1022);
+
     // Le pantin n'a pas d'IA a lui : frappe ou menace, le jeu lui donnait une reaction de PNJ (riposte, fuite) qui
     // passait avant sa tache de suivi, il partait de son cote puis etait replace d'un coup (teleportations vues par JD
     // apres un coup de poing, 01/10).
@@ -757,7 +790,7 @@ static void UpdatePuppet(int id)
         void **t = PrimaryTasks(ped);
         void *r = t[1] ? t[1] : t[2];
         int type = r ? ((int(__thiscall *)(void *))(*(void ***)r)[4])(r) : 0;   // CTask::GetTaskType
-        if (r && (keepAi > 0 || ClearEventResponses(ped))) {
+        if (r && !beingJacked && (keepAi > 0 || ClearEventResponses(ped))) {
             static int said;
             if (said < 12) { said++; Log("pantin du joueur %d : reaction de PNJ (tache %d) %s", id, type, keepAi > 0 ? "laissee (test)" : "retiree, le pantin suit son joueur"); }
         }
@@ -766,7 +799,6 @@ static void UpdatePuppet(int id)
     // Montee / descente : le pantin joue la tache du jeu (marche jusqu'a la portiere, ouverture, assise ; ou sortie).
     // Pendant ce temps sa position n'est plus suivie ; s'il n'a pas fini a temps, il est place d'un coup.
     void *inVeh = PedVehicle(ped);
-    uint32_t now = GetTickCount();
     uintptr_t vt = TaskVtable(ActiveTask(ped));
     bool entering = vt == VT_TaskEnterCarAsDriver || vt == VT_TaskEnterCarAsPassenger, leaving = vt == VT_TaskLeaveCar;
     if ((s.carTask == 1 || s.carTask == 2) && !inVeh && !s.vehicleId) {
@@ -806,16 +838,7 @@ static void UpdatePuppet(int id)
         void *veh = NetVehicleById(s.vehicleId);
         if (!veh) return;   // copie pas encore creee (modele en chargement)
         bool placed = inVeh == veh && (s.seat == 0 ? Field<void *>(veh, VEH_DRIVER) == ped : Field<void *>(veh, VEH_PASSENGERS + (s.seat - 1) * 4) == ped);
-        // Jacked by one of our people (0.54.44, 16/10: "NPCs trying to jack the client out of a car or off a bike can't"):
-        // the jack plays here on his puppet, and his own game is told (RL_JACKED, mirror.cpp) to get him out; meanwhile the
-        // puppet is not put back in its seat.
-        if (g_cfg.host && s.seat == 0 && JackerOf(veh, ped)) {
-            if (!p.jackedAt || now - p.jackedAt > 6000) {
-                p.jackedAt = now;
-                MirrorSendJacked(id, s.vehicleId);
-                Log("pantin du joueur %d : un de nos personnages le sort du vehicule %08X, son jeu est prevenu", id, s.vehicleId);
-            }
-        }
+        if (placed && s.seat == 0) p.placedVeh = veh;
         if (!placed && p.jackedAt && now - p.jackedAt < 6000) return;
         if (placed) {
             if (p.carTask != 3) p.carTask = 0;
@@ -843,7 +866,8 @@ static void UpdatePuppet(int id)
             } else if (!db && has) {
                 // Out of the drive-by: the task off, then the puppet seated again (the game's seating resets the arm: the
                 // pose of the drive-by stayed, "holding the gun" behind the head, 16/10).
-                for (int k = 0; k < 5; k++) { void *t = PrimaryTasks(ped)[k]; if (t && ((int(__thiscall *)(void *))(*(void ***)t)[4])(t) == 1022) SetPrimaryTask(ped, nullptr, k); }
+                // (0.54.45: the task is in the secondary attack slot, the loop over the 5 primary ones never found it)
+                DropTaskType(ped, 1022);
                 WarpPuppetIn(ped, veh, s.seat);
             }
             return;

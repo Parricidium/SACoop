@@ -371,6 +371,7 @@ static void UpdateCopy(Copy &c, uint32_t now)
             if (said < 10) { said++; Log("copie %08X : tir par la fenetre", c.id); }
         } else if (!wantDb && c.driveby) {
             SetPrimaryTask(ped, nullptr, 3);
+            DropTaskType(ped, 1022);
             c.driveby = false;
             if (placed) WarpPuppetIn(ped, veh, m.seat);   // (seated again: the drive-by pose stayed otherwise)
         }

@@ -36,6 +36,7 @@ struct NetVeh {
     MsgVehicle last;     // dernier etat recu (copies)
     bool damaged;        // le dernier etat recu portait des degats (une remise a neuf = reparation)
     bool mission;        // vehicule de mission de l'hote : envoye tant qu'il existe
+    bool npcTook;        // (host) taken from a guest by one of our people: his states ignored a bit longer (0.54.45)
     bool ambient;        // vehicule ordinaire de l'hote pres d'un invite partage (population.cpp) : envoye tant qu'il y est
     uint32_t blownAt;    // derniere demande d'explosion de la copie
     float sentPos[3];    // (vehicules a nous) position au dernier envoi, et quand : vitesse reelle
@@ -159,6 +160,24 @@ void VehicleTakeOverForEntry(void *veh)
     if (void *d = Field<void *>(veh, VEH_DRIVER)) if (PuppetIndex(d) >= 0) return;   // a player drives it
     LocalVehicleId(veh, true);
 }
+// Host: one of our people jacked a guest's vehicle (0.54.45). Its copy here is frozen and follows the guest, the
+// person sat in it and could not drive off; it becomes ours, sent like our traffic, and the guest's game makes it a
+// copy once he is out.
+void VehicleTakeOverForNpc(void *veh)
+{
+    NetVeh *n = veh ? FindByVeh(veh) : nullptr;
+    if (!n || n->owner == g_localId || !Alive(*n)) return;
+    uint8_t *v = (uint8_t *)veh;
+    n->owner = (uint8_t)g_localId;
+    n->takenAt = GetTickCount();
+    n->lastDriven = n->takenAt;
+    n->ejectAt = 0;
+    n->npcTook = true;
+    n->track.Clear();
+    FreezeCopy(veh, false);
+    if (!(n->last.flags & VF_MISSION)) { if (v[0x4A4] == 2) v[0x4A4] = 1; n->ambient = true; }   // our traffic from now on
+    Log("vehicule %08X : un de nos personnages l'a vole au joueur, il devient le notre", n->id);
+}
 bool VehicleIsOurs(void *veh) { NetVeh *n = veh ? FindByVeh(veh) : nullptr; return n && n->owner == g_localId; }
 bool VehicleIdIsOurs(uint32_t id) { NetVeh *n = FindById(id); return n && n->owner == g_localId && Alive(*n); }
 
@@ -178,6 +197,7 @@ uint32_t LocalVehicleId(void *veh, bool driver)
     } else if (driver && n->owner != g_localId) {
         n->owner = (uint8_t)g_localId;   // au volant d'une copie : elle devient la notre
         n->takenAt = GetTickCount();
+        n->npcTook = false;
         if (n->wasRandom && ((uint8_t *)veh)[0x4A4] == 2) { ((uint8_t *)veh)[0x4A4] = n->wasRandom; n->wasRandom = 0; }   // our traffic again
         n->track.Clear();
         FreezeCopy(veh, false);
@@ -698,7 +718,8 @@ static void OnVehicle(const MsgVehicle &m)
         // again: the guest was put back where he had jacked it, test of 15/10). Only a player at its wheel takes it over.
         void *me = FindPlayerPed();
         bool driving = me && PedVehicle(me) == n->veh && Field<void *>(n->veh, VEH_DRIVER) == me;
-        if (driving || GetTickCount() - n->takenAt < 2000) {
+        // (taken by one of our people: he is still getting out on his screen, 6 s)
+        if (driving || GetTickCount() - n->takenAt < (n->npcTook ? 6000u : 2000u)) {
             static int said;
             if (said < 20) { said++; Log("vehicule %08X : etat du joueur %d ignore (nous le conduisons)", m.id, m.owner); }
             return;
@@ -724,6 +745,7 @@ static void OnVehicle(const MsgVehicle &m)
     }
     if (n->owner != m.owner) n->track.Clear();   // autre proprietaire = autre horloge
     n->owner = m.owner;
+    n->npcTook = false;
     ClockSample(m.owner, m.time);
     {
         Snap sn = {};
@@ -1212,6 +1234,31 @@ void VehiclesAfterProcess()
 }
 
 static void OnVehPush(const MsgVehPush &m);
+// (0.54.45 diagnostic, 16/10: "the client can't turn the ambulance siren off", it was his, he drove it) Each change of
+// the siren of the vehicle we drive, with its "on duty" flags (+0x428: 1 police, 2 ambulance, 4 fire truck) and its
+// status (+0x36 >> 3), and a horn press that did not change it.
+static void LocalSirenLog()
+{
+    static void *lastVeh;
+    static uint8_t lastSiren;
+    static uint32_t lastHorn;
+    static int said;
+    void *me = FindPlayerPed();
+    uint8_t *v = me ? (uint8_t *)PedVehicle(me) : nullptr;
+    if (!v || Field<void *>(v, VEH_DRIVER) != me) { lastVeh = nullptr; return; }
+    uint8_t siren = v[0x42D] >> 7;
+    uint32_t horn = *(uint32_t *)(v + 0x514);
+    if (v == lastVeh && siren != lastSiren && said < 30) {
+        said++;
+        Log("sirene : %s sur le vehicule modele %d (service %02X, statut %d, klaxon %u)", siren ? "allumee" : "eteinte", *(int16_t *)(v + 0x22), v[0x428] & 7, v[0x36] >> 3, horn);
+    }
+    if (v == lastVeh && horn && !lastHorn && said < 30 && (v[0x428] & 7)) {
+        said++;
+        Log("sirene : klaxon presse (sirene %d, service %02X, statut %d)", siren, v[0x428] & 7, v[0x36] >> 3);
+    }
+    lastVeh = v; lastSiren = siren; lastHorn = horn;
+}
+
 void VehiclesFrame()
 {
     static bool aiHooked;
@@ -1221,6 +1268,7 @@ void VehiclesFrame()
     g_onVehPush = OnVehPush;   // (also set here: VehiclePushProbe runs only with the after-physics hook)
     if (GameState() != 9 || !FindPlayerPed()) return;
     if (g_cfg.host) HostTrafficGuard();
+    LocalSirenLog();
     uint32_t now = GetTickCount();
     for (auto &n : g_veh) {
         if (!n.id || n.owner == g_localId) continue;

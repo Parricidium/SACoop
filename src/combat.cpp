@@ -140,7 +140,7 @@ void CombatReplayCopyShots(void *ped, int weaponId, uint8_t shots, const float *
     if (!known) { known = true; last = shots; return; }
     int n = (uint8_t)(shots - last);
     last = shots;
-    if (n <= 0 || n > 20 || !Replayable(weaponId) || PedVehicle(ped)) return;
+    if (n <= 0 || n > 20 || !Replayable(weaponId)) return;
     ReplayShots(ped, weaponId, n > 3 ? 3 : n, aim);
 }
 
@@ -163,12 +163,26 @@ static void ReplayShots(void *ped, int weaponId, int n, const float *aimIn)
     // (CTaskSimpleUseGun::ControlGun 0x61E040, command 2; AimMirror puts AIM back next frame): the game plays the shot,
     // the recoil and the muzzle flash. Its own bullet is dropped in h_Fire.
     if (!PedVehicle(ped) && weaponId >= 22 && weaponId <= 34 && PuppetIndex(ped) >= 0) AimFire(ped);
+    // From a vehicle (drive-by): CWeapon::Fire's last argument is the drive-by origin (a CVector*, as
+    // CTaskSimpleGangDriveBy's own shot at 0x628328 passes it). Without it the bullet started from the seated body's
+    // weapon point, inside the car, and hit the car itself: 2 bullets of a clip got through (16/10). The shot leaves from
+    // the window on the side of the target, at shoulder height.
+    float from[3], *fromP = nullptr;
+    if (void *veh = PedVehicle(ped)) {
+        const float *p = EntityPos(ped);
+        float dx = aim[0] - p[0], dy = aim[1] - p[1], d = sqrtf(dx * dx + dy * dy);
+        if (d > 0.01f) { dx /= d; dy /= d; }
+        int vtype = *(int *)((uint8_t *)veh + VEH_TYPE);
+        float out = (vtype == 9 || vtype == 10 || vtype == 2) ? 0.4f : 1.1f;   // (bikes and quads: no body around)
+        from[0] = p[0] + dx * out; from[1] = p[1] + dy * out; from[2] = p[2] + 0.55f;
+        fromP = from;
+    }
     g_replaying = true;
     for (int k = 0; k < n; k++) {
         weapon[1] = 0;        // pret
         weapon[2] = 50;       // balles dans le chargeur
         weapon[3] = 9999;
-        o_Fire(weapon, nullptr, ped, nullptr, nullptr, nullptr, aim, nullptr);
+        o_Fire(weapon, nullptr, ped, fromP, fromP, nullptr, aim, fromP);
     }
     g_replaying = false;
 }

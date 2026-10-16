@@ -6,6 +6,27 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.45-vcport (network version 33 unchanged, untested)
+
+From the logs of 16/10 (0.54.44).
+
+- **NPCs jacking a guest, for real this time:** the host never saw the jacker (its get-in task sits under its event
+  response, only the top task was checked), so the guest's puppet was put back every 3 s and the jack looped. The
+  whole task tree is searched now, a jack that already ended (one of the host's people at the wheel the guest just
+  held) counts too, and the puppet's "being dragged out" reaction is no longer cleared during it. Once the host's
+  person sits at the wheel, the vehicle becomes the host's (it was a frozen copy, they could not drive off) and the
+  guest's late states for it are ignored for 6 s.
+- **Jacking a car with several people inside:** pressing F (or Enter) by a copy of the host's vehicle with people in
+  it, when the game starts no get-in at all, gives the game's "get in at the wheel" task anyway (it picks the door,
+  pulls the driver out, the others flee). Logged as `vol :`.
+- **Drive-by bullets:** replayed shots from a vehicle now pass the game's drive-by origin (outside the window) instead
+  of starting inside the car, where they hit the car itself (2 bullets of a clip got through). The host's people's
+  drive-bys are replayed on the guest too.
+- **Drive-by pose left after getting out:** the drive-by task lives in the secondary attack slot, which the cleanup
+  never looked at. It is aborted (with its animation) and removed there, when the drive-by ends and when a puppet is
+  on foot.
+- Log: siren changes of the vehicle you drive (`sirene :`), for the "cannot turn the ambulance siren off" report.
+
 ## 0.54.44-vcport (network version 33 unchanged, untested)
 
 - **The host's people can jack a guest** (out of a car, off a bike), request of 16/10: the jack only plays on the host

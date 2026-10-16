@@ -12,6 +12,7 @@
 #include "peds.h"
 #include "chat.h"
 #include "passenger.h"
+#include "vehicles.h"
 #include <math.h>
 
 using namespace game;
@@ -59,10 +60,12 @@ static bool EnterAsPassenger(void *me, void *veh)
 }
 
 static bool g_wantG;
+static uint32_t g_fAt;   // F (or Enter) pressed on foot, for the forced jack below (0.54.45)
 
 bool PassengerWindowMessage(UINT msg, WPARAM wp)
 {
     if (msg == WM_KEYDOWN && wp == 'G' && !ChatTyping() && NetRunning() && GameState() == 9) { g_wantG = true; return false; }
+    if (msg == WM_KEYDOWN && (wp == 'F' || wp == VK_RETURN) && !ChatTyping() && NetRunning() && GameState() == 9) g_fAt = GetTickCount() | 1;
     return false;
 }
 
@@ -76,6 +79,37 @@ void PassengerFrame()
         void *veh = Field<void *>(task, 0xC);
         if (veh && DrivenByPlayer(veh)) {
             if (!EnterAsPassenger(me, veh)) SetPrimaryTask(me, nullptr, 3);
+        }
+    }
+    // F at a copy of the host's vehicle with people inside, and the game started no get-in at all (16/10: "can't jack
+    // cars with several NPCs inside, nothing starts, from either side"): the game's "get in at the wheel" task is given
+    // to the nearest such copy within 4 m (it picks the door, pulls the driver out, the others flee).
+    if (g_fAt && GetTickCount() - g_fAt > 350) {
+        g_fAt = 0;
+        int vt = (int)TaskVtable(ActiveTask(me));
+        if (!PedVehicle(me) && vt != VT_TaskEnterCarAsDriver && vt != VT_TaskEnterCarAsPassenger) {
+            const float *mp = EntityPos(me);
+            Pool *vp = *(Pool **)0xB74494;
+            void *best = nullptr;
+            float bestD = 4.0f * 4.0f;
+            for (int i = 0; i < vp->size; i++) {
+                if (vp->flags[i] & 0x80) continue;
+                void *v = vp->objects + i * 0xA18;
+                if (!IsRemoteVehicle(v) || DrivenByPlayer(v) || IsTrain(v)) continue;
+                int people = Field<void *>(v, VEH_DRIVER) ? 1 : 0;
+                for (int k = 0; k < 8; k++) if (Field<void *>(v, VEH_PASSENGERS + k * 4)) people++;
+                if (!people) continue;
+                const float *p = EntityPos(v);
+                float dx = p[0] - mp[0], dy = p[1] - mp[1], dz = p[2] - mp[2], d = dx * dx + dy * dy + dz * dz;
+                if (d < bestD) { bestD = d; best = v; }
+            }
+            if (best) {
+                if (void *t = NewEnterCarTask(best, -1)) {
+                    SetPrimaryTask(me, t, 3);
+                    Log("vol : le jeu ne lancait pas la montee, donnee vers le vehicule modele %d (%.1f m, conducteur %s)",
+                        *(int16_t *)((uint8_t *)best + 0x22), sqrtf(bestD), Field<void *>(best, VEH_DRIVER) ? "oui" : "non");
+                }
+            }
         }
     }
     if (!g_wantG) return;

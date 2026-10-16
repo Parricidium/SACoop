@@ -17,7 +17,8 @@ void *NetVehicleByOwnerRef(int owner, int ref);  // copie d'un vehicule par son 
 int VehicleRef(void *veh);
 void *AnyMissionVehicleCopy();                   // autotests                       // handle de script (reference de pool) d'un vehicule
 void *NetVehicleById(uint32_t id);               // vehicule (le notre ou une copie) de cet identifiant, ou nullptr
-void VehicleTakeOverForEntry(void *veh);         // local player about to jack a copy: it becomes ours (0.54.35)
+void VehicleTakeOverForEntry(void *veh);
+void VehicleTakeOverForNpc(void *veh);           // host: our ped jacked a guest's vehicle, it becomes ours (0.54.45)         // local player about to jack a copy: it becomes ours (0.54.35)
 bool VehicleIsOurs(void *veh);                   // a network vehicle we own
 bool VehicleIdIsOurs(uint32_t id);
 void VehiclePushProbe();                         // after the physics: a copy hit by our car is pushed by it, its owner told (0.54.31)

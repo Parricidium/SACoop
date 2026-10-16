@@ -123,6 +123,41 @@ namespace game {
             }
         return false;
     }
+    // First task of this type in any of the 11 task slots (sub-tasks included), or null.
+    inline void *FindTaskType(void *ped, int type)
+    {
+        void **t = PrimaryTasks(ped);
+        for (int k = 0; k < 11; k++)
+            for (void *task = t[k], *guard = nullptr; task && guard != (void *)8; guard = (void *)((uintptr_t)guard + 1)) {
+                void **vt = *(void ***)task;
+                if (((int(__thiscall *)(void *))vt[4])(task) == type) return task;
+                task = ((void *(__thiscall *)(void *))vt[2])(task);
+            }
+        return nullptr;
+    }
+    // Removes every slot whose task tree holds this type: the task is first aborted at once (vtable [6] MakeAbortable,
+    // priority 2), so its animation goes with it, then the slot is emptied (primary 0x681AF0, secondary
+    // CTaskManager::SetTaskSecondary 0x681B60). The drive-by (1022) sits in the secondary attack slot (16/10).
+    inline bool DropTaskType(void *ped, int type)
+    {
+        void **t = PrimaryTasks(ped);
+        bool had = false;
+        for (int k = 0; k < 11; k++) {
+            bool hit = false;
+            for (void *task = t[k], *guard = nullptr; task && guard != (void *)8 && !hit; guard = (void *)((uintptr_t)guard + 1)) {
+                void **vt = *(void ***)task;
+                if (((int(__thiscall *)(void *))vt[4])(task) == type) hit = true;
+                else task = ((void *(__thiscall *)(void *))vt[2])(task);
+            }
+            if (!hit) continue;
+            void *root = t[k];
+            ((bool(__thiscall *)(void *, void *, int, void *))(*(void ***)root)[6])(root, ped, 2, nullptr);
+            if (k < 5) SetPrimaryTask(ped, nullptr, k);
+            else ((void(__thiscall *)(void *, void *, int))0x681B60)(PrimaryTasks(ped), nullptr, k - 5);
+            had = true;
+        }
+        return had;
+    }
     enum : uintptr_t { VT_TaskSimpleGoToPoint = 0x86FD50 };
     // Tache principale active (CTaskManager::GetActiveTask 0x681720).
     inline void *ActiveTask(void *ped) { return ((void *(__thiscall *)(void *))0x681720)(PrimaryTasks(ped)); }
