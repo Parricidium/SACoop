@@ -81,6 +81,13 @@ void ReleaseInput()
     if (g_diKeyboard) ((HRESULT(WINAPI *)(void *))(*(void ***)g_diKeyboard)[8])(g_diKeyboard);
 }
 
+static volatile LONG g_mouseDx, g_mouseDy;
+void MouseRawTake(int &dx, int &dy)
+{
+    dx = (int)InterlockedExchange(&g_mouseDx, 0);
+    dy = (int)InterlockedExchange(&g_mouseDy, 0);
+}
+
 static HRESULT WINAPI h_GetDeviceState(void *dev, DWORD size, void *data)
 {
     HRESULT hr = o_GetDeviceState(dev, size, data);
@@ -123,6 +130,7 @@ static HRESULT WINAPI h_GetDeviceState(void *dev, DWORD size, void *data)
             if (phase == 0 && t > 30000 && at) { phase = 1; z0 = at[2]; }
             if (phase == 1) { m[1] = -15; if (t > 31000) { phase = 2; Log("test souris : vers l'avant, regard z %.3f -> %.3f (%s)", z0, at ? at[2] : 0.0f, at && at[2] > z0 ? "vers le haut" : "vers le bas"); } }
         }
+        InterlockedExchangeAdd(&g_mouseDx, m[0]); InterlockedExchangeAdd(&g_mouseDy, m[1]);   // 0.54.60 : mouvement brut pour la visee du passager (coop.cpp)
         if (PanelOpen()) { PanelMouseInput(m[0], m[1], m[2], (buttons[0] & 0x80) != 0); holdMouse = true; }
         if (capture || holdMouse) {
             if (!capture && !AnyDown(buttons, nb)) holdMouse = false;

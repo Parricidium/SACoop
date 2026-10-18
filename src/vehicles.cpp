@@ -810,9 +810,9 @@ static bool ClearSpotForCopy(NetVeh &n)
     if (!n.blockedSince) n.blockedSince = now;
     if (!(n.waitLogged & 2)) {
         n.waitLogged |= 2;
-        Log("copie du vehicule %08X en attente : place occupee par un vehicule (modele %d, %s)", n.id, blocker ? (int)*(int16_t *)(blocker + 0x22) : 0, hard ? "occupe ou en mouvement, 4 s" : "a l'arret et vide, 0,6 s");
+        Log("copie du vehicule %08X en attente : place occupee par un vehicule (modele %d, %s)", n.id, blocker ? (int)*(int16_t *)(blocker + 0x22) : 0, hard ? "occupe ou en mouvement, 4 s" : "a l'arret et vide, 0,2 s");
     }
-    return now - n.blockedSince > (hard ? 4000u : 600u);
+    return now - n.blockedSince > (hard ? 4000u : 200u);   // (0.54.84: 0,2 s instead of 0,6 s for a stopped, empty blocker)
 }
 
 static void CreateCopy(NetVeh &n)
@@ -991,7 +991,11 @@ static bool RemoteControls(void *veh)
     if (!n->last.driven && !Field<void *>(veh, VEH_DRIVER)) return false;
     uint8_t *v = (uint8_t *)veh;
     *(float *)(v + 0x494) = n->last.steer;
-    *(float *)(v + 0x49C) = n->last.gas;
+    // 0.54.82 : the copy's position and speed come from the network (ApplyBody); the game's own engine force on top of that made
+    // the driven wheels spin faster than the ground moves, so every acceleration left skid marks and smoke on the passenger's
+    // screen (report of 18/10). Cars: no gas on the copy (the wheels roll with the body, the brake and handbrake stay).
+    int vt = *(int *)(v + VEH_TYPE);
+    *(float *)(v + 0x49C) = (vt == 0) ? 0.0f : n->last.gas;
     *(float *)(v + 0x4A0) = n->last.brake;
     v[0x428] = n->last.handbrake ? (v[0x428] | 0x20) : (v[0x428] & ~0x20);
     if (n->last.flags & VF_HORN) *(uint32_t *)(v + 0x514) = 2;   // le jeu le decompte : klaxon tant qu'il est recu
@@ -1131,8 +1135,10 @@ static void GuestVehicleOffer()
 // vue de SON joueur : derriere l'hote, la ou l'invite qui le suit regarde. Une voiture de passage (avec conducteur)
 // apparue a moins de 90 m devant un invite partage (cone de 140 degres, cap de son vehicule ou de son pantin) est
 // retiree tout de suite (DELETE_CHAR 009B pour ses occupants, DELETE_CAR 00A6), avant d'avoir ete envoyee.
+static int g_birth[2][2], g_guardDel;
 static void HostTrafficGuard()
 {
+    { static uint32_t lastB; uint32_t t = GetTickCount(); if (t - lastB > 10000) { lastB = t; int n = g_birth[0][0] + g_birth[0][1] + g_birth[1][0] + g_birth[1][1]; if (n || g_guardDel) Log("circulation : voitures nees en 10 s : %d (devant meme sens %d, devant sens inverse %d, derriere meme sens %d, derriere sens inverse %d), retirees par la garde %d", n, g_birth[0][0], g_birth[0][1], g_birth[1][0], g_birth[1][1], g_guardDel); memset(g_birth, 0, sizeof g_birth); g_guardDel = 0; } }
     static int seen[256];
     static bool primed;
     Pool *p = *(Pool **)0xB74494;
@@ -1147,12 +1153,34 @@ static void HostTrafficGuard()
         void *drv = Field<void *>(v, VEH_DRIVER);
         if (!drv || drv == FindPlayerPed() || PuppetIndex(drv) >= 0) continue;
         const float *cp = EntityPos(v);
+        {   // 0.54.81 diagnostic: where does the game spawn traffic around us (ahead/behind x same way/oncoming), and how many does the guard remove?
+            if (void *hv = PedVehicle(FindPlayerPed())) {
+                uint8_t *hm = *(uint8_t **)((uint8_t *)hv + 0x14), *cm = *(uint8_t **)(v + 0x14);
+                const float *hp = EntityPos(hv);
+                if (hm && cm && hp) {
+                    float hfx = ((float *)hm)[4], hfy = ((float *)hm)[5], cfx = ((float *)cm)[4], cfy = ((float *)cm)[5];
+                    bool ahead = (cp[0] - hp[0]) * hfx + (cp[1] - hp[1]) * hfy > 0, same = cfx * hfx + cfy * hfy > 0;
+                    g_birth[ahead ? 0 : 1][same ? 0 : 1]++;
+                }
+            }
+        }
         for (int g = 1; g < MAX_PLAYERS; g++) {
             void *pup = PuppetOf(g);
             if (!pup || !g_players[g].connected) continue;
             const float *gp = EntityPos(pup);
             float dx = cp[0] - gp[0], dy = cp[1] - gp[1], d = sqrtf(dx * dx + dy * dy);
-            if (d > (float)g_cfg.trafficGuardRange || d < 0.1f) continue;   // (TrafficGuardRange, 90 m by default)
+            // 0.54.78 : desert report (2 stars, nearly no traffic or cops). The guest rides with the host (a few metres): the
+            // game spawns only out of the HOST's view, i.e. to the sides and behind, exactly where the guest looks out of his
+            // window, so every spawn was removed (the same 38-40 m spot again and again). Together, only what pops in really
+            // close is removed; and police are never removed (the ped guard spares them already).
+            float range = (float)g_cfg.trafficGuardRange;
+            if (const float *hp = EntityPos(FindPlayerPed())) {
+                float hx = hp[0] - gp[0], hy = hp[1] - gp[1];
+                if (hx * hx + hy * hy < 25.0f * 25.0f && range > 28.0f) range = 28.0f;
+            }
+            int mdl = *(uint16_t *)(v + 0x22);
+            if (mdl == 596 || mdl == 597 || mdl == 598 || mdl == 599 || mdl == 523 || mdl == 427 || mdl == 528 || mdl == 490 || mdl == 601 || mdl == 432) continue;
+            if (d > range || d < 0.1f) continue;   // (TrafficGuardRange, 90 m by default)
             float fx = g_players[g].state.camFwd[0], fy = g_players[g].state.camFwd[1];   // (his camera, 0.54.39: looking behind too)
             if (fx == 0 && fy == 0) {
                 if (void *gv = PedVehicle(pup)) { uint8_t *m = *(uint8_t **)((uint8_t *)gv + 0x14); fx = m ? ((float *)m)[4] : 0; fy = m ? ((float *)m)[5] : 1; }
@@ -1163,6 +1191,7 @@ static void HostTrafficGuard()
             int r = PedRef(drv);
             RunScriptCommand(0x009B, 1, &r);   // DELETE_CHAR
             RunScriptCommand(0x00A6, 1, &ref); // DELETE_CAR
+            g_guardDel++;
             static int said;
             if (said < 20) { said++; Log("circulation : voiture apparue devant %s (%.0f m) retiree", g_players[g].state.name, d); }
             break;
@@ -1259,6 +1288,46 @@ static void LocalSirenLog()
     lastVeh = v; lastSiren = siren; lastHorn = horn;
 }
 
+// 0.54.91 : portieres restees ouvertes. Une voiture occupee dont une portiere reste ouverte plus de 7 s (le pantin d'un
+// joueur a ouvert la portiere pour monter, la tache coupee n'a pas referme, 18/10 : ouverte chez l'un, fermee chez l'autre)
+// est refermee (CAutomobile::CloseAllDoors 0x6A4520). Sans etat reseau : chaque PC corrige ses propres voitures, ce qui
+// attrape aussi le cas rare qu'on n'arrive pas a reproduire. Portieres abimees (>= 2) : on ne touche a rien.
+static void DoorWatchdog()
+{
+    static uint32_t last;
+    static struct { void *v; uint32_t since; } st[32];
+    uint32_t now = GetTickCount();
+    if (now - last < 500) return;
+    last = now;
+    Pool *p = *(Pool **)0xB74494;
+    if (!p) return;
+    for (auto &e : st) if (e.v && !(VehFromRef(VehRef(e.v)) == e.v)) e.v = nullptr;
+    for (int i = 0; i < p->size; i++) {
+        if (p->flags[i] & 0x80) continue;
+        uint8_t *v = p->objects + i * 0xA18;
+        if (*(int *)(v + VEH_TYPE) != 0) continue;   // automobiles only (CAutomobile has the door array)
+        bool occ = *(void **)(v + VEH_DRIVER) != nullptr;
+        for (int k = 0; k < 8 && !occ; k++) occ = *(void **)(v + VEH_PASSENGERS + 4 * k) != nullptr;
+        bool open = false, damaged = false;
+        for (int k = 0; k < 6; k++) {
+            const float *d = (const float *)(v + 0x5B8 + k * 0x18);   // m_fOpenAngle, m_fClosedAngle, ..., m_fAngle at +0xC
+            float ang = *(const float *)((const uint8_t *)d + 0xC), closed = d[1];
+            if (fabsf(ang - closed) > 0.08f && (v[0x5B8 + k * 0x18 + 0xB]) != 4) open = true;
+            if (HasDamageManager(v) && v[0x5A0 + 9 + k] >= 2) damaged = true;
+        }
+        int slot = -1, freeSlot = -1;
+        for (int k = 0; k < 32; k++) { if (st[k].v == v) slot = k; else if (!st[k].v && freeSlot < 0) freeSlot = k; }
+        if (!occ || !open || damaged) { if (slot >= 0) st[slot].v = nullptr; continue; }
+        if (slot < 0) { if (freeSlot < 0) continue; slot = freeSlot; st[slot].v = v; st[slot].since = now; }
+        if (now - st[slot].since > 7000) {
+            ((void(__thiscall *)(void *))0x6A4520)(v);
+            st[slot].since = now;
+            static int said;
+            if (said < 20) { said++; Log("portiere restee ouverte (vehicule modele %d) : refermee", (int)*(uint16_t *)(v + 0x22)); }
+        }
+    }
+}
+
 void VehiclesFrame()
 {
     static bool aiHooked;
@@ -1268,6 +1337,7 @@ void VehiclesFrame()
     g_onVehPush = OnVehPush;   // (also set here: VehiclePushProbe runs only with the after-physics hook)
     if (GameState() != 9 || !FindPlayerPed()) return;
     if (g_cfg.host) HostTrafficGuard();
+    DoorWatchdog();
     LocalSirenLog();
     uint32_t now = GetTickCount();
     for (auto &n : g_veh) {
@@ -1379,14 +1449,26 @@ void VehiclePushProbe()
             void *e = ((void **)(v + 0xBC))[i];
             if (!e || (((uint8_t *)e)[0x36] & 7) != 2) continue;
             NetVeh *n = FindByVeh(e);
-            if (!n || n->owner == g_localId) continue;
+            if (!n) {   // (0.54.46: a vehicle we touch that is no network vehicle at all - log, report of 18/10: the host cannot hit the guest's traffic)
+                static int saidNone;
+                if (saidNone < 10) { saidNone++; Log("contact : notre voiture touche un vehicule modele %d qui n'est pas un vehicule reseau", *(int16_t *)((uint8_t *)e + 0x22)); }
+                continue;
+            }
+            if (n->owner == g_localId) continue;
             // Not taken over: a vehicle another player drives (his car goes where he drives it; ours would bounce off and
             // snap back) or one of the host's mission vehicles (the mission may freeze it or drive it on a recorded path).
-            if (n->last.flags & (VF_MISSION | VF_SCRIPT)) continue;
+            // (0.54.46: the host's mission vehicles are pushed here too - the guest's copy only; the host ignores the pushes of
+            // a mission vehicle, and the copy follows him again after 0.7 s. Before, hitting one was hitting a wall, 18/10.)
+            if (n->last.flags & VF_SCRIPT) continue;
             if (void *d = Field<void *>(e, VEH_DRIVER)) if (PuppetIndex(d) >= 0) continue;
+            {   // (0.54.46: what we hit, each new vehicle, to see why a copy would stay a wall)
+                static int saidHit;
+                static void *lastE;
+                if (e != lastE && saidHit < 25) { lastE = e; saidHit++; Log("contact : copie %08X (modele %d, proprietaire %d, drapeaux %02X) touchee par notre voiture", n->id, *(int16_t *)((uint8_t *)e + 0x22), n->owner, (unsigned)n->last.flags); }
+            }
             const float *cs = MoveSpeed(e);
             float rx = ms[0] - cs[0], ry = ms[1] - cs[1], rz = ms[2] - cs[2];
-            if (rx * rx + ry * ry + rz * rz < 0.05f * 0.05f) continue;   // (about 9 km/h between them: a touch, not a hit)
+            if (rx * rx + ry * ry + rz * rz < 0.02f * 0.02f) continue;   // (about 3.6 km/h between them: a touch, not a hit; was 9 until 0.54.45)
             if ((int)(n->pushUntil - now) <= 0) {
                 // A police vehicle hit hard (above ~20 km/h between them): one star at least, as the game gives for
                 // damaging a cop car (the copy is not the game's police: it gave nothing, test of 15/10). The shared wanted
@@ -1405,6 +1487,20 @@ void VehiclePushProbe()
             n->pushUntil = now + 700;
             FreezeCopy(e, false);
         }
+        // (0.54.48, report of 18/10: copies still "too static"; the contact list only fills after the first bump, when our car
+        // has already stopped dead against the frozen copy.) Copies within 7 m of our moving car are left to our physics
+        // beforehand, so that the first touch is already a real collision.
+        const float *mp = EntityPos(mine);
+        if (ms[0] * ms[0] + ms[1] * ms[1] > 0.01f * 0.01f)
+            for (auto &n : g_veh) {
+                if (!n.id || n.owner == g_localId || !n.veh || !Alive(n) || (n.last.flags & VF_SCRIPT)) continue;
+                if (n.veh == mine) continue;
+                const float *cp = EntityPos(n.veh);
+                float ax = cp[0] - mp[0], ay = cp[1] - mp[1], az = cp[2] - mp[2];
+                if (ax * ax + ay * ay > 49.0f || fabsf(az) > 3.0f) continue;
+                if (void *d = Field<void *>(n.veh, VEH_DRIVER)) if (PuppetIndex(d) >= 0) continue;
+                if ((int)(n.pushUntil - now) <= 100) { n.pushUntil = now + 500; FreezeCopy(n.veh, false); }
+            }
     }
     for (auto &n : g_veh) {   // pushed copies: their place to their owner, 20 times a second
         if (!n.id || n.owner == g_localId || !n.veh || !Alive(n) || (int)(n.pushUntil - now) <= 0) continue;
@@ -1442,7 +1538,7 @@ void VehicleHitProbe()
     float before = veh == lastVeh ? lastSpeed : 0.0f;
     lastVeh = veh;
     lastSpeed = speed;
-    if (before < 0.22f || speed > before * 0.5f || said >= 40 || GetTickCount() - lastLog < 1000) return;
+    if (before < 0.1f || speed > before * 0.6f || said >= 40 || GetTickCount() - lastLog < 1000) return;   // (0.54.46: from 18 km/h, 40 %)
     said++;
     lastLog = GetTickCount();
     const float *pos = EntityPos(veh);

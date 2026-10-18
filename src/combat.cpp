@@ -27,6 +27,8 @@ static bool g_replaying;              // un pantin rejoue un tir : ne pas le com
 static uint8_t g_lastShots[MAX_PLAYERS];
 static bool g_shotsKnown[MAX_PLAYERS];
 
+bool PassengerFireTarget(float *out);   // coop.cpp
+
 typedef char(__fastcall *Fire_t)(int *weapon, void *, void *owner, float *origin, float *muzzle, void *targetEnt, float *target, void *driveBy);
 static Fire_t o_Fire;
 
@@ -48,12 +50,63 @@ void CombatNpcShots(void *ped, uint8_t &shots, float *aim)
     memcpy(aim, g_npcAim[i], 12);
 }
 
+// 0.54.75 : une balle tiree vers une voiture touche la carrosserie, pas le PNJ assis derriere la vitre (rapport du 18/10 : la visee
+// du passager ne blessait aucun PNJ en voiture). Un tir de pistolet / fusil / mitraillette dont le point vise est a moins de
+// 1,3 m d'un occupant (et a peu pres a sa hauteur) le blesse : meme coup qu'une balle (CWeapon::GenerateDamageEvent).
+static int g_dbgShots, g_dbgOccHits;   // 0.54.79 : per-10 s summary of the drive-by shots replayed here (the per-shot logs are capped)
+static void HitOccupantAt(void *shooter, int type, const float *pt)
+{
+    if (type < 22 || type > 38 || !pt) return;
+    // 0.54.76 : test sur le RAYON de la balle (de l'arme vers le point vise, prolonge de 3 m derriere la carrosserie), pas sur la
+    // distance au point vise : a 30 m le point vise tombe a 1-2 m de l'occupant et le coup n'etait pas compte (rapport du 18/10 :
+    // "parfois ca touche, souvent non, la distance ne devrait pas compter").
+    const float *sp = EntityPos(shooter);
+    float o[3] = { sp[0], sp[1], sp[2] + 0.6f };
+    float d[3] = { pt[0] - o[0], pt[1] - o[1], pt[2] - o[2] };
+    float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (len < 0.5f) return;
+    for (int k = 0; k < 3; k++) d[k] /= len;
+    Pool *pp = *(Pool **)0xB74490;
+    void *myVeh = PedVehicle(shooter), *best = nullptr;
+    float bd = 0.6f;
+    for (int i = 0; i < pp->size; i++) {
+        if (pp->flags[i] & 0x80) continue;
+        void *p = pp->objects + i * 0x7C4;
+        if (p == shooter || PuppetIndex(p) >= 0 || Field<float>(p, PED_HEALTH) <= 0.0f) continue;
+        void *v = PedVehicle(p);
+        if (!v || v == myVeh) continue;
+        const float *q = EntityPos(p);
+        for (int h = 0; h < 2; h++) {   // bassin et tete
+            float c[3] = { q[0] - o[0], q[1] - o[1], q[2] + h * 0.55f - o[2] };
+            float t = c[0] * d[0] + c[1] * d[1] + c[2] * d[2];
+            if (t < 0.5f || t > len + 3.0f) continue;
+            float e[3] = { c[0] - d[0] * t, c[1] - d[1] * t, c[2] - d[2] * t };
+            float dist = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+            if (dist < bd) { bd = dist; best = p; }
+        }
+    }
+    if (!best) return;
+    int dmg = 0;
+    if (void *info = ((void *(__cdecl *)(int, int))0x743C60)(type, 1)) dmg = *(int16_t *)((uint8_t *)info + 0x20);
+    if (dmg < 5 || dmg > 200) dmg = 25;
+    static int said;
+    if (said < 60) { said++; Log("tir sur un occupant de vehicule : arme %d, %d degats, personnage %p, ecart au rayon %.2f m, point vise a %.0f m", type, dmg, best, bd, len); }
+    ApplyPedHit(best, shooter, type, dmg, 3);
+    g_dbgOccHits++;
+}
+
 static char __fastcall h_Fire(int *weapon, void *edx, void *owner, float *origin, float *muzzle, void *targetEnt, float *target, void *driveBy)
 {
     // A puppet's own gun task fired (the fire command given in ReplayShots, for the animation and the flash): no bullet of
     // its own, the replayed shot (to the exact point its player hit) is the bullet.
     if (!g_replaying && owner && PuppetIndex(owner) >= 0) return 1;
+    float passTarget[3];
+    if (!g_replaying && owner && owner == FindPlayerPed() && PedVehicle(owner) && driveBy && PassengerFireTarget(passTarget)) {
+        target = passTarget;   // passager qui vise : la balle va au point vise, pas ou la tache ou la camera la voulait
+        targetEnt = nullptr;
+    }
     char r = o_Fire(weapon, edx, owner, origin, muzzle, targetEnt, target, driveBy);
+    if (r && !g_replaying && owner && owner == FindPlayerPed() && PedVehicle(owner) && driveBy && target) HitOccupantAt(owner, weapon[0], target);
     if (r && !g_replaying && owner && g_cfg.host && owner != FindPlayerPed() && (*((uint8_t *)owner + 0x36) & 7) == 3 && PuppetIndex(owner) < 0) {
         int i = PedSlot(owner);
         if (i >= 0) {
@@ -63,6 +116,10 @@ static char __fastcall h_Fire(int *weapon, void *edx, void *owner, float *origin
         }
     }
     if (r && !g_replaying && owner && owner == FindPlayerPed()) {
+        if (PedVehicle(owner)) {   // 0.54.54 diagnostic: where the shots from a vehicle are aimed
+            static int saidA;
+            if (saidA < 12) { saidA++; const float *pp = EntityPos(owner); Log("tir du joueur en vehicule : cible %s %.0f %.0f %.0f, joueur en %.0f %.0f %.0f, origine %s", target ? "donnee" : "camera", target ? target[0] : 0.f, target ? target[1] : 0.f, target ? target[2] : 0.f, pp[0], pp[1], pp[2], driveBy ? "fenetre" : "aucune"); }
+        }
         g_localShots++;
         g_lastShotAt = GetTickCount();
         if (target) memcpy(g_localAim, target, 12);
@@ -88,8 +145,33 @@ static char __fastcall h_Fire(int *weapon, void *edx, void *owner, float *origin
     return r;
 }
 
+// 0.54.51 (host logs of 18/10: no shot of the guest's drive-by was ever counted on the host, while his bullets hurt): shots
+// fired from a vehicle are also counted from the weapon's ammunition going down (CWeapon +0xC), whatever code fired them,
+// when CWeapon::Fire did not count them itself.
+static void AmmoShots()
+{
+    static int lastType = -1, lastAmmo, lastShots;
+    void *me = FindPlayerPed();
+    if (!me || !PedVehicle(me)) { lastType = -1; return; }
+    int slot = Field<uint8_t>(me, PED_WEAPONSLOT);
+    int *w = (int *)((uint8_t *)me + PED_WEAPONS + slot * 0x1C);
+    int type = w[0], ammo = w[3];
+    if (type == lastType && ammo < lastAmmo && lastAmmo - ammo <= 5 && type >= 22 && type <= 38 && g_localShots == (uint8_t)lastShots) {
+        g_localShots += (uint8_t)(lastAmmo - ammo);
+        g_lastShotAt = GetTickCount();
+        if (uint8_t *m = *(uint8_t **)(0xB6F028 + 0x14)) {
+            const float *pos = (const float *)(m + 0x30), *fwd = (const float *)(m + 0x10);
+            for (int k = 0; k < 3; k++) g_localAim[k] = pos[k] + fwd[k] * 80.0f;
+        }
+        static int said;
+        if (said < 10) { said++; Log("tir du joueur en vehicule compte par les munitions (arme %d, %d -> %d)", type, lastAmmo, ammo); }
+    }
+    lastType = type; lastAmmo = ammo; lastShots = g_localShots;
+}
+
 void CombatFillState(MsgState &s)
 {
+    AmmoShots();
     s.shots = g_localShots;
     memcpy(s.aim, g_localAim, 12);
 }
@@ -126,9 +208,16 @@ static void ReplayShots(void *ped, int weaponId, int n, const float *aim);
 void CombatUpdatePuppet(int id, void *ped, const MsgState &s)
 {
     GivePuppetWeapon(id, ped, s.weapon);
+    { static uint32_t lastDbg; uint32_t t = GetTickCount();
+      if (t - lastDbg > 10000) { lastDbg = t; if (g_dbgShots) { Log("tirs en voiture rejoues (10 s) : %d, dont %d sur un occupant ; arme %d, chargeur %d", g_dbgShots, g_dbgOccHits, (int)s.weapon, ((int *)((uint8_t *)ped + PED_WEAPONS + Field<uint8_t>(ped, PED_WEAPONSLOT) * 0x1C))[2]); g_dbgShots = g_dbgOccHits = 0; } } }
     if (!g_shotsKnown[id]) { g_shotsKnown[id] = true; g_lastShots[id] = s.shots; return; }
     int n = (uint8_t)(s.shots - g_lastShots[id]);
     g_lastShots[id] = s.shots;
+    if (n > 0 && PedVehicle(ped)) {   // 0.54.50 diagnostic: shots received for a puppet in a vehicle
+        static int saidV;
+        int slot = Field<uint8_t>(ped, PED_WEAPONSLOT);
+        if (saidV < 20) { saidV++; Log("tirs recus d'un pantin en vehicule : %d, arme %d, en main %d (emplacement %d)", n, (int)s.weapon, ((int *)((uint8_t *)ped + PED_WEAPONS + slot * 0x1C))[0], slot); }
+    }
     if (n <= 0 || n > 20 || !Replayable(s.weapon)) return;   // armes a feu et armes lancees
     if (n > 3) n = 3;
     ReplayShots(ped, s.weapon, n, s.aim);
@@ -148,7 +237,7 @@ static void ReplayShots(void *ped, int weaponId, int n, const float *aimIn)
 {
     int slot = Field<uint8_t>(ped, PED_WEAPONSLOT);
     int *weapon = (int *)((uint8_t *)ped + PED_WEAPONS + slot * 0x1C);
-    if (weapon[0] != weaponId) return;
+    if (weapon[0] != weaponId) { static int saidW; if (saidW < 10) { saidW++; Log("tir rejoue ignore : arme en main %d, voulue %d", weapon[0], weaponId); } return; }
     float aim[3] = { aimIn[0], aimIn[1], aimIn[2] };
     // Le pantin se tourne vers sa cible (a pied).
     if (!PedVehicle(ped)) {
@@ -169,6 +258,7 @@ static void ReplayShots(void *ped, int weaponId, int n, const float *aimIn)
     // the window on the side of the target, at shoulder height.
     float from[3], *fromP = nullptr;
     if (void *veh = PedVehicle(ped)) {
+        if (weaponId >= 22 && weaponId <= 34 && PuppetIndex(ped) >= 0) AimFireCar(ped, aim);
         const float *p = EntityPos(ped);
         float dx = aim[0] - p[0], dy = aim[1] - p[1], d = sqrtf(dx * dx + dy * dy);
         if (d > 0.01f) { dx /= d; dy /= d; }
@@ -177,12 +267,15 @@ static void ReplayShots(void *ped, int weaponId, int n, const float *aimIn)
         from[0] = p[0] + dx * out; from[1] = p[1] + dy * out; from[2] = p[2] + 0.55f;
         fromP = from;
     }
+    if (PedVehicle(ped)) { static int saidR; if (saidR < 12) { saidR++; const float *pp = EntityPos(ped); Log("tir rejoue depuis un vehicule : cible %.0f %.0f %.0f, pantin en %.0f %.0f %.0f", aim[0], aim[1], aim[2], pp[0], pp[1], pp[2]); } }
     g_replaying = true;
     for (int k = 0; k < n; k++) {
         weapon[1] = 0;        // pret
         weapon[2] = 50;       // balles dans le chargeur
         weapon[3] = 9999;
         o_Fire(weapon, nullptr, ped, fromP, fromP, nullptr, aim, fromP);
+        if (fromP) g_dbgShots++;
+        if (g_cfg.host && fromP && PuppetIndex(ped) >= 0) HitOccupantAt(ped, weaponId, aim);
     }
     g_replaying = false;
 }

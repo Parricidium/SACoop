@@ -14,6 +14,7 @@
 #include "gfx.h"
 #include "prefs.h"
 #include "anims.h"
+uint32_t CombatLastShotAt();   // combat.cpp
 #include "events.h"
 #include "objects.h"
 #include "sacoop.h"
@@ -284,6 +285,31 @@ static void SendLocalState()
         // camera (cadre de la camera RenderWare de la scene, 0xC1703C : at +0x70, position +0x80 de sa matrice LTM).
         void *sec = PrimaryTasks(ped)[5];
         bool driveby = PedVehicle(ped) && HasTaskType(ped, 1022);   // tir par la fenetre (meme tache que les PNJ)
+        bool shotDb = false;
+        {   // 0.54.46 (report of 18/10: nobody sees a drive-by; the 1022 test above never succeeded in the 18/10 logs, nor
+            // did one of the camera modes): the gun task of the attack slot, or a drive-by animation of the PED block, count
+            // too, and what the game has is logged each time it changes while a weapon is out in a vehicle.
+            bool inCar = PedVehicle(ped) != nullptr;
+            int secType = sec ? ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) : 0;
+            bool anim = inCar && AnimsDriveBy(ped);
+            if (inCar && !driveby && (secType == 1017 || secType == 1022 || anim) && s.weapon >= 22 && s.weapon <= 38) driveby = true;
+            // The surest sign: a gun-class weapon fired from the vehicle in the last second (18/10: the logs of both players show
+            // shots landing from cars and none of the signs above). The shots' own aim point stays (CombatFillState).
+            if (inCar && s.weapon >= 22 && s.weapon <= 38 && CombatLastShotAt() && GetTickCount() - CombatLastShotAt() < 1000) { driveby = true; shotDb = true; }
+            static int lastKey = -1, saidKey;
+            int key = inCar ? (secType & 0xFFF) | (anim ? 0x1000 : 0) | ((int)s.weapon << 16) : -1;
+            if (key != lastKey && saidKey < 40) {
+                lastKey = key;
+                if (inCar && (secType || anim)) {
+                    saidKey++;
+                    NetAnim tmp[4];
+                    int n = AnimsCollect(ped, tmp, 4);
+                    Log("tir par la fenetre : tache d'attaque %d, 1022 %d, animation %d, arme %d, camera %d, animations %d:%d %d:%d %d:%d", secType, (int)HasTaskType(ped, 1022), (int)anim, (int)s.weapon,
+                        (int)*(int16_t *)((uint8_t *)0xB6F028 + 0x174 + (((uint8_t *)0xB6F028)[0x59] % 3) * 0x238 + 0xC),
+                        n > 0 ? tmp[0].group : -1, n > 0 ? tmp[0].id : -1, n > 1 ? tmp[1].group : -1, n > 1 ? tmp[1].id : -1, n > 2 ? tmp[2].group : -1, n > 2 ? tmp[2].id : -1);
+                }
+            }
+        }
         { static int said; if (driveby && said < 3) { said++; Log("tir par la fenetre du joueur (arme %d)", (int)s.weapon); } }
         bool useGun = !PedVehicle(ped) && sec && ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) == 1017;
         {   // (0.54.39 diagnostic, report of 15/10: "standing still with the gun out, the other player sees him still aiming".
@@ -302,6 +328,7 @@ static void SendLocalState()
         }
         if (driveby || useGun) {
             s.aiming = driveby ? 2 : 1;
+            if (!shotDb)
             if (void *cam = *(void **)0xC1703C)
                 if (uint8_t *fr = *(uint8_t **)((uint8_t *)cam + 4)) {
                     const float *at = (const float *)(fr + 0x70), *cp = (const float *)(fr + 0x80);
@@ -751,6 +778,7 @@ static void UpdatePuppet(int id)
     int air = s.air ? s.air : (s.gear & 5) ? 1 : 0;   // jetpack, telephone : place sans tache de marche (voir plus bas)
     if (p.air && (!air || s.vehicleId)) FollowAirEnd(ped, p.air);
     PuppetGear(ped, s, p);
+    if (void *cv = PedVehicle(ped)) if (AimCarSettled(ped)) WarpPuppetIn(ped, cv, s.seat);   // (after the shots from the car, AimFireCar)
     CombatUpdatePuppet(id, ped, s);
     // Jacked by one of our people (0.54.44, 16/10: "NPCs trying to jack the client out of a car or off a bike can't"):
     // the jack plays here on his puppet, and his own game is told (RL_JACKED, mirror.cpp) to get him out; meanwhile the
@@ -849,8 +877,27 @@ static void UpdatePuppet(int id)
             // the puppet's, dragged its body down through the floor (test of 15/10: the host seen "like the Flintstones").
             int vtype = *(int *)((uint8_t *)veh + VEH_TYPE);
             bool bikeLike = vtype == 9 || vtype == 10 || vtype == 2;   // CBike, CBmx, CQuadBike
-            AnimsApply(ped, s.anims, bikeLike ? s.animCount : 0, p.anims);
-            bool db = s.aiming == 2 && s.weapon >= 22 && s.weapon <= 38, has = HasTaskType(ped, 1022);
+            // (0.54.46, logs of 18/10: the player's own drive-by in a car is NO task, it is the animations CAR_SIT_WEAK 0:62 plus
+            // DRIVEBY_L / R 0:74 / 75 on top of the seat. In a car only the drive-by ones (partial, over the seat) are replayed;
+            // a drive-by task started over and over for each shot made the puppet flicker and be seated again each time.)
+            NetAnim dbAnims[ANIMS_MAX];
+            int nDb = 0;
+            if (!bikeLike)
+                for (int k = 0; k < s.animCount && k < ANIMS_MAX; k++) {
+                    const NetAnim &a = s.anims[k];
+                    if ((a.group == 0 && ((a.id >= 74 && a.id <= 77) || (a.id >= 231 && a.id <= 238))) || a.group == 72) dbAnims[nDb++] = a;   // (72: the passenger's drive-by block, 72:237 in the 18/10 log)
+                }
+            {   // 0.54.48 diagnostic: what arrives for a puppet that fires from a vehicle
+                static int lastKey = -1, saidRx;
+                int key = s.aiming == 2 ? (s.animCount << 8 | nDb | (s.anims[0].id & 0xFF) << 16 | (s.anims[1].id & 0xFF) << 24) : -1;
+                if (key != lastKey && saidRx < 30) {
+                    lastKey = key;
+                    if (key != -1) { saidRx++; Log("pantin du joueur %d : tir par la fenetre recu, %d animation(s) %d:%d %d:%d %d:%d, %d de tir par la fenetre", id, (int)s.animCount,
+                        s.anims[0].group, s.anims[0].id, s.anims[1].group, s.anims[1].id, s.anims[2].group, s.anims[2].id, nDb); }
+                }
+            }
+            AnimsApply(ped, bikeLike ? s.anims : dbAnims, bikeLike ? s.animCount : nDb, p.anims);
+            bool db = false, has = HasTaskType(ped, 1022);   // (0.54.53: no more TASK_DRIVE_BY fallback for the puppet - the gaps between the L / R animations started it and the puppet ran in its seat)
             uint32_t tnow = GetTickCount();
             float dx = s.aim[0] - p.dbAim[0], dy = s.aim[1] - p.dbAim[1];
             if (db && (!has || (dx * dx + dy * dy > 16.0f && tnow - p.dbAt > 400))) {
@@ -872,7 +919,15 @@ static void UpdatePuppet(int id)
             }
             return;
         }
-        if (p.carTask) return;   // montee (ou descente) en cours : on la laisse finir
+        if (p.carTask) {   // montee (ou descente) en cours : on la laisse finir
+            // ... unless his player is seated already (his state says so, no get-in any more) and the puppet's own get-in has
+            // lasted 3 s: it is stuck (report of 18/10: the puppet ran on the spot at the door and only appeared in the seat when
+            // the car moved). Aborted, then seated below.
+            if (p.carTask == 3 || s.carTask != 0 || now - p.carTaskAt < 4800) return;   // (0.54.61: 3000 cut the get-in short before the door closed, 18/10)
+            SetPrimaryTask(ped, nullptr, 3);
+            p.carTask = 0;
+            Log("pantin du joueur %d : montee bloquee, il est assis chez lui, mis a sa place", id);
+        }
         // Both at the wheel of the same vehicle (they got in at the same moment): the player with the lower number keeps it
         // (the host first), the other one is moved to a free passenger seat by his own game (WARP_CHAR_INTO_CAR_AS_PASSENGER
         // 0430). Each PC applies the same rule, so they agree without a message.
@@ -2416,6 +2471,389 @@ static void LocalSkin()
 // long stretches. While the local player rides as a passenger of another player it is switched on, and put back as it
 // was when he gets out. (His shots ignore his own vehicle, 0x73FD47; hits between players in the same vehicle are
 // dropped, combat.cpp.)
+// 0.54.57 : visee libre et verrouillage d'un passager (demande du 18/10 : "choisir une cible ou viser librement, souris ou manette").
+// Le mode camera 55 ne suit pas le viseur (le journal du 18/10 ne montre que 4 points : devant, derriere, gauche, droite), la
+// visee vient donc des mouvements de la souris (CMouseControllerState 0xB73418 : X +8, Y +0xC, molette +3/+4) et du stick droit
+// de la manette (CPad 0xB73458 : stick droit +4/+6, L1 +8, L2 +10, R1 +12, R2 +14). Verrouillage : clic molette / L1 ; changer de
+// cible : molette / R1 ; relache de la visee : libre.
+struct PassAim {
+    bool on = false;
+    float yaw = 0, pitch = 0;
+    int lockRef = 0;            // personnage verrouille (PedRef), 0 : aucun
+    void *lockVeh = nullptr;    // ou vehicule
+    uint32_t last = 0;
+};
+static PassAim g_pa;
+static float g_paShown[3];
+static uint32_t g_paShownAt;
+static bool g_paShownLocked;
+
+// 0.54.65 : cible visible = a l'ecran et sans obstacle entre le passager et elle (CWorld::ProcessLineOfSight 0x56BA00,
+// sa voiture ignoree ; le premier obstacle touche doit etre la cible elle-meme ou etre derriere elle).
+static bool PassIsPed(void *e)
+{
+    Pool *pp = *(Pool **)0xB74490;
+    return e && (uint8_t *)e >= pp->objects && (uint8_t *)e < pp->objects + (size_t)pp->size * 0x7C4;
+}
+// Un vehicule avec quelqu'un dedans (conducteur ou passager vivant, hors nous et les pantins) : on vise l'occupant, pas la carrosserie.
+static bool PassVehOccupied(void *veh, void *me)
+{
+    void *occ[9];
+    occ[0] = Field<void *>(veh, VEH_DRIVER);
+    for (int i = 0; i < 8; i++) occ[1 + i] = *(void **)((uint8_t *)veh + 0x464 + i * 4);
+    for (int i = 0; i < 9; i++)
+        if (occ[i] && occ[i] != me && PuppetIndex(occ[i]) < 0 && Field<float>(occ[i], PED_HEALTH) > 0.0f) return true;
+    return false;
+}
+static bool PassVisible(void *me, void *ent, const float *pt)
+{
+    float scr[3], w, h;
+    int sw = *(int *)0xC17044, sh = *(int *)0xC17048;
+    if (!((bool(__cdecl *)(const float *, float *, float *, float *, bool, bool))0x70CE30)(pt, scr, &w, &h, true, true)) return false;
+    if (scr[2] <= 1.0f || scr[0] < 0 || scr[0] > sw || scr[1] < 0 || scr[1] > sh) return false;
+    const float *mp = EntityPos(me);
+    float from[3] = { mp[0], mp[1], mp[2] + 0.7f };
+    float dx = pt[0] - from[0], dy = pt[1] - from[1], dz = pt[2] - from[2];
+    float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+    uint8_t colPoint[0x2C] = {};
+    void *hitEnt = nullptr;
+    void *&ignore = *(void **)0xB7CD68;
+    void *before = ignore;
+    void *veh = PedVehicle(me);
+    ignore = veh ? veh : me;
+    bool hit = ((bool(__cdecl *)(const float *, const float *, void *, void **, bool, bool, bool, bool, bool, bool, bool, bool))0x56BA00)(
+        from, pt, colPoint, &hitEnt, true, true, true, true, false, true, false, true);
+    ignore = before;
+    if (!hit || hitEnt == ent) return true;
+    if (ent && PassIsPed(ent) && PedVehicle(ent) && hitEnt == PedVehicle(ent)) return true;   // occupant : on le voit a travers la vitre
+    const float *cp = (const float *)colPoint;
+    float hx = cp[0] - from[0], hy = cp[1] - from[1], hz = cp[2] - from[2];
+    return sqrtf(hx * hx + hy * hy + hz * hz) > dist - 1.5f;
+}
+
+static bool PassTargetPos(void *me, float *out, void **entOut = nullptr, bool *isVeh = nullptr)
+{
+    if (g_pa.lockRef) {
+        void *p = PedFromRef(g_pa.lockRef);
+        if (p && Field<float>(p, PED_HEALTH) > 0.0f && p != me) {
+            const float *q = EntityPos(p);
+            out[0] = q[0]; out[1] = q[1]; out[2] = q[2] + 0.3f;
+            if (entOut) *entOut = p;
+            return true;
+        }
+        g_pa.lockRef = 0;
+    }
+    if (g_pa.lockVeh) {
+        Pool *vp = *(Pool **)0xB74494;
+        uint8_t *v = (uint8_t *)g_pa.lockVeh;
+        int i = (int)((v - vp->objects) / 0xA18);
+        if (i >= 0 && i < vp->size && !(vp->flags[i] & 0x80) && vp->objects + i * 0xA18 == v && v != (uint8_t *)PedVehicle(me) && !PassVehOccupied(v, me)) {
+            const float *q = EntityPos(v);
+            out[0] = q[0]; out[1] = q[1]; out[2] = q[2] + 0.5f;
+            if (entOut) *entOut = v;
+            if (isVeh) *isVeh = true;
+            return true;
+        }
+        g_pa.lockVeh = nullptr;
+    }
+    return false;
+}
+
+// Cible suivante (dir : +1 / -1) par cap autour de la voiture ; sans cible, la plus proche du viseur.
+static void PassCycleTarget(void *me, int dir)
+{
+    struct C { float bearing; int ref; void *veh; };
+    C list[64];
+    int n = 0;
+    const float *mp = EntityPos(me);
+    void *myVeh = PedVehicle(me);
+    auto add = [&](const float *q, int ref, void *veh, void *ent) {
+        float dx = q[0] - mp[0], dy = q[1] - mp[1], d2 = dx * dx + dy * dy;
+        if (d2 > 70.0f * 70.0f || d2 < 1.0f || n >= 64) return;
+        float hp[3] = { q[0], q[1], q[2] + (veh ? 0.5f : 0.4f) };
+        if (!PassVisible(me, ent, hp)) return;
+        list[n++] = { atan2f(-dx, dy), ref, veh };
+    };
+    Pool *pp = *(Pool **)0xB74490;
+    for (int i = 0; i < pp->size; i++) {
+        if (pp->flags[i] & 0x80) continue;
+        void *p = pp->objects + i * 0x7C4;
+        if (p == me || PuppetIndex(p) >= 0 || Field<float>(p, PED_HEALTH) <= 0.0f || PedVehicle(p) == myVeh) continue;
+        add(EntityPos(p), (i << 8) | pp->flags[i], nullptr, p);
+    }
+    Pool *vp = *(Pool **)0xB74494;
+    for (int i = 0; i < vp->size; i++) {
+        if (vp->flags[i] & 0x80) continue;
+        void *v = vp->objects + i * 0xA18;
+        // 0.54.77 : plus aucun verrouillage sur les vehicules, uniquement les personnages (occupants compris)
+        continue;
+    }
+    if (!n) return;
+    float cur = g_pa.yaw;
+    bool have = false;
+    float tb[3]; void *te;
+    if (PassTargetPos(me, tb, &te)) { cur = atan2f(-(tb[0] - mp[0]), tb[1] - mp[1]); have = true; }
+    int best = -1; float bestD = 1e9f;
+    for (int i = 0; i < n; i++) {
+        float d = list[i].bearing - cur;
+        while (d > 3.14159f) d -= 6.28318f;
+        while (d < -3.14159f) d += 6.28318f;
+        if (have) {   // suivant : le plus proche dans le sens demande (les autres que l'actuel)
+            if (fabsf(d) < 0.02f) continue;
+            float dd = dir > 0 ? (d < 0 ? d + 6.28318f : d) : (d > 0 ? 6.28318f - d : -d);
+            if (dd < bestD) { bestD = dd; best = i; }
+        } else {      // premier verrouillage : le plus proche du viseur
+            if (fabsf(d) < bestD) { bestD = fabsf(d); best = i; }
+        }
+    }
+    if (best < 0) return;
+    g_pa.lockRef = list[best].ref;
+    g_pa.lockVeh = list[best].veh;
+    static int said;
+    if (said < 20) { said++; Log("passager : cible verrouillee (%s), cap %.0f deg, %d cibles", list[best].veh ? "vehicule" : "personnage", list[best].bearing * 57.2958f, n); }
+}
+
+// 0.54.71 : en visee libre, la camera est la notre (camera fixe de script, comme celle des missions) : elle tourne avec la
+// souris / le stick, le viseur est au centre de l'ecran et la balle suit exactement le rayon camera -> centre. C'est le
+// viseur du jeu "comme avant" : ce qu'on voit au centre est ce qu'on touche, sans curseur qui glisse sur une camera mobile.
+// Verrouille sur une cible : la camera du jeu est rendue (comme en 0.54.70, qui marchait bien).
+static bool g_paCam, g_paCentered;
+bool PassengerCamActive() { return g_paCam; }
+
+// 0.54.72 : la tache de tir en voiture du joueur (CTaskSimpleGangDriveBy, mise a jour joueur en 0x621960) ne tire que si la camera
+// active est en mode visee (55, ou 49). Avec notre camera fixe de script (mode 15) le drapeau "visee" restait a 0 : l'animation
+// et le point vise etaient bons mais aucun coup ne partait (visee libre muette, verrouillage ok car la camera du jeu est rendue).
+// On fait croire a cette seule fonction que la camera est en mode 55 le temps de son appel, puis on remet le vrai mode.
+typedef void(__fastcall *PlayerDriveBy_t)(void *task, void *edx, void *ped);
+static PlayerDriveBy_t o_PlayerDriveBy, o_DriveByFire;
+static uint16_t *PassSpoofCam(uint16_t &saved, const char *what)
+{
+    if (!g_paCam) return nullptr;
+    uint16_t *mode = (uint16_t *)(0xB6F1A8 + (uintptr_t)(*(uint8_t *)0xB6F081) * 0x238);
+    saved = *mode;
+    if (saved == 55 || saved == 49) return nullptr;
+    *mode = 55;
+    static int said;
+    if (said < 6) { said++; Log("passager : %s, mode camera %u presente comme 55 a la tache", what, (unsigned)saved); }
+    return mode;
+}
+static void __fastcall h_PlayerDriveBy(void *task, void *edx, void *ped)
+{
+    uint16_t saved = 0;
+    uint16_t *mode = PassSpoofCam(saved, "mise a jour de la tache");
+    o_PlayerDriveBy(task, edx, ped);
+    if (mode) *mode = saved;
+}
+// 0.54.73 : la fonction qui tire (0x627CC0, appelee par la tache) refuse aussi de tirer hors des modes 55 / 49 (journal 0.54.72 :
+// l'animation partait, aucun CWeapon::Fire). Meme astuce, le temps de son appel.
+static void __fastcall h_DriveByFire(void *task, void *edx, void *ped)
+{
+    uint16_t saved = 0;
+    uint16_t *mode = PassSpoofCam(saved, "tir de la tache");
+    o_DriveByFire(task, edx, ped);
+    if (mode) *mode = saved;
+}
+static void InstallPlayerDriveBy()
+{
+    static bool tried;
+    if (tried) return;
+    tried = true;
+    static const uint8_t pro[] = { 0x0F, 0xB6, 0x05, 0x81, 0xF0, 0xB6, 0x00 };   // movzx eax, byte ptr [0xB6F081]
+    o_PlayerDriveBy = (PlayerDriveBy_t)MakeDetour(0x621960, pro, sizeof(pro), (void *)h_PlayerDriveBy);
+    static const uint8_t fire[] = { 0x83, 0xEC, 0x3C, 0x53, 0x55 };               // sub esp,3Ch ; push ebx ; push ebp
+    o_DriveByFire = (PlayerDriveBy_t)MakeDetour(0x627CC0, fire, sizeof(fire), (void *)h_DriveByFire);
+    Log("passager : crochets de la tache de tir en voiture : mise a jour %s, tir %s", o_PlayerDriveBy ? "ok" : "IMPOSSIBLE", o_DriveByFire ? "ok" : "IMPOSSIBLE");
+}
+bool PassengerAimCentered() { return g_paCentered && GetTickCount() - g_paShownAt < 150; }
+static void PassApplyCamera(const float *pos, const float *look)
+{
+    int a1[6], a2[4];
+    float c[6] = { pos[0], pos[1], pos[2], 0, 0, 0 };
+    memcpy(a1, c, sizeof(c));
+    memcpy(a2, look, 12);
+    a2[3] = 2;
+    InstallPlayerDriveBy();
+    RunScriptCommandTyped(0x015F, 6, "ffffff", a1);   // SET_FIXED_CAMERA_POSITION
+    RunScriptCommandTyped(0x0160, 4, "fffi", a2);     // POINT_CAMERA_AT_POINT (coupure franche)
+    g_paCam = true;
+}
+static void PassReleaseCamera()
+{
+    g_paCentered = false;
+    if (!g_paCam) return;
+    g_paCam = false;
+    RunScriptCommand(0x02EB, 0, nullptr);   // RESTORE_CAMERA_JUMPCUT
+    RunScriptCommand(0x0373, 0, nullptr);   // SET_CAMERA_BEHIND_PLAYER
+}
+
+// Appelee a chaque image tant que le passager vise. Rend le point vise.
+static void PassUpdateAim(void *me, bool aiming, float *aim)
+{
+    uint32_t now = GetTickCount();
+    float dt = g_pa.last ? (now - g_pa.last) / 1000.0f : 0.016f;
+    if (dt > 0.1f) dt = 0.1f;
+    g_pa.last = now;
+    const float *mp = EntityPos(me);
+    bool firstFrame = !g_pa.on;
+    if (!g_pa.on) {   // debut : cap de la voiture
+        g_pa.on = true;
+        void *veh = PedVehicle(me);
+        float h = 0;
+        if (veh) { const float *m = (const float *)Field<void *>(veh, 0x14); if (m) h = atan2f(-m[4], m[5]); }
+        g_pa.yaw = h; g_pa.pitch = 0;
+        if (uint8_t *cm = *(uint8_t **)(0xB6F028 + 0x14)) {   // part de la direction de la camera actuelle : pas de saut de vue
+            const float *fw = (const float *)(cm + 0x10);
+            g_pa.yaw = atan2f(-fw[0], fw[1]);
+            float sp = fw[2];
+            g_pa.pitch = asinf(sp > 0.99f ? 0.99f : sp < -0.99f ? -0.99f : sp);
+        }
+        g_pa.lockRef = 0; g_pa.lockVeh = nullptr;
+    }
+        const int16_t *pad = (const int16_t *)0xB73458;
+    int rdx = 0, rdy = 0;
+    MouseRawTake(rdx, rdy);
+    float mx = firstFrame ? 0.0f : (float)rdx, my = firstFrame ? 0.0f : (float)rdy;   // (counts du pilote de souris ; le float du jeu en +8 restait a 0 en visee de voiture)
+    float sx = pad[2] / 128.0f, sy = pad[3] / 128.0f;
+    if (fabsf(sx) < 0.15f) sx = 0;
+    if (fabsf(sy) < 0.15f) sy = 0;
+    // cap / pente de la camera de visee : souris (0,002 rad par unite) et stick
+    g_pa.yaw -= mx * 0.002f + sx * 1.6f * dt;
+    g_pa.pitch -= my * 0.002f + sy * 1.1f * dt;
+    if (g_pa.pitch > 1.1f) g_pa.pitch = 1.1f;
+    if (g_pa.pitch < -1.1f) g_pa.pitch = -1.1f;
+    // verrouillage / changement de cible (fronts)
+    // Touches (journal du 18/10 : le clic molette regarde derriere et la molette change de radio, ils sont pris) : \ verrouille /
+    // relache, ] cible suivante, [ cible precedente (T est le chat) ; manette : croix directionnelle haut / droite / gauche.
+    static bool pk[3], pd[3];
+    bool focus = GameHasFocus();
+    bool k0 = focus && (GetAsyncKeyState(VK_OEM_5) & 0x8000), k1 = focus && (GetAsyncKeyState(VK_OEM_6) & 0x8000), k2 = focus && (GetAsyncKeyState(VK_OEM_4) & 0x8000);
+    bool d0 = pad[8] > 0, d1 = pad[11] > 0, d2 = pad[10] > 0;
+    bool have = g_pa.lockRef || g_pa.lockVeh;
+    if ((k0 && !pk[0]) || (d0 && !pd[0])) {   // verrouille la cible la plus proche du viseur, ou rend la visee libre
+        if (have) { g_pa.lockRef = 0; g_pa.lockVeh = nullptr; Log("passager : verrouillage retire"); }
+        else PassCycleTarget(me, 1);
+    }
+    if ((k1 && !pk[1]) || (d1 && !pd[1])) PassCycleTarget(me, 1);
+    if ((k2 && !pk[2]) || (d2 && !pd[2])) PassCycleTarget(me, -1);
+    pk[0] = k0; pk[1] = k1; pk[2] = k2; pd[0] = d0; pd[1] = d1; pd[2] = d2;
+    {
+        static uint32_t lastDiag; static int diag;
+        if (now - lastDiag > 1000 && diag < 25) {
+            lastDiag = now; diag++;
+            Log("passager : visee libre, cap %.0f deg, pente %.0f deg, souris %.1f %.1f, stick %.2f %.2f, %s", g_pa.yaw * 57.2958f, g_pa.pitch * 57.2958f, mx, my, sx, sy, have ? "verrouille" : "libre");
+        }
+    }
+    float tp[3];
+    void *tent = nullptr;
+    if (PassTargetPos(me, tp, &tent)) {
+        static uint32_t hidSince;
+        if (!PassVisible(me, tent, tp)) {   // cible cachee depuis plus d'1,2 s : deverrouillee
+            if (!hidSince) hidSince = now;
+            if (now - hidSince > 1200) { g_pa.lockRef = 0; g_pa.lockVeh = nullptr; hidSince = 0; Log("passager : cible hors de vue, deverrouillee"); }
+        } else hidSince = 0;
+    }
+    bool locked = PassTargetPos(me, tp);
+    bool centred = true;
+    if (locked) {   // 0.54.72 : verrouille, c'est la meme camera qui suit la cible (plus de bascule 15 -> 18 -> 55 a chaque verrouillage)
+        float wy = g_pa.yaw, wp = g_pa.pitch;
+        for (int it = 0; it < 2; it++) {   // direction camera -> cible (la camera est 3,2 m derriere la tete)
+            float cp = cosf(wp);
+            float cx = mp[0] + sinf(wy) * cp * 3.2f, cy = mp[1] - cosf(wy) * cp * 3.2f, cz = mp[2] + 1.3f - sinf(wp) * 3.2f;
+            float ex = tp[0] - cx, ey = tp[1] - cy, ez = tp[2] - cz;
+            float hz = sqrtf(ex * ex + ey * ey);
+            wy = atan2f(-ex, ey);
+            wp = atan2f(ez, hz < 0.1f ? 0.1f : hz);
+        }
+        if (wp > 1.1f) wp = 1.1f;
+        if (wp < -1.1f) wp = -1.1f;
+        float dy = wy - g_pa.yaw;
+        while (dy > 3.14159f) dy -= 6.28319f;
+        while (dy < -3.14159f) dy += 6.28319f;
+        float dp = wp - g_pa.pitch;
+        float k = dt * 12.0f > 1.0f ? 1.0f : dt * 12.0f;
+        if (firstFrame) k = 1.0f;
+        g_pa.yaw += dy * k;
+        g_pa.pitch += dp * k;
+        centred = fabsf(dy * (1 - k)) + fabsf(dp * (1 - k)) < 0.03f;   // pas encore rattrape : le viseur est dessine sur la cible
+    }
+    {   // camera : 3,2 m derriere la tete, 0,7 m au-dessus, regardant dans la direction de visee
+        float cp = cosf(g_pa.pitch);
+        float dv[3] = { -sinf(g_pa.yaw) * cp, cosf(g_pa.yaw) * cp, sinf(g_pa.pitch) };
+        float camPos[3] = { mp[0] - dv[0] * 3.2f, mp[1] - dv[1] * 3.2f, mp[2] + 0.6f - dv[2] * 3.2f + 0.7f };
+        float look[3] = { camPos[0] + dv[0] * 30.0f, camPos[1] + dv[1] * 30.0f, camPos[2] + dv[2] * 30.0f };
+        float end[3] = { camPos[0] + dv[0] * 80.0f, camPos[1] + dv[1] * 80.0f, camPos[2] + dv[2] * 80.0f };
+        memcpy(aim, end, 12);
+        uint8_t colPoint[0x2C] = {};
+        void *hitEnt = nullptr;
+        void *&ignore = *(void **)0xB7CD68;
+        void *before = ignore;
+        void *veh = PedVehicle(me);
+        ignore = veh ? veh : me;
+        bool hit = ((bool(__cdecl *)(const float *, const float *, void *, void **, bool, bool, bool, bool, bool, bool, bool, bool))0x56BA00)(
+            camPos, end, colPoint, &hitEnt, true, true, true, true, false, true, false, true);
+        ignore = before;
+        if (hit && hitEnt != me && !(hitEnt && PuppetIndex(hitEnt) >= 0)) memcpy(aim, colPoint, 12);
+        if (locked) memcpy(aim, tp, 12);
+        PassApplyCamera(camPos, look);
+        g_paCentered = centred;
+    }
+    memcpy(g_paShown, aim, 12); g_paShownAt = GetTickCount(); g_paShownLocked = locked;
+}
+
+// 0.54.67 : point ou doit aller la balle du passager (CWeapon::Fire, combat.cpp, remplace la cible de la tache).
+bool PassengerFireTarget(float *out)
+{
+    if (GetTickCount() - g_paShownAt > 250) return false;
+    memcpy(out, g_paShown, 12);
+    return true;
+}
+
+// Point vise du passager, pour le viseur dessine par hud.cpp (le viseur du jeu reste sur les 4 vues fixes).
+bool PassengerAimPoint(float *out, bool *locked)
+{
+    if (GetTickCount() - g_paShownAt > 150) return false;
+    memcpy(out, g_paShown, 12);
+    if (locked) *locked = g_paShownLocked;
+    return true;
+}
+
+// Reperes au-dessus de la tete des personnages proches pendant la visee du passager (hud.cpp les dessine).
+// kind : 2 = cible verrouillee, 1 = personnage le plus proche de la ligne de visee, 0 = autre.
+int PassengerMarkers(float (*out)[4], int *kind, int max)
+{
+    if (GetTickCount() - g_paShownAt > 150) return 0;
+    void *me = InGame() ? FindPlayerPed() : nullptr;
+    if (!me) return 0;
+    const float *mp = EntityPos(me);
+    void *myVeh = PedVehicle(me);
+    float dir[3] = { g_paShown[0] - mp[0], g_paShown[1] - mp[1], g_paShown[2] - mp[2] };
+    float dl = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    if (dl < 0.1f) return 0;
+    void *locked = nullptr; float tb[3];
+    if (g_pa.lockRef) PassTargetPos(me, tb, &locked);
+    int n = 0, nearest = -1; float nearestA = 0.12f;   // ~7 deg
+    Pool *pp = *(Pool **)0xB74490;
+    for (int i = 0; i < pp->size && n < max; i++) {
+        if (pp->flags[i] & 0x80) continue;
+        void *p = pp->objects + i * 0x7C4;
+        if (p == me || PuppetIndex(p) >= 0 || Field<float>(p, PED_HEALTH) <= 0.0f || PedVehicle(p) == myVeh) continue;
+        const float *q = EntityPos(p);
+        float v[3] = { q[0] - mp[0], q[1] - mp[1], q[2] + 0.2f - mp[2] };
+        float d2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+        if (d2 > 50.0f * 50.0f || d2 < 1.0f) continue;
+        { float hp[3] = { q[0], q[1], q[2] + 0.4f }; if (!PassVisible(me, p, hp)) continue; }
+        float vl = sqrtf(d2);
+        float cs = (v[0] * dir[0] + v[1] * dir[1] + v[2] * dir[2]) / (vl * dl);
+        float ang = acosf(cs > 1.0f ? 1.0f : cs < -1.0f ? -1.0f : cs);
+        out[n][0] = q[0]; out[n][1] = q[1]; out[n][2] = q[2] + 1.15f; out[n][3] = vl;
+        kind[n] = (p == locked) ? 2 : 0;
+        if (kind[n] == 0 && ang < nearestA) { nearestA = ang; nearest = n; }
+        n++;
+    }
+    if (!locked && nearest >= 0) kind[nearest] = 1;
+    return n;
+}
+
 static void PassengerDriveByFrame()
 {
     static bool forced;
@@ -2425,7 +2863,7 @@ static void PassengerDriveByFrame()
     void *me = InGame() ? FindPlayerPed() : nullptr;
     void *veh = me ? PedVehicle(me) : nullptr;
     void *drv = veh ? Field<void *>(veh, VEH_DRIVER) : nullptr;
-    bool passenger = drv && drv != me && PuppetIndex(drv) >= 0;
+    bool passenger = veh && drv != me;   // 0.54.71 : aussi quand le conducteur est sorti ou que c'est un PNJ
     if (passenger && !forced) {
         forced = true;
         before = flag;
@@ -2455,6 +2893,55 @@ static void PassengerDriveByFrame()
         }
     }
     if (forced && passenger) flag = 1;
+    {   // 0.54.51 (report of 18/10: "only the driver can shoot from the car"; the game starts no drive-by for a passenger of a
+        // player's car, the log shows no task while he aims): the NPC's TASK_DRIVE_BY (0713) at the camera's aim point while
+        // the fire button is held, taken off when released. Its shots are the player's own (counted, sent, replayed).
+        static uint32_t lastGive;
+        static float lastAim[3];
+        static bool lastLocked; static int lastLockRef; static void *lastLockVeh; static float lastBearing;
+        int w = me ? Field<int>(me, PED_WEAPONS + Field<uint8_t>(me, PED_WEAPONSLOT) * 0x1C) : 0;
+        const int16_t *padS = (const int16_t *)0xB73458;
+        bool padFire = padS[7] > 100, padAim = padS[5] > 100;
+        bool fire = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) || padFire;
+        bool aimBtn = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) || padAim;
+        bool want = passenger && GameHasFocus() && fire && w >= 22 && w <= 38;
+        bool has = me && HasTaskType(me, 1022);
+        float aim[3] = {};
+        if (passenger && GameHasFocus() && (fire || aimBtn) && w >= 22 && w <= 38) PassUpdateAim(me, true, aim);
+        else { g_pa.on = false; g_pa.lockRef = 0; g_pa.lockVeh = nullptr; g_pa.last = 0; PassReleaseCamera(); }
+        if (want) {
+            float dx = aim[0] - lastAim[0], dy = aim[1] - lastAim[1], dz = aim[2] - lastAim[2];
+            uint32_t t = GetTickCount();
+            bool lockedNow = g_pa.lockRef || g_pa.lockVeh;
+            bool changed = lockedNow != lastLocked || (lockedNow && (g_pa.lockRef != lastLockRef || g_pa.lockVeh != lastLockVeh));
+            // Verrouille : la tache suit la cible elle-meme (personnage ou vehicule) ; libre : on la relance quand le point vise a
+            // bouge de plus de 2,5 m (avant : 12 m, les balles restaient sur l'ancien point, 0.54.64).
+            // 0.54.70 : la tache n'est donnee qu'une fois (les balles vont au point vise grace a CWeapon::Fire) ; la relancer a chaque
+            // deplacement du viseur remettait l'animation a zero et retardait chaque tir (test du 18/10).
+            (void)changed; (void)dx; (void)dy; (void)dz; (void)lockedNow;
+            // L'animation (4 poses selon le cote) n'est relancee que si la visee a tourne de plus de 40 degres depuis le
+            // dernier lancement, au plus une fois par 0,8 s.
+            float mpz[3]; memcpy(mpz, EntityPos(me), 12);
+            float brg = atan2f(-(aim[0] - mpz[0]), aim[1] - mpz[1]), dbg = brg - lastBearing;
+            while (dbg > 3.14159f) dbg -= 6.28318f;
+            while (dbg < -3.14159f) dbg += 6.28318f;
+            bool reposeDue = has && fabsf(dbg) > 0.70f && t - lastGive > 800;
+            if (!has || reposeDue) {
+                lastBearing = brg;
+                lastLocked = lockedNow; lastLockRef = g_pa.lockRef; lastLockVeh = g_pa.lockVeh;
+                if (has) DropTaskType(me, 1022);
+                float rad = 80.0f;
+                int args[10] = { PedRef(me), -1, -1, 0, 0, 0, 0, 1, 0, 100 };
+                memcpy(&args[3], aim, 12);
+                memcpy(&args[6], &rad, 4);
+                RunScriptCommandTyped(0x0713, 10, "iiiffffiii", args);
+                memcpy(lastAim, aim, 12);
+                lastGive = t;
+                static int said;
+                if (!has && said < 10) { said++; Log("passager : tir par la fenetre lance (arme %d)", w); }
+            }
+        } else if (has && passenger) DropTaskType(me, 1022);
+    }
     // Put back as it was, or as a script set it during the ride (a mission starting or ending: review of 15/10, the old
     // value overwrote the story's, and it is saved with the game).
     if (forced && !passenger) { forced = false; flag = g_driveByScriptSeq != seq ? g_driveByScriptValue : before; }

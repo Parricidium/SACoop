@@ -246,10 +246,97 @@ static void DrawChat()
     font::DrawFonts();
 }
 
+// Viseur du passager (0.54.62) : le viseur du jeu reste sur les 4 vues fixes de la camera de visee en voiture ; ce point
+// montre ou vont les balles (rouge : cible verrouillee).
+bool PassengerAimPoint(float *out, bool *locked);   // coop.cpp
+bool PassengerAimCentered();                          // coop.cpp : visee libre, viseur au centre de l'ecran
+// 0.54.68 : un seul viseur, le notre, dessine au pixel pres a l'endroit ou vont les balles (deux petits rectangles, sans
+// decalage de police). Celui du jeu (CHud::DrawCrossHairs, a ecran * 0xB6EC14 / 0xB6EC10) est mis hors de l'ecran le temps
+// de CHud::Draw puis remis : la camera de visee lit ces valeurs.
+static float g_chairSaveX, g_chairSaveY;
+static bool g_chairHidden;
+static bool g_passAimDraw;      // point vise valide cette image
+static float g_passAimScr[2];   // ... et sa position a l'ecran (pixels)
+static bool g_passAimLocked;
+static void PassengerCrosshairBegin()
+{
+    g_passAimDraw = false;
+    float world[3];
+    bool locked = false;
+    if (!PassengerAimPoint(world, &locked)) return;
+    float scr[3], w, h;
+    int sw = *(int *)0xC17044, sh = *(int *)0xC17048;
+    if (sw <= 0 || sh <= 0) return;
+    if (PassengerAimCentered()) { scr[0] = sw * 0.5f; scr[1] = sh * 0.5f; scr[2] = 2.0f; }
+    else if (!((bool(__cdecl *)(const float *, float *, float *, float *, bool, bool))0x70CE30)(world, scr, &w, &h, true, true) || scr[2] <= 1.0f) return;
+    g_passAimScr[0] = scr[0]; g_passAimScr[1] = scr[1]; g_passAimLocked = locked; g_passAimDraw = true;
+    g_chairSaveX = *(float *)0xB6EC14; g_chairSaveY = *(float *)0xB6EC10;
+    *(float *)0xB6EC14 = 5.0f; *(float *)0xB6EC10 = 5.0f;
+    g_chairHidden = true;
+}
+static void PassengerCrosshairEnd()
+{
+    if (g_chairHidden) { *(float *)0xB6EC14 = g_chairSaveX; *(float *)0xB6EC10 = g_chairSaveY; g_chairHidden = false; }
+}
+
+static void FillRect(float x1, float y1, float x2, float y2, uint8_t r, uint8_t g, uint8_t b)
+{
+    float rect[4] = { x1, y2, x2, y1 };   // CRect : gauche, bas, droite, haut
+    uint8_t col[4] = { r, g, b, 255 };
+    ((void(__cdecl *)(const float *, const uint8_t *))0x727B60)(rect, col);   // CSprite2d::DrawRect
+}
+
+static void DrawPassengerReticle()
+{
+    if (!g_passAimDraw) return;
+    int sh = *(int *)0xC17048;
+    float k = sh / 720.0f;
+    float x = floorf(g_passAimScr[0]) + 0.5f, y = floorf(g_passAimScr[1]) + 0.5f;
+    float arm = 11.0f * k, gap = 3.0f * k, t = 1.0f * k < 1.0f ? 1.0f : 1.0f * k, o = 1.0f;
+    uint8_t r = g_passAimLocked ? 255 : 255, g = g_passAimLocked ? 40 : 255, b = g_passAimLocked ? 40 : 255;
+    // contour noir puis croix (4 branches + point central)
+    float parts[5][4] = { { x - arm, y - t, x - gap, y + t }, { x + gap, y - t, x + arm, y + t },
+                          { x - t, y - arm, x + t, y - gap }, { x - t, y + gap, x + t, y + arm },
+                          { x - t, y - t, x + t, y + t } };
+    for (auto &q : parts) FillRect(q[0] - o, q[1] - o, q[2] + o, q[3] + o, 0, 0, 0);
+    for (auto &q : parts) FillRect(q[0], q[1], q[2], q[3], r, g, b);
+}
+
+// Reperes des cibles du passager : "v" au-dessus de la tete ; rouge = verrouille, jaune = le plus proche du viseur, gris = autre.
+int PassengerMarkers(float (*out)[4], int *kind, int max);   // coop.cpp
+static void DrawPassengerMarkers()
+{
+    float pts[24][4]; int kind[24];
+    int n = PassengerMarkers(pts, kind, 24);
+    if (n <= 0) return;
+    int sw = *(int *)0xC17044, sh = *(int *)0xC17048;
+    for (int i = 0; i < n; i++) {
+        float scr[3], w, h;
+        if (!((bool(__cdecl *)(const float *, float *, float *, float *, bool, bool))0x70CE30)(pts[i], scr, &w, &h, true, true)) continue;
+        if (scr[2] <= 1.0f || scr[0] < 0 || scr[0] > sw || scr[1] < 0 || scr[1] > sh) continue;
+        float k = kind[i] == 2 ? 1.0f : kind[i] == 1 ? 0.8f : 0.5f;
+        font::SetFontStyle(1);
+        font::SetProportional(true);
+        font::SetBackground(false, false);
+        font::SetOrientation(0);
+        font::SetCentreSize((float)sw);
+        font::SetScale(0.7f * k * sw / 640.0f * HudAspectFactor(), 1.5f * k * sh / 448.0f);
+        font::SetEdge(1);
+        font::SetDropColor(RGBA(0, 0, 0, 255));
+        font::SetColor(kind[i] == 2 ? RGBA(255, 40, 40, 255) : kind[i] == 1 ? RGBA(255, 220, 40, 255) : RGBA(190, 190, 190, 200));
+        font::Print(scr[0], scr[1] - 18.0f * k * sh / 448.0f, "v");
+        font::DrawFonts();
+    }
+}
+
 static void __cdecl h_HudDraw()
 {
+    PassengerCrosshairBegin();
     ((void(__cdecl *)())0x58FAE0)();   // CHud::Draw
+    PassengerCrosshairEnd();
     DrawNames();
+    DrawPassengerReticle();
+    DrawPassengerMarkers();
     DrawToasts();
     DrawChat();
     DrawPlayers();

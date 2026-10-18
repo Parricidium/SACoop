@@ -10,6 +10,9 @@ struct AnimMirror {   // animations creees par nous sur cette copie
 int AnimsCollect(void *ped, NetAnim *out, int max);         // animations d'action du personnage (les plus fortes)
 void AnimsApply(void *ped, const NetAnim *in, int n, AnimMirror &m);
 void AimMirror(void *ped, bool want, const float *aim);
+void AimFireCar(void *ped, const float *aim);   // a shot from a vehicle: flash, sound
+bool AimCarSettled(void *ped);   // true once, 300 ms after the last shot from a vehicle: seat the puppet again
 void AimFire(void *ped);                                    // one shot of the aiming gun task: firing animation and flash     // visee rejouee (tache secondaire, mise a jour a chaque image)
 bool AimOf(void *ped, float *aim);                          // le personnage vise-t-il ? (point vise)
 bool AnimsClimbing(void *ped);                              // escalade en cours (animations CLIMB_*)
+bool AnimsDriveBy(void *ped);                              // a drive-by animation of the PED block is playing

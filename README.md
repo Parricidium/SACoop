@@ -93,7 +93,7 @@ If you like this, go and star the original: **<https://github.com/Parricidium/SA
 5. The host picks a new game or a save and clicks **START**. Everybody's game starts together.
    - Over the Internet, the host opens port **7800** (TCP and UDP) on their router, or you use a virtual LAN.
    - A player who arrives late uses **JOIN IN GAME**.
-6. Check that the first line of `sacoop.log` says `SACoop 0.54.45-vcport (Zebra's forked repo) loaded`. If it does
+6. Check that the first line of `sacoop.log` says `SACoop 0.54.92-vcport (Zebra's forked repo) loaded`. If it does
    not, that machine is running another DLL.
 
 > [!IMPORTANT]
@@ -118,12 +118,13 @@ Then copy `build\dinput8.dll` into the game folder **on both PCs**.
 ## What this fork adds
 
 The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was added on top of it, in `0.49.0-vcport` to
-`0.54.45-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
+`0.54.92-vcport`. Per-version detail is in [`docs/CHANGELOG.md`](docs/CHANGELOG.md), and technical notes are in
 [`docs/PORT-VCCOOP.md`](docs/PORT-VCCOOP.md).
 
 > [!NOTE]
-> **New in 0.54.9 to 0.54.45** is marked with 🆕. Most of it has been tried by two players; the newest items
-> (Ryder in the van, boxes moved by the guest, pushing other players' cars) still need a real test.
+> **New in 0.54.9 to 0.54.92** is marked with 🆕. Most of it has been tried by two players. The newest items still
+> waiting for a real test: the door watchdog and boarding while the driver is still getting in (0.54.91 and 0.54.92),
+> controller aiming from the passenger seat, and drive-by shooting from the rear seats and with several guests.
 
 ### 🎬 Missions and cutscenes
 
@@ -155,7 +156,17 @@ The original is Parricidium's mod at `0.48.4-prealpha`. Everything here was adde
   top of the screen. Press **Y** to spawn it where you stand, **N** to decline (10 s to choose, then it is a no).
 - 🆕 **Cars push each other:** hitting another player's car, or the host's traffic and police, pushes it instead of
   stopping you dead; ramming the police gives a star.
-- 🆕 **Passenger drive-bys:** passengers can shoot from the car, and never hurt the others inside.
+- 🆕 **Passenger drive-bys:** passengers can shoot from the car, and never hurt the others inside. Aim freely with the
+  mouse or the right stick (a crosshair shows where the shots go), or lock on to a person (pedestrians in cars included,
+  seen through the window); locks never pick the car itself. Bullets follow the camera ray, and a shot that passes the
+  bodywork hits the person inside. Fire with the left mouse button or R2, aim with the right button or L2.
+- 🆕 **Boarding without waiting:** a player who has started getting in at the wheel already counts as the driver, so the
+  other player can press **G** (or **F**) at once and hop into the free seat on their side while the driver is still
+  walking to the door.
+- 🆕 **Doors that stay open:** an occupied car whose door has stayed open for more than 7 s is closed again, on each PC,
+  which fixes a door that was open on one screen and closed on the other.
+- 🆕 **No skid marks or smoke for the passenger** every time the driver accelerates (the copy no longer gets the throttle).
+- 🆕 **Vehicle copies** appear 0.2 s after their spot is free (it was 0.6 s), so a moving car shows up sooner on the guest.
 - 🆕 **Nitro flame** and moving parts (forklift forks, Dumper bed, tow hook) show on the other players' screens.
 - 🆕 **Extras** match (van adverts and other optional parts).
 - **Colours, paintjobs and upgrades** follow the owner (Pay'n'Spray, TransFender), 🆕 including hydraulics.
@@ -199,6 +210,14 @@ Each player only changes their own character, weapons and money.
 ### 🌍 A world that matches
 
 - 🆕 **Garage doors** open and close the same for everybody.
+- 🆕 **Fences and breakables:** a fence panel (and other breakable roadside objects) that one player smashes is gone for
+  the other too: gone and no longer solid. The splinters that fly off are still only seen by whoever broke it.
+- 🆕 **Natural traffic and police around a guest riding with the host:** the host's game no longer deletes the cars and
+  pedestrians that the game spawns beside and behind the host (exactly where a guest looks out of the side window), and
+  police cars are never removed. Streets are as busy as in single player, in both lanes.
+- 🆕 **A crowded road when stopped:** while your vehicle is almost still, the game's traffic cap rises by up to 70 % and
+  its density by up to 50 %, so a line of cars builds up in both directions.
+- 🆕 **The wanted level stays** for the guest as long as it lasts for the host (the game used to lower it).
 - **Trains** run the same on every PC: same place, speed and stations. Whoever drives one owns it.
 - **Weather and sky** no longer flicker on the guest.
 - **Radio** follows the host's station, song, position and adverts (custom User Tracks too, if both libraries match).
@@ -246,9 +265,13 @@ Each player only changes their own character, weapons and money.
 | 0.54.13 to 0.54.18 | Speech sync, waypoint teleport, extras, entry fixes, phone calls, garage doors, drive-bys, nitro |
 | 0.54.19 to 0.54.23 | Mission objects for the guest, HUD without blinking, mission title, vehicle offer (Y/N), exact hit points |
 | 0.54.24 to 0.54.45 | Firing animation, cutscene fixes, helper-script dialogue, no lock-on to players, mission objects synced, weapon pickups for each player, Ryder in the van, pushing copies, NPC jacks, drive-by bullets, crash fixes |
+| 0.54.46 to 0.54.77 | Passenger drive-by: animation, free aim, lock-on (visible targets only), crosshair, bullets on the camera ray, hits on people in cars; NPC and jack fixes |
+| 0.54.78 to 0.54.84 | Natural traffic and police beside and behind the host, more cars when stopped, no skid marks for the passenger, faster vehicle copies |
+| 0.54.85 to 0.54.90 | Fences and breakables: a smashed panel disappears for both players (with diagnostics on the way) |
+| 0.54.91 to 0.54.92 | Door watchdog (doors left open), boarding as passenger while the driver is still getting in |
 
 **Network versions:** both players must use the same build. The last network changes were in 0.54.13, 0.54.15, 0.54.18,
-0.54.26, 0.54.29, 0.54.30, 0.54.31, 0.54.39 and **0.54.41** (network version 33).
+0.54.26, 0.54.29, 0.54.30, 0.54.31, 0.54.39 and **0.54.41** (network version 33). Nothing changed on the network after 0.54.41, but use the same build on both PCs anyway.
 
 ## What the original mod does
 
@@ -307,6 +330,8 @@ Everything below comes from Parricidium's original SACoop and still works.
 |-----|--------------|
 | **G** (also **F**) | Ride as a passenger in another player's car (the free seat on your side) |
 | **Y** / **N** | Accept or decline the mission vehicle offered to a guest |
+| **\\** , **]** , **[** | Passenger drive-by: lock on / release, next target, previous target (pad: d-pad) |
+| **Left / right mouse button** | Passenger drive-by: fire / aim (pad: R2 / L2) |
 | **T** | Chat (Enter to send; `/join` brings you back next to the host) |
 | **F5** (hold) | Players board: name, health, distance and ping |
 | **F6** | First-person view on foot |
@@ -350,7 +375,7 @@ sync options. **The key names are still the original French ones**; they are exp
 | `SyncGarages=1` | Garage doors open and close the same for everybody (the nearest player leads) |
 | `SyncParole=1` | What players and shared pedestrians say (remarks, pain) is the same line at the same moment on every PC |
 | `GuestMissionLock=1` | A guest cannot start a story mission by walking into its marker (the marker is still drawn); only the host starts missions. 0 = like before |
-| `TrafficGuardRange=90` | Host: a car of his traffic that appears closer than this (m) in front of a guest is removed. Lower it (e.g. 40) for more traffic around a guest out of the host's sight; 0 = never |
+| `TrafficGuardRange=90` | Host: a car of his traffic that appears closer than this (m) in front of a guest is removed. Lower it (e.g. 40) for more traffic around a guest out of the host's sight; 0 = never. When the guest is within 25 m of the host (riding with him) the range is 28 m, and police cars are never removed |
 | `SyncMissionObjects=1`, `PushCopies=1`, `JackTakeover=1`, `RenderListGuard=1` | Newer features (mission objects on guests, pushing copies, jacking the host's traffic, render-list crash guard): 0 switches one off, to find what causes a problem |
 | `TrainSync=1` | The host's trains run the same on every guest's rails; the guest's own random trains are off. 0 = every PC runs its own trains |
 | `Profil=0` | 1 = sampling profiler for stutter hunting (the log always carries the 10 s load report) |
@@ -380,7 +405,12 @@ ready).
 
 Play a session and tick these off. Newest first:
 
-- [ ] Both `sacoop.log` files start with the same version (`0.54.45-vcport (Zebra's forked repo)`).
+- [ ] Both `sacoop.log` files start with the same version (`0.54.92-vcport (Zebra's forked repo)`).
+- [ ] **Boarding:** one player starts getting in at the wheel; the other presses G at once and gets in on their side.
+- [ ] **Doors:** after getting in, no door stays open on one screen and closed on the other (the log says `portiere restee ouverte` if the watchdog had to act).
+- [ ] **Fences:** smash a few fence panels with a car, from each side: they are gone on both screens (log: `casse chez nous` / `casse par le joueur`).
+- [ ] **Traffic:** ride with the host, then stop: cars and police build up in both lanes, and no skid marks for the passenger.
+- [ ] **Drive-by:** the passenger aims freely and locks on; the shots hit pedestrians and drivers in other cars.
 - [ ] **Mission dialogue in a car:** the guest hears the host's passengers and the mission's lines.
 - [ ] **Cutscenes:** the guest sees the scenery loaded (indoors and outdoors) and the cutscene is not cut short.
 - [ ] **Mission objects:** the guest sees the crates of Home Invasion and the boxes of Robbing Uncle Sam, in the same place.
@@ -439,11 +469,11 @@ To publish a release that the launcher can download (zip with `dinput8.dll`, `SA
 with the [GitHub CLI](https://cli.github.com/) installed and logged in (`gh auth login`):
 
 ```powershell
-.\dist\make-release.ps1 -Version 0.54.45-vcport -Publier -Notes "What is new in this version"
+.\dist\make-release.ps1 -Version 0.54.92-vcport -Publier -Notes "What is new in this version"
 ```
 
 Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **Releases > Draft a new release**, tag
-`v0.54.45-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.45-vcport.zip`.
+`v0.54.92-vcport`, tick *pre-release*, and attach `dist\out\SACoop-0.54.92-vcport.zip`.
 
 ## Known gaps and roadmap
 
@@ -458,7 +488,10 @@ Without the GitHub CLI, run the script without `-Publier`, then on GitHub use **
 7. Not ported from VCCoop on purpose: ragdoll sync, model-loading commands, `CLEAR_AREA`, roadblocks.
 8. The host's mission characters are copies on the guest, placed from the host's state: the guest cannot push them.
    (Vehicles and mission objects can be pushed since 0.54.31.)
-9. Ryder attached in the van, boxes moved by the guest, pushing copies and weapon pickups for each player (0.54.29-31)
+9. The newest items listed at the top of this fork's changes (door watchdog, boarding while the driver is still getting
+   in, controller aiming, rear-seat and multi-guest drive-bys) still need a real test, as do passenger stunt bonuses,
+   damage to parked cars from a guest, and the splinters of smashed fences (not synced).
+10. Ryder attached in the van, boxes moved by the guest, pushing copies and weapon pickups for each player (0.54.29-31)
    still need a real test.
 
 ## Credits and license

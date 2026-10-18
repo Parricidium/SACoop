@@ -100,12 +100,22 @@ void GfxFrame()
     // des voitures chargees (CStreaming::desiredNumVehiclesLoaded 0x8A5A84 = 12) n'est PAS relevee : le jeu ne garde
     // que 50 modeles de vehicules a la fois (reserve des CVehicleStructure 0xB4E680) ; pleine, CVehicleModelInfo::
     // SetClump (0x4C95FF) recoit une structure nulle et plante en 0x4C8F24 (journaux de JD du 01/10, densite 300 %).
-    int peds = (int)(25 * z * d + 0.5f), cars = (int)(12 * z * d + 0.5f);
+    // 0.54.83 : standing still (our vehicle nearly stopped), the game fills the road slowly: raise the car ceiling and rate so
+    // a line of traffic builds up around us, in both lanes (request of 18/10: "a decent line up happening").
+    static float still;   // 0..1, eased in over about 4 s so the numbers do not jump
+    float stillTarget = 0.0f;
+    if (void *me = game::FindPlayerPed()) if (void *mv = game::PedVehicle(me)) {
+        const float *sp = (const float *)((uint8_t *)mv + 0x44);
+        if (sp[0] * sp[0] + sp[1] * sp[1] < 0.06f * 0.06f) stillTarget = 1.0f;   // under ~11 km/h
+    }
+    still += (stillTarget - still) * 0.004f;
+    float boost = 1.0f + 0.7f * still;
+    int peds = (int)(25 * z * d + 0.5f), cars = (int)(12 * z * d * boost + 0.5f);
     *(int *)0x8D2538 = peds > 90 ? 90 : peds;
     *(int *)0x8A5B24 = cars > 45 ? 45 : cars;
     // densites : seulement quand le script les laisse a 1 (missions : souvent 0, qu'on ne touche pas)
     static float lastPed = -1, lastCar = -1;
     float &ped = *(float *)0x8D2530, &car = *(float *)0x8A5B20;
     if (ped == 1.0f || ped == lastPed) { ped = d; lastPed = d; }
-    if (car == 1.0f || car == lastCar) { car = d; lastCar = d; }
+    if (car == 1.0f || car == lastCar) { car = d * (1.0f + 0.5f * still); lastCar = car; }
 }

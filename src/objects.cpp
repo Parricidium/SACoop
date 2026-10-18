@@ -22,7 +22,7 @@ static ObjPool *ObjectPool() { return *(ObjPool **)0xB7449C; }
 static uint8_t *ObjAt(int i) { return ObjectPool()->objects + i * 0x19C; }
 static void *Dummy(uint8_t *o) { return *(void **)(o + 0x170); }
 
-struct Track { void *obj; uint32_t remoteUntil, lastSend; float lastPos[3]; };
+struct Track { void *obj; uint32_t remoteUntil, lastSend; float lastPos[3]; void *dum; bool dmg; };
 static Track g_track[256];
 
 static Track &TrackOf(void *obj)
@@ -50,6 +50,86 @@ static bool Closest(const float *p, float myD2)
     return true;
 }
 
+// 0.54.88 diagnostic (fences): fences did not show up as moved objects, so look at every real object near us that
+// has a dummy (even at rest: a damage model swap does not move anything) and at objects that vanish (smashed).
+static void DiagObjects(ObjPool *pool, const float *mp)
+{
+    static int keys[96], nKeys, logged;
+    static uint8_t *prevObj[1200]; static int16_t prevModel[1200], prevDum[1200]; static float prevPos[1200][3]; static uint32_t prevFlags[1200];
+    static bool prevHave[1200];
+    int n = pool->size < 1200 ? pool->size : 1200;
+    for (int i = 0; i < n; i++) {
+        bool alive = !(pool->flags[i] & 0x80);
+        uint8_t *o = ObjAt(i);
+        if (prevHave[i] && (!alive || o != prevObj[i] || *(int16_t *)(o + 0x22) != prevModel[i])) {
+            // vanished or replaced: report once per (model, had dummy)
+            int key = 100000 + prevModel[i] * 2 + (prevDum[i] >= 0 ? 1 : 0);
+            bool seen = false;
+            for (int k = 0; k < nKeys; k++) if (keys[k] == key) seen = true;
+            if (!seen && nKeys < 96 && logged < 90 && Dist2(prevPos[i], mp) < 40.0f * 40.0f) {
+                keys[nKeys++] = key; logged++;
+                Log("objet disparu/remplace (diagnostic) : modele %d, modele du factice %d, indicateurs %08X, a %.0f m de nous, maintenant %s%d",
+                    prevModel[i], prevDum[i], prevFlags[i], sqrtf(Dist2(prevPos[i], mp)), alive ? "modele " : "case libre ", alive ? *(int16_t *)(o + 0x22) : 0);
+            }
+            prevHave[i] = false;
+        }
+        if (!alive) continue;
+        const float *p = EntityPos(o);
+        if (!p || Dist2(p, mp) > 40.0f * 40.0f) { prevHave[i] = false; continue; }
+        void *d = Dummy(o);
+        if (d && prevHave[i] && prevObj[i] == o && logged < 90 && ((prevFlags[i] ^ *(uint32_t *)(o + 0x1C)) & 0x00000F01)) {
+            Log("objet (diagnostic) : indicateurs modifies, modele %d, %08X -> %08X, a %.0f m de nous", (int)*(int16_t *)(o + 0x22), prevFlags[i], *(uint32_t *)(o + 0x1C), sqrtf(Dist2(p, mp)));
+            logged++;
+        }
+        prevHave[i] = true; prevObj[i] = o; prevModel[i] = *(int16_t *)(o + 0x22);
+        prevDum[i] = d ? *(int16_t *)((uint8_t *)d + 0x22) : -1;
+        memcpy(prevPos[i], p, 12); prevFlags[i] = *(uint32_t *)(o + 0x1C);
+        if (!d || logged >= 90) continue;
+        int model = prevModel[i];
+        float disp = sqrtf(Dist2(p, EntityPos(d)));
+        int key = model * 2;
+        bool seen = false;
+        for (int k = 0; k < nKeys; k++) if (keys[k] == key) seen = true;
+        if (seen || nKeys >= 96) continue;
+        keys[nKeys++] = key; logged++;
+        Log("objet avec factice (diagnostic) : modele %d, modele du factice %d, deplace de %.1f m, vie %.0f, effet de degat %d, indicateurs %08X, a %.0f m de nous",
+            model, prevDum[i], disp, *(float *)(o + 0x154), *(uint8_t *)(o + 0x144), *(uint32_t *)(o + 0x1C), sqrtf(Dist2(p, mp)));
+    }
+}
+
+// 0.54.89: a fence panel (damage type 200, e.g. model 1410) is not moved when it breaks: the logs of 0.54.88 show the game
+// takes it out of play by clearing its entity flags 0x1 (uses collision) and 0x80 (visible) (08000085 -> 08000004).
+// Send that state once; the others clear the same flags on their own panel.
+static void SendDamaged(ObjPool *pool, const float *mp)
+{
+    int sent = 0;
+    for (int i = 0; i < pool->size && sent < 6; i++) {
+        if (pool->flags[i] & 0x80) continue;
+        uint8_t *o = ObjAt(i);
+        void *d = Dummy(o);
+        if (!d) continue;
+        uint32_t fl = *(uint32_t *)(o + 0x1C);
+        Track &t = TrackOf(o);
+        if (t.dum != d) { t.dum = d; t.dmg = false; }
+        if ((fl & 0x81) || *(uint8_t *)(o + 0x144) != 200 || t.dmg) continue;
+        const float *p = EntityPos(o);
+        if (!p || Dist2(p, mp) > 80.0f * 80.0f) continue;
+        MsgObject m = {};
+        m.type = MSG_OBJECT;
+        m.from = (uint8_t)(g_localId < 0 ? 0 : g_localId);
+        m.model = *(int16_t *)(o + 0x22);
+        memcpy(m.orig, EntityPos(d), 12);
+        memcpy(m.pos, p, 12);
+        m.right[0] = 0.0f;
+        m.speed[0] = 1e9f;   // marks a damage message
+        NetSendToAll(&m, sizeof(m));
+        t.dmg = true;
+        sent++;
+        static int said;
+        if (said < 30) { said++; Log("objet du decor (modele %d) casse chez nous (indicateurs %08X) : envoye", m.model, fl); }
+    }
+}
+
 static void SendFrame()
 {
     static uint32_t last;
@@ -60,6 +140,8 @@ static void SendFrame()
     void *me = FindPlayerPed();
     if (!pool || !me) return;
     const float *mp = EntityPos(me);
+    DiagObjects(pool, mp);
+    SendDamaged(pool, mp);
     int sent = 0;
     for (int i = 0; i < pool->size && sent < 12; i++) {
         if (pool->flags[i] & 0x80) continue;
@@ -110,7 +192,52 @@ static void OnObject(const MsgObject &m)
         float dd = Dist2(EntityPos(d), m.orig);
         if (dd < bestD) { bestD = dd; best = o; }
     }
-    if (!best) return;   // pas charge chez nous (trop loin) : il sera pose au prochain envoi
+    if (!best) {
+        // 0.54.85 (fences, report of 18/10: "light posts match up but fences do not sync whatsoever"): a map object stays a plain
+        // dummy (pool 0xB744A0, 0x34 per slot) until something touches it; only then does the game turn it into a CObject
+        // (CPopulation::ConvertToRealObject 0x614580). A fence panel knocked down on one PC was a dummy, untouched, on the other:
+        // nothing to place. Make the real object here from the dummy at the same original spot, then place it as below.
+        ObjPool *dp = *(ObjPool **)0xB744A0;
+        uint8_t *dum = nullptr;
+        float dBest = 0.4f * 0.4f;
+        uint8_t *anyDum = nullptr;   // 0.54.86: same spot but another model (a fence that swapped to its damaged model before it was sent)
+        float aBest = 0.3f * 0.3f;
+        for (int i = 0; dp && i < dp->size; i++) {
+            if (dp->flags[i] & 0x80) continue;
+            uint8_t *d = dp->objects + i * 0x34;
+            float dd = Dist2(EntityPos(d), m.orig);
+            if (*(int16_t *)(d + 0x22) == m.model) { if (dd < dBest) { dBest = dd; dum = d; } }
+            else if (dd < aBest) { aBest = dd; anyDum = d; }
+        }
+        if (!dum) dum = anyDum;
+        if (!dum) {   // diagnostic: nothing here at that spot (not loaded / too far / a different kind of entity)
+            static int saidNone, saidKey[16];
+            int key = m.model;
+            bool seen = false;
+            for (int k : saidKey) if (k == key) seen = true;
+            if (!seen && saidNone < 40) { saidKey[saidNone % 16] = key; saidNone++; Log("objet du decor (modele %d) a %.0f %.0f %.0f : ni objet ni objet factice chez nous", m.model, m.orig[0], m.orig[1], m.orig[2]); }
+            return;   // not loaded here (too far): it will be placed with the next send
+        }
+        ((void(__cdecl *)(void *))0x614580)(dum);
+        for (int i = 0; i < pool->size; i++) {
+            if (pool->flags[i] & 0x80) continue;
+            uint8_t *o = ObjAt(i);
+            if (Dummy(o) == dum) { best = o; break; }
+        }
+        static int saidConv;
+        if (saidConv < 30) { saidConv++; Log("objet du decor (modele %d) : objet factice converti chez nous (%s)", m.model, best ? "ok" : "refuse par le jeu"); }
+        if (!best) return;
+    }
+    if (m.speed[0] > 1e8f) {   // damage message (see SendDamaged)
+        uint32_t *fl = (uint32_t *)(best + 0x1C);
+        if (*(uint8_t *)(best + 0x144) != 200) return;
+        *fl &= ~0x81u;   // out of play: no collision, not drawn
+        Track &dt = TrackOf(best);
+        dt.dum = Dummy(best); dt.dmg = true;
+        static int saidD;
+        if (saidD < 30) { saidD++; Log("objet du decor (modele %d) casse par le joueur %d : meme etat chez nous", m.model, m.from); }
+        return;
+    }
     uint8_t *mat = *(uint8_t **)(best + 0x14);
     if (!mat) return;
     Track &t = TrackOf(best);

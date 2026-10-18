@@ -23,6 +23,17 @@ static bool DrivenByPlayer(void *veh)
     return drv && PuppetIndex(drv) >= 0;
 }
 
+// 0.54.92: a player who has started getting in at the wheel (his state says carTask 1 with this vehicle) counts as its
+// driver already, so a second player can get in as passenger at once instead of waiting until he is seated.
+static bool PlayerEnteringAsDriver(void *veh)
+{
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (i == g_localId || !g_players[i].connected || !g_players[i].state.inGame) continue;
+        if (g_players[i].state.carTask == 1 && g_players[i].state.carTaskVeh && NetVehicleById(g_players[i].state.carTaskVeh) == veh) return true;
+    }
+    return false;
+}
+
 static int FreeSeat(void *veh)
 {
     int maxPass = Field<uint8_t>(veh, VEH_MAXPASS);
@@ -77,7 +88,7 @@ void PassengerFrame()
     void *task = ActiveTask(me);
     if (TaskVtable(task) == VT_TaskEnterCarAsDriver) {
         void *veh = Field<void *>(task, 0xC);
-        if (veh && DrivenByPlayer(veh)) {
+        if (veh && (DrivenByPlayer(veh) || PlayerEnteringAsDriver(veh))) {
             if (!EnterAsPassenger(me, veh)) SetPrimaryTask(me, nullptr, 3);
         }
     }
@@ -123,7 +134,7 @@ void PassengerFrame()
     for (int i = 0; i < p->size; i++) {
         if (p->flags[i] & 0x80) continue;
         void *v = p->objects + i * 0xA18;
-        if (!DrivenByPlayer(v) || FreeSeat(v) < 0) continue;
+        if (!(DrivenByPlayer(v) || PlayerEnteringAsDriver(v)) || FreeSeat(v) < 0) continue;
         const float *vp = EntityPos(v);
         float dx = vp[0] - mp[0], dy = vp[1] - mp[1], dz = vp[2] - mp[2], d = dx * dx + dy * dy + dz * dz;
         if (d < bestD) { bestD = d; best = v; }

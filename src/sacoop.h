@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.54.45-vcport"
+#define SACOOP_VERSION "0.54.92-vcport"
 #define SACOOP_FORK "Zebra's forked repo"   // shown in the log, the F10 menu and the launcher: tells this build from the original
 
 struct Config {
@@ -83,6 +83,7 @@ bool GameHasFocus();
 void InstallCrashLog();
 void InstallFileHooks();
 void InstallWindowHooks();
+void MouseRawTake(int &dx, int &dy);   // dllmain.cpp: raw mouse movement (DirectInput counts) since the last call
 void ReacquireInput();          // dllmain.cpp: DirectInput mouse and keyboard acquired again (after Alt+Tab)
 void ReleaseInput();            // dllmain.cpp: DirectInput mouse and keyboard let go (Alt+Tab away): the mouse goes back to Windows
 void WindowToggleFullscreen();  // window.cpp: Alt+Enter, borderless full screen <-> window

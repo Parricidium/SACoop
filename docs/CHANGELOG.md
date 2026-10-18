@@ -6,6 +6,197 @@ README. Technical notes for the VCCoop port are in [`PORT-VCCOOP.md`](PORT-VCCOO
 
 Versions marked *untested* were written and compiled but not yet played for real by two players.
 
+## 0.54.92
+- Passager : un joueur qui a commence a monter au volant (son etat dit carTask 1 pour ce vehicule) compte deja comme conducteur : G (ou F vers sa voiture) fait monter l'autre joueur en passager tout de suite, a la place la plus proche, sans attendre que le conducteur soit assis. *Non teste.*
+
+## 0.54.91
+- Portieres : une voiture occupee dont une portiere reste ouverte plus de 7 s est refermee (CAutomobile::CloseAllDoors), chez chaque joueur pour ses propres copies. Corrige la portiere ouverte chez l'un et fermee chez l'autre sans avoir a reproduire le cas rare. Portieres abimees ou arrachees : on ne touche a rien. *Non teste.* Le journal dit « portiere restee ouverte … refermee ».
+
+## 0.54.90
+- Clotures cassees : les journaux de 0.54.89 montrent que le jeu retire un panneau de cloture (modele 1410, type de degat 200) en effacant ses indicateurs « collision » (0x1) et « visible » (0x80) (08000085 -> 08000004) ; il ne bouge pas. Cet etat est maintenant envoye une fois par panneau et applique chez les autres (le panneau est converti en objet reel si besoin). *Non teste.* Les debris (modele 375, sans objet factice) ne sont pas synchronises.
+
+## 0.54.88
+- Diagnostic des clotures (2e tour) : le journal liste tous les objets reels a moins de 40 m qui ont un objet factice (meme au repos : modele, modele du factice, vie, effet de degat) et ceux qui disparaissent ou changent de modele (cloture cassee). Les journaux de 0.54.87 ne montrent aucune cloture parmi les objets deplaces.
+
+## 0.54.87
+- Diagnostic des clotures : le journal liste (une ligne par modele) les objets reels a moins de 25 m qui bougent ou sont deplaces (modele, modele du factice, factice present ou non). Les journaux de 0.54.86 montrent que ni l'hote ni l'invite n'envoient la cloture : elle n'est pas un objet deplace.
+
+## 0.54.86
+- Objets du decor : l'objet factice est aussi cherche au meme endroit avec un autre modele (cloture passee a son modele abime) ; si rien n'existe chez nous a cet endroit, une ligne du journal le dit (une par modele).
+
+## 0.54.85
+- Objets du decor (barrieres, clotures...) : un objet de la carte reste un objet factice tant que rien ne le touche, puis le jeu en fait un vrai objet ; une cloture renversee chez un joueur n'existait pas comme vrai objet chez l'autre et n'y bougeait jamais. Le receveur convertit maintenant l'objet factice a la meme place (CPopulation::ConvertToRealObject) puis le place.
+
+## 0.54.84
+- Copies de vehicules : une copie dont la place est prise par un vehicule a l'arret et vide attend 0,2 s au lieu de 0,6 s (une voiture en mouvement chez l'hote apparaissait avec retard chez l'invite).
+
+## 0.54.83
+- Circulation a l'arret : quand notre vehicule est presque immobile, le plafond de voitures du jeu monte jusqu'a +70 % et leur densite jusqu'a +50 % (progressivement, en 4 s environ), pour que la route se remplisse dans les deux sens.
+
+## 0.54.82
+- Voitures copiees : plus de gaz applique a la copie d'une automobile (sa position et sa vitesse viennent du reseau) : les roues motrices ne patinent plus et ne laissent plus de traces de freinage ni de fumee chez le passager a chaque acceleration.
+
+## 0.54.81
+- Diagnostic (hote) : toutes les 10 s, voitures de circulation nees (devant/derriere, meme sens/sens inverse que notre vehicule) et retirees par la garde.
+
+## 0.54.80
+- Diagnostic (hote) : un resume toutes les 10 s des tirs en voiture rejoues et de ceux qui touchent un occupant (les lignes par tir sont plafonnees).
+
+## 0.54.79
+- Population (hote) : meme regle pour les passants que pour les voitures : quand l'invite roule avec l'hote, seuls les passants nes a moins de 28 m de lui sont retires (avant 70 m dans son cone de vue, donc presque tous).
+
+## 0.54.78
+- Circulation (hote) : quand l'invite roule avec l'hote, la garde ne retire plus que les voitures apparues a moins de 28 m (le jeu ne cree que hors de la vue de l'hote, donc la ou l'invite regarde par la fenetre : tout etait retire, d'ou la route vide). Les voitures de police ne sont jamais retirees.
+
+## 0.54.77
+- Passager : le verrouillage ne vise plus jamais un vehicule, uniquement les personnages (ceux en voiture compris).
+
+## 0.54.76
+- Tir de passager sur un occupant de vehicule : test sur le rayon de la balle (arme -> point vise, 3 m de plus derriere la carrosserie, 0,6 m de tolerance) au lieu de la distance au point vise, qui rendait le coup aleatoire a distance ; journal : ecart au rayon et distance du point vise.
+- Verrouillage : un vehicule verrouille qui se remplit (quelqu'un y monte) est relache, on retombe sur ses occupants.
+
+## 0.54.75
+- Passager : un vehicule occupe n'est plus une cible (le verrouillage prenait la voiture et tirait dans la portiere) : on verrouille ses occupants, visibles a travers la vitre.
+- Tir de passager : un coup de pistolet / fusil / mitraillette dont le point vise est a moins de 1,3 m d'un occupant de vehicule le blesse (la balle s'arretait a la carrosserie) ; aussi pour les tirs d'un invite rejoues chez l'hote.
+
+## 0.54.74
+- Recherche partagee : l'invite gardait le niveau de l'hote moins d'une minute (journal : 1 etoile recue, retombee a 0 quand l'hote est passe a 2) : le jeu baisse un niveau que personne ne poursuit chez lui, et on ne le posait que quand celui de l'hote changeait. Il est maintenant remis au niveau de l'hote (toutes les 0,5 s au plus) tant qu'il dure, sauf 5 s apres une mort.
+
+## 0.54.73
+- Passager : la fonction de tir de la tache (0x627CC0) refuse elle aussi de tirer hors camera 55 / 49 (journal 0.54.72 : animation sans aucun CWeapon::Fire, meme verrouille) ; meme astuce que pour la mise a jour de la tache.
+
+## 0.54.72
+- Passager : la visee libre tirait a vide (animation et viseur corrects, aucun coup) : la tache de tir en voiture du joueur n'agit que si la camera active est en mode visee ; elle voit maintenant le mode 55 pendant son seul appel quand notre camera de script est active.
+- Passager : verrouille ou libre, c'est la meme camera de script (plus de bascule camera du jeu -> camera de voiture -> camera de visee a chaque verrouillage) ; elle rejoint la cible en douceur et le viseur est dessine sur la cible tant qu'elle n'est pas rattrapee.
+
+## 0.54.71
+- Passager : visee libre avec une camera de script qui tourne avec la souris / le stick, viseur au centre de l'ecran, balle sur le rayon camera -> centre (le curseur d'ecran glissait sur la camera du jeu) ; verrouille : camera du jeu rendue.
+- Passager : la visee marche aussi quand le conducteur est sorti ou que le conducteur est un PNJ (avant, il fallait un pantin conducteur).
+- Passager : l'animation de tir n'est relancee que si la visee tourne de plus de 40 degres (0,8 s min.).
+
+## 0.54.70
+- Passager : la tache de tir par la fenetre n'est plus relancee quand le viseur bouge (l'animation repartait de zero a chaque tir, avec un long delai) ; les balles suivent le viseur par CWeapon::Fire.
+
+## 0.54.69
+- Passager : viseur libre moins sensible (souris 0,6 px par unite au lieu de 1,5 ; stick 0,45 ecran/s au lieu de 0,9).
+
+## 0.54.68
+- Passager : un seul viseur (croix dessinee en rectangles au pixel pres sur le curseur) ; celui du jeu est cache pendant CHud::Draw.
+
+## 0.54.67
+- Passager : CWeapon::Fire recoit le point vise comme cible (la tache de tir ne sert plus qu'a l'animation) ; la cible n'est plus donnee a la tache (journal 0.54.66 : cible a 4000 m avec un personnage verrouille).
+
+## 0.54.66
+- Passager : visee par curseur d'ecran (souris / stick) au lieu d'un cap libre ; le viseur du jeu est dessine sur le curseur et les balles partent vers le premier obstacle sur le rayon camera -> curseur, donc ou le joueur pense viser.
+
+## 0.54.65
+- Passager : la tache de tir suit la cible verrouillee (personnage ou vehicule) au lieu d'un point fige ; en visee libre elle est relancee des que le point bouge de 2,5 m (250 ms min.), les balles restaient sur l'ancien point.
+- Passager : seules les cibles visibles (a l'ecran, sans obstacle, ProcessLineOfSight) sont verrouillables ou reperees ; une cible cachee plus de 1,2 s est deverrouillee.
+
+## 0.54.64
+- Passager : reperes "v" au-dessus des personnages a moins de 50 m pendant la visee (rouge = verrouille, jaune = le plus proche du viseur, gris = autres).
+
+## 0.54.63
+- Passager : le viseur du jeu est deplace sur le point vise (fractions 0xB6EC14/0xB6EC10) au lieu d'afficher un second "+" decale ; le "+" ne reste que hors camera 53/55/65.
+
+## 0.54.62-vcport (network version 33 unchanged, untested)
+
+- Passenger drive-by: a "+" is drawn where the shots go (white free aim, red locked target). The game's own crosshair stays on the four fixed views of the in-car aim camera and does not show the aim the mouse sets (0.54.60 log: the shot targets followed the mouse, the game's crosshair did not).
+
+## 0.54.61-vcport (network version 33 unchanged, untested)
+
+- A player's puppet getting into a car (passenger seat) is given 4.8 s instead of 3 s before the game's get-in task is cut short and the puppet is placed in the seat. 18/10 client log: the cut came exactly 3 s after the start, the door the puppet had opened stayed open on the guest's screen while it closed on the host's. If the door still stays open, the next step is closing it directly when the puppet is seated.
+
+## 0.54.60-vcport (network version 33 unchanged, untested)
+
+- Passenger free aim reads the raw DirectInput mouse counts (dllmain.cpp `MouseRawTake`): the game's own mouse state never showed horizontal movement while aiming from a car (0.54.59 log: heading stuck at 132 deg, pitch jumping to its limits), so the aim could not turn.
+
+## 0.54.59-vcport (network version 33 unchanged, untested)
+
+- Passenger lock-on keys moved off the chat key (T): backslash locks / releases, ] next target, [ previous target.
+
+## 0.54.58-vcport (network version 33 unchanged, untested)
+
+- Passenger lock-on keys changed: the middle mouse button (look behind) and the wheel (radio) are taken by the game. T locks / releases, Y next target, U previous target (moved in 0.54.59) (pad: d-pad up / right / left). A drive-by order is only re-issued when the aim moved more than 12 m and at most every 600 ms (0.54.57 log: the gun restarted every half second while locked). Log lines `passager : visee libre ...` show the mouse and stick values read.
+
+## 0.54.57-vcport (network version 33 unchanged, untested)
+
+- Passenger drive-by: free aim and lock-on. The camera in drive-by mode only ever showed four points (ahead, behind, left, right), so the aim now comes from the mouse movement (or the right stick of a pad) and moves the target of the drive-by order and the aim sent to the other player. Locks the target nearest the crosshair (pedestrians and vehicles within 70 m) or releases it, and switches targets (keys changed in 0.54.58). Fire: left mouse button or R2, aim: right mouse button or L2. The pad part is untested.
+
+## 0.54.56-vcport (network version 33 unchanged, untested)
+
+- Passenger drive-by: a drive-by order already running keeps the target it was given (0.54.55 log: bursts of shots at one point whatever the crosshair did). When the aim has moved more than 6 m (at most every 350 ms) the running order is taken off and given again with the new point.
+
+## 0.54.55-vcport (network version 33 unchanged, untested)
+
+- Passenger drive-by aim: the point given to the drive-by order now comes from the view really drawn (RenderWare camera frame), not TheCamera's matrix, which did not follow the free-aim crosshair (0.54.54 log: every shot at the same point).
+
+## 0.54.54-vcport (network version 33 unchanged, untested)
+
+- A passenger's drive-by animation is 72:237 (group 72) with 0:64 for the seat: the puppet of the passenger replays group 72 too (before only the driver's 0:74 / 75 passed the filter, the other player saw the passenger seated).
+- Diagnostics: `tir du joueur en vehicule : cible ...` (sender) and `tir rejoue depuis un vehicule : cible ...` (receiver) to see where passenger shots are aimed (reported: they leave the front of the car whatever the crosshair).
+
+## 0.54.53-vcport (network version 33 unchanged, untested)
+
+- The seated puppet that turned into a runner while the guest fired: the host log (0.54.52) shows the old per-puppet TASK_DRIVE_BY (`pantin du joueur 1 : tir par la fenetre`) starting in every gap of the drive-by animations (0:62 alone between 0:74 and 0:75). That fallback is removed; the animations alone show the drive-by.
+
+## 0.54.52-vcport (network version 33 unchanged, untested)
+
+- Drive-by firing seen by the other player works (0.54.51 test: sound and firing animation). The gun task given to the puppet for each replayed shot is now taken off at once, and the puppet is seated again 300 ms after its last shot (before, it turned into a runner while the shots went on).
+- Passenger drive-by: the game starts none for a passenger of another player's car. While the fire button is held with a gun, the passenger gets TASK_DRIVE_BY (0713) at the camera's aim point, taken off when released (`passager : tir par la fenetre lance`).
+
+## 0.54.51-vcport (network version 33 unchanged, untested)
+
+- Drive-by shots: the host's log (0.54.50) shows that not one shot of the guest's drive-by was counted, though its bullets hurt. Shots fired from a vehicle are now also counted from the weapon's ammunition going down when CWeapon::Fire did not count them (`tir du joueur en vehicule compte par les munitions`). The host replays them (flash, sound) from that.
+- Guest log line `police : l'hote est a N etoile(s), nous a M` each time the host's level changes, to follow the clearing of the wanted level.
+- Not done: fences/breakable map objects not synced, damage to parked cars.
+
+## 0.54.50-vcport (network version 33 unchanged, untested)
+
+- Diagnostics only, for the drive-by shots that the host still does not see or hear (0.54.49 log: `tir rejoue depuis un vehicule` never appeared): `tirs recus d'un pantin en vehicule` (shots counted from the guest, weapon sent and weapon in hand) and `tir rejoue ignore` (weapon in hand differs from the weapon sent).
+
+## 0.54.49-vcport (network version 33 unchanged, untested)
+
+- Drive-by animations confirmed working (0.54.48 test). Shots replayed from a vehicle now also give the puppet the gun task for that frame only (`AimFireCar` / `AimCarDone`) so the game plays the muzzle flash, recoil and sound. Log: `tir rejoue depuis un vehicule`.
+- "Clear wanted level" of the tools menu now clears it for everybody (`PoliceClearAll`): the host's guests' old levels are ignored for 5 s, before the host took them back at once as "a crime of a guest".
+
+## 0.54.48-vcport (network version 33 unchanged, untested)
+
+- Traffic copies within 7 m of the car we drive are left to our physics before the first touch (the contact list only filled after the car had already stopped against a frozen copy: "too static").
+- Diagnostic line on the receiving side for a drive-by (`tir par la fenetre recu`), to see which animations arrive. The 18/10 host log still showed the old per-task path, so check both PCs run the same, new dll (version in the first log line).
+
+## 0.54.47-vcport (network version 33 unchanged, untested)
+
+From the logs of 18/10 (0.54.45).
+
+- **NPCs stuck holding a gun on the guest after a fight:** when the host's person stopped aiming, the copy's gun task was
+  taken out of its slot without being aborted, so its aim animation kept playing for good (the same mistake as the
+  drive-by pose of 16/10). The task is aborted first now (`AimMirror`).
+- **Jacking a car with several people inside:** the copy of the driver had the reaction the game gives a jacked driver
+  (being dragged out) wiped at every frame, so the guest's character jolted at the door until the host's state moved the
+  driver. The copies' reactions are left alone while the local get-in is aimed at their vehicle (and 4 s after), as the
+  players' puppets already were.
+- **Drive-by not seen either way:** the logs of 18/10 show no sign of the drive-by test (task 1022) succeeding, though
+  shots from a car did land. A player in a vehicle with a gun-class weapon now counts as shooting from the window when
+  the attack-slot task is the gun task or the drive-by task, or a drive-by animation of the PED block is playing. Log:
+  `tir par la fenetre : tache d'attaque ...` (what the game has, each time it changes), to settle the real task type if
+  this is not enough.
+- **Drive-by, second attempt (logs of 18/10 again show no sign of the task or animation):** a gun-class weapon fired from a
+  vehicle in the last second now counts as a drive-by whatever the game's tasks say, with the shots' own aim point, so the
+  other player's puppet leans out and the replayed shots fire.
+- **Drive-by, third attempt (logs of 18/10, second test):** the player's own drive-by is no task at all, it is the animations
+  CAR_SIT_WEAK (0:62) plus DRIVEBY_L / DRIVEBY_R (0:74 / 0:75) over the seat. The puppet of a player in a car now replays those
+  drive-by animations (the others, seat and steering, still not: they dragged the body through the floor); the drive-by task
+  of the first attempt, which restarted for every shot and sat the puppet again each time, is only the fallback now.
+- **Puppet stuck at the car door** (the guest's character took 12 s to get in, the host saw it run on the spot): once his state
+  says he is seated and the puppet's own get-in has lasted 3 s, it is aborted and the puppet seated.
+- **The host's traffic was a wall for the guest:** the host marks all its traffic as "mission" vehicles, and the push code
+  skipped those (the `choc :` line of 18/10: a frozen copy, 56 -> 22 km/h). Fixed above (mission vehicles pushed locally).
+- **Host hitting the guest's traffic (report of 18/10):** the push of a copy starts from a 3.6 km/h difference now (9 before),
+  and `contact :` lines log what our car touches (not a network vehicle / which copy) to find why one stays a wall.
+- **Hitting the host's mission vehicles:** pushed by the guest's car like any copy (the guest's copy only, it follows the
+  host again after 0.7 s). The `choc :` log now starts from 18 km/h and a 40 % loss of speed, to see what a slow hit finds.
+
 ## 0.54.45-vcport (network version 33 unchanged, untested)
 
 From the logs of 16/10 (0.54.44).

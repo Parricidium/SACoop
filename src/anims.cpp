@@ -190,6 +190,38 @@ void AimFire(void *ped)
     if (said < 10) { said++; Log("tir rejoue avec l'animation de la tache d'arme sur %p", ped); }
 }
 
+// 0.54.48 (report of 18/10: a drive-by is seen aiming but never firing: no flash, no sound): the gun task is given to the
+// puppet for the frame of the shot only (aim animations of the seat stay), fired, and taken off by AimCarDone next frame.
+static void *g_carShotPed;
+static uint32_t g_carShotAt;
+void AimFireCar(void *ped, const float *aim)
+{
+    void **tm = PrimaryTasks(ped);
+    void *sec = tm[5];
+    bool has = sec && ((int(__thiscall *)(void *))(*(void ***)sec)[4])(sec) == 1017;
+    if (!has) {
+        void *mem = ((void *(__cdecl *)(unsigned))0x61A5A0)(0x3C);
+        if (!mem) return;
+        void *task = ((void *(__thiscall *)(void *, void *, float, float, float, int, int, int))0x61DE60)(mem, nullptr, aim[0], aim[1], aim[2], 1, 1, 1);
+        ((void(__thiscall *)(void *, void *, int))0x681B60)(tm, task, 0);
+        sec = tm[5];
+        if (!sec) return;
+    } else memcpy((uint8_t *)sec + 0x20, aim, 12);
+    ((bool(__thiscall *)(void *, void *, void *, int))0x61E040)(sec, ped, nullptr, 2);
+    DropTaskType(ped, 1017);   // at once (0.54.51 test: left in, the aim task turned the seated puppet into a runner while shots went on)
+    g_carShotPed = ped;
+    g_carShotAt = GetTickCount();
+    static int said;
+    if (said < 10) { said++; Log("tir rejoue depuis un vehicule sur %p", ped); }
+}
+// The puppet is seated again 300 ms after its last shot from a vehicle (the gun task, even taken off, leaves its pose).
+bool AimCarSettled(void *ped)
+{
+    if (g_carShotPed != ped || !g_carShotAt || GetTickCount() - g_carShotAt < 300) return false;
+    g_carShotAt = 0;
+    return true;
+}
+
 void AimMirror(void *ped, bool want, const float *aim)
 {
     void **tm = PrimaryTasks(ped);
@@ -207,7 +239,9 @@ void AimMirror(void *ped, bool want, const float *aim)
         if (!(ped == g_firePed && g_fireFrame == *(uint32_t *)0xB7CB4C))   // (a shot was just commanded this frame)
             ((bool(__thiscall *)(void *, void *, void *, int))0x61E040)(sec, ped, nullptr, 1);
     } else if (!want && has) {
-        ((void(__thiscall *)(void *, void *, int))0x681B60)(tm, nullptr, 0);
+        // Aborted first (0.54.46, report of 18/10: "NPCs stuck holding a gun for the guest after a fight"): taking the task
+        // out of its slot alone left its aim animation playing for good, as it did for the drive-by (16/10).
+        DropTaskType(ped, 1017);
     }
     if (want) {
         const float *pp = EntityPos(ped);
@@ -236,5 +270,21 @@ bool AnimsClimbing(void *ped)
     if (!clump) return false;
     for (int id = 128; id <= 134; id++)
         if (FindAssoc(clump, 0, id)) return true;
+    return false;
+}
+
+// Drive-by animations of the PED block (DRIVEBY_L/R 74-77; DRIVEBYLHS.. / RHS.. 231-238; bikes 202-204): a player shooting
+// from a vehicle plays one of them whatever task the game runs for it (0.54.46: the task type of the player's own
+// drive-by is not known for sure, none of the 16/10 logs showed the 1022 test succeed).
+bool AnimsDriveBy(void *ped)
+{
+    void *clump = Field<void *>(ped, 0x18);
+    if (!clump) return false;
+    for (uint8_t *lk = FirstLink(clump); lk; lk = *(uint8_t **)lk) {
+        uint8_t *as = lk - 4;
+        if (*(int16_t *)(as + 0xE) != 0 || *(float *)(as + 0x18) < 0.3f) continue;
+        int id = *(int16_t *)(as + 0x2C);
+        if ((id >= 74 && id <= 77) || (id >= 202 && id <= 204) || (id >= 231 && id <= 238)) return true;
+    }
     return false;
 }

@@ -383,7 +383,15 @@ void PopulationSpawnGuard()
         seen[i] = h;
         if (!primed || inside || ped == me || Field<uint8_t>(ped, 0x484) != 1 || PuppetIndex(ped) >= 0 || IsMissionCopy(ped) || PedVehicle(ped)) continue;
         if (Field<int>(ped, 0x598) == 6) continue;   // (police: the chase must go on)
-        if (!GuestSees(EntityPos(ped), 25.0f, range)) continue;
+        float pr = range;   // (0.54.79 : a guest riding with the host looks where the host's game spawns people: only the very close ones go)
+        if (const float *hp = EntityPos(me)) {
+            for (int g = 1; g < MAX_PLAYERS; g++) {
+                if (!g_players[g].connected || !g_players[g].state.inGame) continue;
+                float hx = hp[0] - g_players[g].state.pos[0], hy = hp[1] - g_players[g].state.pos[1];
+                if (hx * hx + hy * hy < 25.0f * 25.0f) { pr = pr < 28.0f ? pr : 28.0f; break; }
+            }
+        }
+        if (!GuestSees(EntityPos(ped), 25.0f, pr)) continue;
         ((void(__cdecl *)(void *))0x610F20)(ped);
         g_guardedPeds++;
     }

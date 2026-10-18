@@ -155,6 +155,7 @@ struct Copy {
     bool follow;         // UpdateCopy l'a laissee suivre l'original a pied cette image : GhostsAfterProcess la place
     bool cutHidden;      // cachee par nous pendant une cinematique (CutsceneHide)
     int attachWeapon;    // weapon it was attached with (PF_ATTACHED)
+    uint32_t jackUntil;  // being pulled out of a vehicle by the local player's get-in (0.54.46): its reaction is left alone
 };
 static Copy g_copies[MAX_COPIES];
 
@@ -299,8 +300,18 @@ static void UpdateCopy(Copy &c, uint32_t now)
     Field<float>(ped, PED_HEALTH) = m.health > 1.0f ? m.health : 1.0f;
     EnsurePedWeapon(ped, m.weapon, c.weapon);
     CombatReplayCopyShots(ped, m.weapon, m.shots, m.aim, c.lastShots, c.shotsKnown);
-    ClearEventResponses(ped);   // (pas d'IA locale : la copie suit le personnage de l'hote, voir coop.cpp)
     void *inVeh = PedVehicle(ped);
+    // (0.54.46, report of 18/10: "client can't jack cars with several NPCs inside, the character jolts toward the car, the
+    // driver eventually teleports out": the reaction the game gives the driver when the player's get-in jacks him - being
+    // dragged out - sits in the event slots cleared here at every frame, as it did for the players' puppets until 0.54.45.
+    // Left alone while our get-in is aimed at the vehicle he sits in, and for 4 s after.)
+    if (inVeh && (LocalEntering(inVeh) || PuppetWantsWheel(inVeh))) c.jackUntil = now + 4000;
+    if ((int)(c.jackUntil - now) <= 0)
+        ClearEventResponses(ped);   // (pas d'IA locale : la copie suit le personnage de l'hote, voir coop.cpp)
+    else if (!inVeh || !LocalEntering(inVeh)) {   // out of the vehicle already: the jack's own flow goes on, nothing is put back yet
+        c.moveState = 0;
+        return;
+    }
     if (c.air && (inVeh || m.vehicleId)) FollowAirEnd(ped, c.air);
     void *attachedTo = Field<void *>(ped, 0xFC);
     if (m.flags & PF_ATTACHED) {

@@ -1833,13 +1833,14 @@ static void CutsceneDiagFrame(uint32_t now)
 // Garde-fou : la camera de l'invite est tenue (fixe, mouvement de mission) alors que l'hote a retrouve la sienne depuis
 // 2,5 s, hors cinematique, et une camera de mission a ete rejouee dans les 3 dernieres minutes (pas celle d'un magasin
 // de l'invite) : elle lui est rendue (mouvements effaces, RESTORE_CAMERA_JUMPCUT 02EB, camera dans le dos 0373).
+bool PassengerCamActive();   // coop.cpp : camera de visee libre du passager
 static void CameraWatch()
 {
     static uint32_t since;
     uint32_t now = GetTickCount();
     const NetPlayer &h = g_players[0];
     bool stuck = *(uint8_t *)(0xB6F028 + 0x2B) == 0 && h.connected && h.state.inGame && !h.state.camScripted
-                 && now - h.lastStateAt < 1000 && !CutsceneRunning() && g_mirrorCamAt && now - g_mirrorCamAt < 180000;
+                 && now - h.lastStateAt < 1000 && !CutsceneRunning() && !PassengerCamActive() && g_mirrorCamAt && now - g_mirrorCamAt < 180000;
     if (!stuck) { since = 0; return; }
     if (!since) { since = now; return; }
     if (now - since < 2500) return;

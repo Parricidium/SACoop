@@ -42,6 +42,17 @@ static void SetWantedLevel(int level)
     RunScriptCommand(0x010D, 2, a);   // SET_PLAYER_WANTED_LEVEL (joueur 0)
 }
 
+static uint32_t g_clearQuietUntil;
+// The "clear wanted level" of the tools menu: cleared everywhere (0.54.48, report of 18/10: the host's clearing no longer
+// reached the guest - the host took the guest's old level back at once as "a crime of a guest"). The guests' old levels are
+// ignored for 5 s, as after a death.
+void PoliceClearAll()
+{
+    SetWantedLevel(0);
+    g_clearQuietUntil = GetTickCount() + 5000;
+    Log("police : recherche effacee par le menu, pour tout le monde");
+}
+
 bool HostPoliceOnGuests()
 {
     return g_cfg.hostPolice && !g_cfg.host && g_players[0].connected && g_players[0].state.inGame;
@@ -88,6 +99,7 @@ static void ShareWanted()
             if (WantedLevel() > 0) SetWantedLevel(0);
             quietUntil = GetTickCount() + 5000;
         }
+        if ((int)(g_clearQuietUntil - GetTickCount()) > 0) { quietUntil = g_clearQuietUntil; g_clearQuietUntil = 0; }
         int mine = WantedLevel(), best = mine;
         if (mine < lastMine && (int)(quietUntil - GetTickCount()) < 2000) quietUntil = GetTickCount() + 2000;
         lastMine = mine;
@@ -99,8 +111,21 @@ static void ShareWanted()
     }
     const NetPlayer &h = g_players[0];
     if (g_localId <= 0 || !h.connected || !h.state.inGame) { lastHost = -1; return; }
+    static uint32_t quietUntil, lastFix;
     if (died && WantedLevel() > 0) SetWantedLevel(0);   // at once: the host's clean level follows a moment later
+    if (died) quietUntil = GetTickCount() + 5000;
+    if (h.state.wanted == lastHost && lastHost > 0 && WantedLevel() < lastHost && (int)(quietUntil - GetTickCount()) <= 0 &&
+        GetTickCount() - lastFix > 500) {
+        // 0.54.74 (18/10: the host shot from the passenger seat, the guest driving got 1 star then was back to 0 a minute later while
+        // the host was at 2): the game lowers a level nobody is chasing (no cop near the guest), and we set it only when the host's
+        // level changed. Held at the host's level while it lasts.
+        lastFix = GetTickCount();
+        static int said;
+        if (said < 15) { said++; Log("police : recherche remontee a %d (l'hote est a %d, nous a %d)", lastHost, lastHost, WantedLevel()); }
+        SetWantedLevel(lastHost);
+    }
     if (h.state.wanted != lastHost) {
+        Log("police : l'hote est a %d etoile(s), nous a %d", (int)h.state.wanted, WantedLevel());
         lastHost = h.state.wanted;
         if (WantedLevel() != lastHost) { SetWantedLevel(lastHost); Log("police : recherche %d (comme l'hote)", lastHost); }
     }

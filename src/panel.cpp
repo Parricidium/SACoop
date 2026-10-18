@@ -8,6 +8,7 @@
 //  - Les actions (faire apparaitre, armes...) sont mises en file pendant le dessin et faites dans la boucle du jeu.
 #include "util.h"
 #include "sacoop.h"
+#include "police.h"
 #include "vehicles.h"
 #include "net.h"
 #include "game.h"
@@ -306,7 +307,7 @@ void PanelFrame()
             if (void *v = PedVehicle(me)) { ((void(__thiscall *)(void *))(*(void ***)v)[50])(v); *(float *)((uint8_t *)v + 0x4C0) = 1000.0f; HudToast(L("Vehicule repare", "Vehicle repaired"), 2500); }
             else HudToast(L("Montez dans un vehicule", "Get in a vehicle"), 2500);
             break;
-        case A_NOWANTED: { int args[2] = { 0, 0 }; RunScriptCommand(0x010D, 2, args); break; }   // SET_PLAYER_WANTED_LEVEL 0
+        case A_NOWANTED: if (g_cfg.shareWanted) PoliceClearAll(); else { int args[2] = { 0, 0 }; RunScriptCommand(0x010D, 2, args); } break;   // SET_PLAYER_WANTED_LEVEL 0
         case A_JETPACK: { int ref = PedRef(me); RunScriptCommand(0x07A7, 1, &ref); break; }        // TASK_JETPACK
         case A_SKIN: g_cfg.skin = a.arg; SaveIni("Tenue", g_cfg.skin); break;
         case A_HOUR: *(uint8_t *)0xB70153 = (uint8_t)a.arg; *(uint8_t *)0xB70152 = 0; *(uint32_t *)0xB70158 = *(uint32_t *)0xB7CB84; break;
