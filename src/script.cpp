@@ -98,6 +98,7 @@ static char Dispatch(int index, void *script, int op)
             return 0;
         }
         Log("script %.8s : mission %d lancee", ScriptName(script), mission);
+        if (g_cfg.host) MirrorMissionLaunched(mission);
         if (g_cfg.host && IsStoryMission(mission)) MirrorMissionStart();
     }
     // STORE_CAR_CHAR_IS_IN (00D9 / 03C0) sur un personnage a pied : le jeu lit +0x4A4 d'un vehicule nul (plantage

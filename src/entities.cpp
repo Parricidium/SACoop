@@ -132,8 +132,23 @@ static void OnPedHit(const MsgPedHit &h)
     if (!ped || MissionPedId(ped) != h.id) return;
     int damage = (int)(h.damage + 0.5f);
     if (damage < 1 || damage > 1000) return;
-    ApplyPedHit(ped, PuppetOf(h.from), h.weapon, damage, h.bodyPart);
-    Log("personnage de mission %08X touche par le joueur %d : %d (arme %d) -> vie %.0f", h.id, h.from, damage, h.weapon, Field<float>(ped, PED_HEALTH));
+    // 0.54.99 (24/10: "clients can't damage the NPCs we need to shoot in missions", the cemetery boss, the police in the
+    // motel; host log: the boss hit 30 times by a guest, health 260 every time). A mission makes its targets "only damaged
+    // by the player" (SET_CHAR_ONLY_DAMAGED_BY_PLAYER 02A9: CPhysical +0x40 bit 22, bInvulnerable), and CEventDamage::
+    // AffectsPed drops any hit whose source is not FindPlayerPed: the guest's puppet as source was dropped. For those the
+    // hit is the host player's own (the kill counts for the mission too); for the others the puppet stays the source (the
+    // ped answers the guest, not the host).
+    float before = Field<float>(ped, PED_HEALTH);
+    bool onlyPlayer = (Field<uint32_t>(ped, 0x40) & 0x400000) != 0;
+    void *source = onlyPlayer ? FindPlayerPed() : PuppetOf(h.from);
+    ApplyPedHit(ped, source, h.weapon, damage, h.bodyPart);
+    static int said;
+    if (said < 120 || Field<float>(ped, PED_HEALTH) == before) {
+        said++;
+        Log("personnage de mission %08X touche par le joueur %d : %d (arme %d, partie %d%s) -> vie %.0f -> %.0f%s", h.id, h.from, damage, h.weapon, h.bodyPart,
+            onlyPlayer ? ", seulement le joueur : coup donne au nom de l'hote" : "", before, Field<float>(ped, PED_HEALTH),
+            Field<float>(ped, PED_HEALTH) == before ? (Field<uint32_t>(ped, 0x40) & 0x40000 ? " (pare-balles)" : " (refuse par le jeu)") : "");
+    }
 }
 
 // --- Invite : copies ---
@@ -156,6 +171,7 @@ struct Copy {
     bool cutHidden;      // cachee par nous pendant une cinematique (CutsceneHide)
     int attachWeapon;    // weapon it was attached with (PF_ATTACHED)
     uint32_t jackUntil;  // being pulled out of a vehicle by the local player's get-in (0.54.46): its reaction is left alone
+    bool ownLogged;      // (0.54.96) not made: one of our own script people stands there (logged once)
 };
 static Copy g_copies[MAX_COPIES];
 
@@ -254,10 +270,35 @@ static bool LoadModel(int model, const char *special, bool async)
     return ModelLoaded(model);
 }
 
+// 0.54.96 (report of 24/10: two players in Ammu-Nation at once, "the client sees two sellers, the menu disappears and he
+// is stuck in the menu"): the shop's own script makes its seller on every PC, so the copy of the host's seller stood on
+// the guest's own, and a copy does not step aside. A copy is not made where one of our own script people (CharCreatedBy 2,
+// not a copy, a puppet or the player) of the same model stands, within 1.5 m.
+static bool OwnScriptPedThere(const MsgPed &m)
+{
+    Pool *pp = PedPool();
+    void *me = FindPlayerPed();
+    for (int i = 0; i < pp->size; i++) {
+        if (pp->flags[i] & 0x80) continue;
+        void *ped = pp->objects + i * 0x7C4;
+        if (ped == me || Field<uint8_t>(ped, 0x484) != 2 || *(int16_t *)((uint8_t *)ped + 0x22) != m.model) continue;
+        if (PuppetIndex(ped) >= 0 || IsMissionCopy(ped)) continue;
+        const float *p = EntityPos(ped);
+        float dx = p[0] - m.pos[0], dy = p[1] - m.pos[1], dz = p[2] - m.pos[2];
+        if (dx * dx + dy * dy + dz * dz < 1.5f * 1.5f) return true;
+    }
+    return false;
+}
+
 static void CreateCopy(Copy &c)
 {
     const MsgPed &m = c.last;
-    if (m.model >= 300 || !LoadModel(m.model, m.special, (m.flags & PF_AMBIENT) != 0)) return;
+    if (m.model >= 300) return;
+    if (OwnScriptPedThere(m)) {
+        if (!c.ownLogged) { c.ownLogged = true; Log("copie du personnage de mission %08X (modele %d) pas faite : un des notres (script) est deja la (magasin)", c.id, m.model); }
+        return;
+    }
+    if (!LoadModel(m.model, m.special, (m.flags & PF_AMBIENT) != 0)) return;
     void *ped = NewCivilianPed(4, m.model);
     if (!ped) return;
     SetCharCreatedBy(ped, 2);

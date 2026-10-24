@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define SACOOP_VERSION "0.54.92-vcport"
+#define SACOOP_VERSION "0.54.99-vcport"
 #define SACOOP_FORK "Zebra's forked repo"   // shown in the log, the F10 menu and the launcher: tells this build from the original
 
 struct Config {
@@ -96,6 +96,7 @@ void OnFrame();             // une fois par image, sur le fil du jeu (window.cpp
 void CoopFrame(bool inGameLoop);
 void InstallWeatherGuard();
 void RadioSyncFrame();   // radio.cpp: host sends what its radio plays, guests follow it
+extern int g_radioLeader;   // coop.cpp: player who drives the vehicle we ride in with other players (-1: none); his radio is followed (0.54.96)
 void NoteLocalRelocated();   // the local ped was moved (teleport...): his "standing" state is settled for 2 s (coop.cpp)   // coop.cpp : the guest's weather only changes when the host says so
 bool RequestGameStart(int slot);   // game.cpp : depuis le menu, nouvelle partie (-1) ou chargement (0-7)
 int MenuLoadingSlot();             // game.cpp : emplacement en cours de chargement depuis le menu, sinon -1   // chaque tour de la boucle du jeu (game.cpp) : menu (false) ou partie (true)

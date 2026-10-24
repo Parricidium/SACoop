@@ -19,6 +19,7 @@
 #include "police.h"
 #include "vehicles.h"
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -43,6 +44,31 @@ static void SetWantedLevel(int level)
 }
 
 static uint32_t g_clearQuietUntil;
+
+// 0.54.96 (report of 24/10: "share pick up star", "players can't both go through a star in the same vehicle"): a police
+// bribe (model 1247) takes one star off the player who takes it (CPickups::GivePlayerGoodiesWithPickUpMI), but the
+// wanted level is shared from the host: a guest's bribe was undone at once (held at the host's level). Now a guest's
+// bribe takes the star off the host's level, so everyone loses it. Two players in one vehicle take the same bribe on
+// both PCs: one bribe at the same place within 3 s counts once (the host's own pickup after a guest's is given back).
+// Returns true when this bribe was already counted.
+bool PoliceBribe(int from, const short *pos8)
+{
+    static uint32_t lastAt;
+    static short lastPos[3];
+    uint32_t now = GetTickCount();
+    bool dup = lastAt && now - lastAt < 3000;
+    for (int k = 0; k < 3 && dup; k++) if (abs(pos8[k] - lastPos[k]) > 24) dup = false;   // (1/8 m: 3 m)
+    if (!dup) { lastAt = now; memcpy(lastPos, pos8, sizeof(lastPos)); }
+    if (!g_cfg.host || !g_cfg.shareWanted) return dup;
+    if (from == g_localId) {   // ours: the game took the star off already
+        if (dup) { SetWantedLevel(WantedLevel() + 1); Log("police : pot-de-vin deja pris par un autre joueur ici, notre etoile rendue"); }
+        return dup;
+    }
+    if (dup) { Log("police : pot-de-vin du joueur %d deja compte", from); return true; }
+    int lvl = WantedLevel();
+    if (lvl > 0) { SetWantedLevel(lvl - 1); Log("police : pot-de-vin pris par le joueur %d, recherche %d -> %d pour tout le monde", from, lvl, lvl - 1); }
+    return false;
+}
 // The "clear wanted level" of the tools menu: cleared everywhere (0.54.48, report of 18/10: the host's clearing no longer
 // reached the guest - the host took the guest's old level back at once as "a crime of a guest"). The guests' old levels are
 // ignored for 5 s, as after a death.

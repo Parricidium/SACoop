@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-enum { MAX_PLAYERS = 4, NET_VERSION = 33, MAX_RELIABLE_PAYLOAD = 1200 };
+enum { MAX_PLAYERS = 4, NET_VERSION = 35, MAX_RELIABLE_PAYLOAD = 1200 };
 
 enum MsgType : uint8_t {
     MSG_HELLO = 1,   // invite -> hote : je veux entrer (nom)
@@ -33,6 +33,7 @@ enum MsgType : uint8_t {
     MSG_MOBJECT,     // host -> guests: a mission object's place, area and visibility (objects.cpp)
     MSG_MOBJPUSH,    // guest -> host: a mission object moved by the guest (forklift, car, on foot): its pose (objects.cpp)
     MSG_VEHPUSH,     // a copy of someone's vehicle pushed by our car: its new place and speed, for its owner (vehicles.cpp)
+    MSG_FIRE,        // a fire put out with water near the sender, or lit by the sender's player (objects.cpp); relayed by the host
 };
 
 #pragma pack(push, 1)
@@ -145,6 +146,8 @@ struct MsgMObject { uint8_t type, area, attached, pad; int16_t model, pad2; int 
 // A vehicle copy pushed by the sender's car (vehicles.cpp): its owner puts the original there, at that speed.
 struct MsgVehPush { uint8_t type, from, owner, pad; uint32_t id; float pos[3], fwd[3], right[3], speed[3], turn[3]; };
 struct MsgObject { uint8_t type, from; int16_t model; float orig[3], pos[3], right[3], fwd[3], speed[3]; };
+// A fire (objects.cpp, 0.54.95): op 1 = put out (with water) at pos, op 2 = lit at pos by the sender's player, burning ms more, gens spreads.
+struct MsgFire { uint8_t type, from, op, gens; float pos[3]; uint32_t ms; };
 struct MsgPedHit { uint8_t type, from, weapon, bodyPart; uint32_t id; float damage; };
 // Commande de zone a marqueur de l'hote (valeurs evaluees ; vals[0] = son joueur, remplace par celui de l'invite).
 struct MsgMarker { uint8_t type, n; uint16_t op; int vals[8]; };
@@ -163,7 +166,7 @@ struct MsgRadio {
     uint8_t type;
     int8_t station;
     int8_t curType;
-    uint8_t pad;
+    uint8_t pad;        // (0.54.96) the sender's player number: 0 the host, or a guest who drives other players
     int32_t track, playMs, lengthMs;
     int32_t queue[5];
     int8_t types[5], idx[5];
@@ -237,7 +240,7 @@ void NetSendBye();
 void NetKeepAlive();    // signe de vie envoye depuis un autre fil (watchdog.cpp), meme si le jeu ne presente plus d'image
 void NetFlush();   // envoie les messages regroupes de l'image (fin de CoopFrame)
 void NetSendToGuests(const void *data, int len);   // hote seulement
-bool NetGetRadio(MsgRadio *out, uint32_t *rxAt);   // guest: the last MsgRadio from the host and when it arrived (GetTickCount)
+bool NetGetRadio(int from, MsgRadio *out, uint32_t *rxAt);   // the last MsgRadio of player from (0 = host) and when it arrived (GetTickCount)
 void NetSendToAll(const void *data, int len);
 void NetSendReliable(const void *data, int len);   // hote : a tous les invites ; invite : a l'hote
 void NetSendReliableTo(int peer, const void *data, int len);
@@ -255,6 +258,7 @@ extern void (*g_onMObject)(const MsgMObject &o);   // objects.cpp (guest): a hos
 extern void (*g_onVehPush)(const MsgVehPush &p);   // vehicles.cpp: our vehicle pushed by another player
 extern void (*g_onMObjPush)(int from, const MsgMObject &o);   // objects.cpp (host): a guest moved our mission object
 extern void (*g_onObject)(const MsgObject &o);     // objet du decor deplace par un autre joueur
+extern void (*g_onFire)(const MsgFire &f);         // objects.cpp: a fire put out or lit by another player
 extern void (*g_onPed)(const MsgPed &p);           // invite : personnage de mission de l'hote
 extern void (*g_onPedHit)(const MsgPedHit &h);     // hote : coup d'un invite sur un personnage de mission
 extern void (*g_onMarker)(const MsgMarker &m);     // invite : marqueur de zone de l'hote

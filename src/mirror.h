@@ -13,6 +13,8 @@ void MissionStopRequest();                 // F10 button: stop the running missi
 void InstallBigMessageLog();               // dllmain: log every big on-screen message and its caller (diagnostic)
 void SkipCutsceneNow();                    // F10 button: skip it (first press); a second press within 8 s, or none running: end it by force, controls and camera given back
 void MirrorMissionStart();                 // hote : une mission de l'histoire demarre (regroupement)
+void MirrorMissionLaunched(int mission);   // hote : toute mission lancee (0.54.96 : seules celles de l'histoire sont rejouees)
+bool MirrorStoryMission();                 // hote : la derniere mission lancee est une mission de l'histoire
 bool ScriptStoreResult(void *script, int value);   // sortie de la commande en cours (apres CollectParameters)
 bool ScriptReadValues(void *script, unsigned char *ip, int n, int *vals);
 void RunScriptCommandTyped(int op, int nargs, const char *types, const int *args);   // types : i, f, s, o (sortie)

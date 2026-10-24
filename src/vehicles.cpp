@@ -51,6 +51,7 @@ struct NetVeh {
     MsgVehMod mod;       // (copies) what the owner says the vehicle wears
     bool modNew;         // (copies) a MsgVehMod is waiting to be applied
     uint32_t pushUntil;  // (copies) pushed by our car: left to our physics until then, its place sent to the owner
+    uint32_t looseUntil; // (copies) another player's car near the one we drive: placed as usual but not frozen until then (0.54.95)
     uint32_t takenAt;    // (ours) when we took it over from another player (LocalVehicleId)
     uint8_t wasRandom;   // (copies) one of our random / parked cars taken by another player: CreatedBy it had (1 or 3)
     uint32_t ejectAt;    // (copies) taken by another player with our driver in it: he is put out then if the puppet's jack has not
@@ -1233,7 +1234,7 @@ void VehiclesAfterProcess()
         right[1] = fwd[2] * up[0] - fwd[0] * up[2];
         right[2] = fwd[0] * up[1] - fwd[1] * up[0];
         if (jumped) WorldAdd(v);
-        if (g_cfg.freezeCopies) FreezeCopy(v, true); else FreezeCopy(v, false);
+        if (g_cfg.freezeCopies && (int)(n.looseUntil - now) <= 0) FreezeCopy(v, true); else FreezeCopy(v, false);
         {   // vitesse bornee, jamais NaN (un saut de position donnerait une vitesse enorme : hors du monde, plantage)
             float vel[3] = { s.vel[0], s.vel[1], s.vel[2] };
             float vl = sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]);
@@ -1445,6 +1446,22 @@ void VehiclePushProbe()
     if (mine && Field<void *>(mine, VEH_DRIVER) == me) {
         uint8_t *v = (uint8_t *)mine;
         const float *ms = MoveSpeed(mine);
+        // 0.54.96 (report of 24/10: "clients can't tow with the tow truck, the host can"): the car a guest hooks is a copy of
+        // one of the host's, put back where the host says on every frame, so it never followed the hook. The vehicle our
+        // vehicle tows (CVehicle +0x4C8 m_pTrailer: tow truck, tractor, truck trailer) becomes ours while we tow it, like a
+        // car we drive, and is sent from here.
+        if (void *towed = Field<void *>(mine, 0x4C8)) {
+            NetVeh *tn = FindByVeh(towed);
+            void *td = Field<void *>(towed, VEH_DRIVER);
+            if (tn && Alive(*tn) && !(td && PuppetIndex(td) >= 0) && !IsTrain(towed)) {
+                bool wasTheirs = tn->owner != g_localId;
+                LocalVehicleId(towed, true);   // (ours from now on, and kept "driven" so that it is sent)
+                if (wasTheirs) {
+                    static int saidTow;
+                    if (saidTow < 20) { saidTow++; Log("remorquage : le vehicule %08X (modele %d) est accroche a notre vehicule : il devient le notre", tn->id, *(int16_t *)((uint8_t *)towed + 0x22)); }
+                }
+            }
+        }
         for (int i = 0; i < v[0xB9] && i < 6; i++) {
             void *e = ((void **)(v + 0xBC))[i];
             if (!e || (((uint8_t *)e)[0x36] & 7) != 2) continue;
@@ -1501,6 +1518,46 @@ void VehiclePushProbe()
                 if (void *d = Field<void *>(n.veh, VEH_DRIVER)) if (PuppetIndex(d) >= 0) continue;
                 if ((int)(n.pushUntil - now) <= 100) { n.pushUntil = now + 500; FreezeCopy(n.veh, false); }
             }
+        // 0.54.95 (report of 22/10: "we are bricks to each other when we are in separate vehicles"; the logs show the other
+        // player's car GELE when we hit it). The copy of a car another player drives is never taken over (it goes where he
+        // drives it), but it no longer has to be frozen: within 8 m of the car we drive it stays placed where its owner says,
+        // with his speed, and is left unfrozen, so our physics sees a real car of its mass and speed and our car bounces
+        // off it as off any car (his PC does the same for his car against ours). The copy's own bounce is dropped by the
+        // next placement: his car's reaction comes from his PC.
+        static int saidLoose;
+        for (auto &n : g_veh) {
+            if (!n.id || n.owner == g_localId || !n.veh || !Alive(n) || n.veh == mine) continue;
+            void *d = Field<void *>(n.veh, VEH_DRIVER);
+            if (!d || PuppetIndex(d) < 0) continue;
+            const float *cp = EntityPos(n.veh), *cs = MoveSpeed(n.veh);
+            float ax = cp[0] - mp[0], ay = cp[1] - mp[1], az = cp[2] - mp[2];
+            if (ax * ax + ay * ay > 64.0f || fabsf(az) > 4.0f) continue;
+            bool moving = ms[0] * ms[0] + ms[1] * ms[1] > 0.01f * 0.01f || cs[0] * cs[0] + cs[1] * cs[1] > 0.01f * 0.01f;
+            if (!moving) continue;
+            if ((int)(n.looseUntil - now) <= 0 && saidLoose < 20) {
+                saidLoose++;
+                Log("vehicule %08X (modele %d) d'un joueur a %.0f m de notre voiture : plus gele, vraie collision", n.id, *(int16_t *)((uint8_t *)n.veh + 0x22), sqrtf(ax * ax + ay * ay));
+            }
+            n.looseUntil = now + 300;
+            FreezeCopy(n.veh, false);
+            {   // 0.54.96 diagnostic (report of 24/10: "still can't collide with one another in vehicles"): the two cars
+                // overlapping (centres within 3 m): is the copy in our car's contact list, and what are its flags?
+                static uint32_t lastDiag;
+                static int saidDiag;
+                float d3 = ax * ax + ay * ay + az * az;
+                if (d3 < 9.0f && now - lastDiag > 2000 && saidDiag < 30) {
+                    lastDiag = now;
+                    saidDiag++;
+                    bool inContacts = false;
+                    for (int i = 0; i < v[0xB9] && i < 6; i++) if (((void **)(v + 0xBC))[i] == n.veh) inContacts = true;
+                    uint8_t *c = (uint8_t *)n.veh;
+                    float rx = ms[0] - cs[0], ry = ms[1] - cs[1];
+                    Log("collision (diagnostic) : voiture %08X d'un joueur a %.1f m, %.0f km/h entre nous, %s, drapeaux %08X, physique %08X, statut %d, masse %.0f",
+                        n.id, sqrtf(d3), sqrtf(rx * rx + ry * ry) * 180.0f, inContacts ? "dans nos contacts" : "PAS dans nos contacts",
+                        *(uint32_t *)(c + 0x1C), *(uint32_t *)(c + 0x40), c[0x36] >> 3, *(float *)(c + 0x8C));
+                }
+            }
+        }
     }
     for (auto &n : g_veh) {   // pushed copies: their place to their owner, 20 times a second
         if (!n.id || n.owner == g_localId || !n.veh || !Alive(n) || (int)(n.pushUntil - now) <= 0) continue;

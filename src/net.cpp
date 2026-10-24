@@ -30,13 +30,13 @@ void (*g_onState)(const MsgState &s);
 void (*g_onReliable)(int from, const uint8_t *data, int len);
 void (*g_onJoin)(int peer);
 uint16_t g_myPing;
-static MsgRadio g_radio;      // guest: the host's last radio message
-static uint32_t g_radioAt;    // ... and when it arrived (0 = none)
-bool NetGetRadio(MsgRadio *out, uint32_t *rxAt)
+static MsgRadio g_radio[MAX_PLAYERS];      // the last radio message of each player (pad = its sender: 0 the host, 0.54.96: a guest who leads a shared vehicle)
+static uint32_t g_radioAt[MAX_PLAYERS];    // ... and when it arrived (0 = none)
+bool NetGetRadio(int from, MsgRadio *out, uint32_t *rxAt)
 {
-    if (!g_radioAt) return false;
-    *out = g_radio;
-    *rxAt = g_radioAt;
+    if (from < 0 || from >= MAX_PLAYERS || !g_radioAt[from]) return false;
+    *out = g_radio[from];
+    *rxAt = g_radioAt[from];
     return true;
 }
 static volatile float g_pingMs[MAX_PLAYERS];   // measured round trip between us and player i (host: to each guest; guest: to the host, index 0), ms, 0 = unknown
@@ -46,6 +46,7 @@ void (*g_onVehicle)(const MsgVehicle &v);
 void (*g_onDamage)(const MsgDamage &d);
 void (*g_onPed)(const MsgPed &p);
 void (*g_onObject)(const MsgObject &o);
+void (*g_onFire)(const MsgFire &f);
 void (*g_onMObject)(const MsgMObject &o);
 void (*g_onVehPush)(const MsgVehPush &p);
 void (*g_onMObjPush)(int from, const MsgMObject &o);
@@ -226,7 +227,7 @@ void NetStop()
     RxStop();
     for (int i = 0; i < MAX_PLAYERS; i++) g_pingMs[i] = 0.0f;
     memset(g_pingTable, 0, sizeof(g_pingTable));
-    g_radioAt = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) g_radioAt[i] = 0;
     for (int i = 0; i < MAX_PLAYERS; i++) g_players[i].connected = false;
     for (auto &r : g_rl) RlReset(r);
     g_localId = -1;
@@ -566,6 +567,18 @@ static void HostReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         if (g_onObject) g_onObject(o);
         for (int i = 1; i < MAX_PLAYERS; i++)   // relais aux autres invites
             if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &o, sizeof(o));
+    } else if (buf[0] == MSG_RADIO && len >= (int)sizeof(MsgRadio)) {   // 0.54.96: a guest who drives other players: his radio, for them
+        MsgRadio r = *(const MsgRadio *)buf;
+        r.pad = (uint8_t)id;
+        g_radio[id] = r; g_radioAt[id] = GetTickCount() | 1;
+        for (int i = 1; i < MAX_PLAYERS; i++)   // relay to the other guests
+            if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &r, sizeof(r));
+    } else if (buf[0] == MSG_FIRE && len >= (int)sizeof(MsgFire)) {
+        MsgFire f = *(const MsgFire *)buf;
+        f.from = (uint8_t)id;
+        if (g_onFire) g_onFire(f);
+        for (int i = 1; i < MAX_PLAYERS; i++)   // relay to the other guests
+            if (i != id && g_players[i].connected) SendTo(g_peerAddr[i], &f, sizeof(f));
     } else if (buf[0] == MSG_PING || buf[0] == MSG_PONG) {
         // (answered / timed by the reception thread; here it only counts as a sign of life, done above)
     } else if (buf[0] == MSG_RELIABLE) {
@@ -651,6 +664,9 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
     case MSG_OBJECT:
         if (len >= (int)sizeof(MsgObject) && g_onObject) g_onObject(*(const MsgObject *)buf);
         break;
+    case MSG_FIRE:
+        if (len >= (int)sizeof(MsgFire) && g_onFire) g_onFire(*(const MsgFire *)buf);
+        break;
     case MSG_TRAIN:
         if (len >= (int)sizeof(MsgTrain) && g_onTrain) g_onTrain(*(const MsgTrain *)buf);
         break;
@@ -673,7 +689,11 @@ static void GuestReceive(const uint8_t *buf, int len, const sockaddr_in &from)
         if (len >= (int)sizeof(MsgSpeech) && g_onSpeech) g_onSpeech(*(const MsgSpeech *)buf);
         break;
     case MSG_RADIO:
-        if (len >= (int)sizeof(MsgRadio)) { g_radio = *(const MsgRadio *)buf; g_radioAt = GetTickCount() | 1; }
+        if (len >= (int)sizeof(MsgRadio)) {
+            const MsgRadio &r = *(const MsgRadio *)buf;
+            int from = r.pad < MAX_PLAYERS ? r.pad : 0;
+            g_radio[from] = r; g_radioAt[from] = GetTickCount() | 1;
+        }
         break;
     case MSG_CLOTHES:
         if (len >= (int)sizeof(MsgClothes) && ((const MsgClothes *)buf)->id != g_localId && g_onClothes) g_onClothes(*(const MsgClothes *)buf);

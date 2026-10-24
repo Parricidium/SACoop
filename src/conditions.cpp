@@ -121,7 +121,7 @@ void ConditionBefore(void *script, int op)
         }
         return;
     }
-    if (!g_cfg.host || !NetRunning() || !ScriptIsMission(script)) return;
+    if (!g_cfg.host || !NetRunning() || !ScriptIsMission(script) || !MirrorStoryMission()) return;   // (0.54.96: story missions only)
     const CondOp *c = FindCond(op);
     if (!c) return;
     void *me = FindPlayerPed();
@@ -157,6 +157,21 @@ static void AreaCentre(const CondOp &c, const int *v, float &x, float &y)
     if (c.shape >= 2) { int j = c.shape == 2 ? 3 : 4; x = (F(v[1]) + F(v[j])) * 0.5f; y = (F(v[2]) + F(v[j + 1])) * 0.5f; }
     else { x = F(v[1]); y = F(v[2]); }
 }
+// 0.54.96 (report of 24/10: "the host kept getting teleported to the client during missions, it had to do with mission cars
+// spawning for clients"): a mission also tests big areas to start things when a player comes near (cars and people
+// created 100 m ahead); a guest in one of those pulled the host to him. Only a small area (a marker, a door: half-size
+// 10 m at most) means he moved the mission on.
+static bool AreaSmall(const CondOp &c, const int *v)
+{
+    float hx, hy;
+    if (c.shape == 0) { hx = F(v[3]); hy = F(v[4]); }
+    else if (c.shape == 1) { hx = F(v[4]); hy = F(v[5]); }
+    else if (c.shape == 2) { hx = (F(v[3]) - F(v[1])) * 0.5f; hy = (F(v[4]) - F(v[2])) * 0.5f; }
+    else if (c.shape == 3) { hx = (F(v[4]) - F(v[1])) * 0.5f; hy = (F(v[5]) - F(v[2])) * 0.5f; }
+    else return false;
+    return fabsf(hx) <= 10.0f && fabsf(hy) <= 10.0f;
+}
+
 static void __fastcall h_UpdateCompareFlag(void *script, void *, bool result)
 {
     if (result && g_guardCond && script == g_guardScript && !*((uint8_t *)script + 0xD2)) {
@@ -179,7 +194,13 @@ static void __fastcall h_UpdateCompareFlag(void *script, void *, bool result)
                     if (me && g_curCond->shape <= 3 && GetTickCount() - g_lastFollow > 15000) {
                         const float *a = EntityPos(me), *b = EntityPos(ped);
                         float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
-                        if (dx * dx + dy * dy + dz * dz > 40.0f * 40.0f || EntityArea(me) != EntityArea(ped)) g_follow = i;
+                        if (dx * dx + dy * dy + dz * dz > 40.0f * 40.0f || EntityArea(me) != EntityArea(ped)) {
+                            if (AreaSmall(*g_curCond, g_vals)) g_follow = i;
+                            else {
+                                static uint32_t saidBig;
+                                if (GetTickCount() - saidBig > 10000) { saidBig = GetTickCount(); Log("conditions : %s est dans une grande zone de la mission (%04X) : l'hote n'est pas deplace", g_players[i].state.name, g_curCond->op); }
+                            }
+                        }
                     }
                     break;
                 }

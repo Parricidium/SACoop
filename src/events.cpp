@@ -23,6 +23,7 @@
 #include "mirror.h"
 #include "conditions.h"
 #include "hud.h"
+#include "police.h"
 #include <string.h>
 #include <math.h>
 
@@ -50,7 +51,7 @@ static void Broadcast(const void *d, int len, int except)
 // --- Pickups ---
 static EvPickup g_pickQueue[16];
 static int g_pickQueued;
-enum { SAVE_DISK_MODEL = 1277 };
+enum { SAVE_DISK_MODEL = 1277, BRIBE_MODEL = 1247 };
 
 typedef bool(__thiscall *PickupUpdate_t)(void *pickup, void *ped, void *veh, int playerId);
 static bool __fastcall h_PickupUpdate(uint8_t *pk, void *, void *ped, void *veh, int playerId)
@@ -58,6 +59,7 @@ static bool __fastcall h_PickupUpdate(uint8_t *pk, void *, void *ped, void *veh,
     EvPickup e = { RL_PICKUP, (uint8_t)(g_localId < 0 ? 0 : g_localId), *(int16_t *)(pk + 0x18),
                    { *(int16_t *)(pk + 0x10), *(int16_t *)(pk + 0x12), *(int16_t *)(pk + 0x14) }, pk[0x1C] };
     bool r = ((PickupUpdate_t)0x457410)(pk, ped, veh, playerId);
+    if (r && e.model == BRIBE_MODEL) PoliceBribe(e.from, e.pos);
     if (r && e.model == SAVE_DISK_MODEL) {
         static int said;
         if (said < 5) { said++; Log("pickup : disquette de sauvegarde ramassee, non partagee"); }
@@ -72,6 +74,7 @@ static void ApplyPickup(const EvPickup &e)
         if (saidDisk < 5) { saidDisk++; Log("pickup : disquette de sauvegarde du joueur %d ignoree", e.from); }
         return;
     }
+    if (e.model == BRIBE_MODEL) PoliceBribe(e.from, e.pos);
     int best = -1, bestD = 9;   // meme modele, a moins d'un metre
     for (int i = 0; i < PICKUPS; i++) {
         uint8_t *p = Pickup(i);

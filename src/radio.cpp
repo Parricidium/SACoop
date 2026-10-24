@@ -151,20 +151,26 @@ static bool HostSample(MsgRadio &m)
     return true;
 }
 
-static void HostFrame(uint32_t now)
+// 0.54.96: the host always sends (he is everyone's reference), and a guest who drives other players sends too: his
+// passengers follow him (report of 24/10: "radio not syncing when the two clients ride together"; each guest only followed
+// the host, who was not in that car). The host relays a guest's message to the other guests (net.cpp).
+static void SendFrame(uint32_t now)
 {
     static uint32_t lastSend, lastLog;
     static int lastStation = -2, lastTrack = -2;
+    bool lead = g_cfg.host || (g_radioLeader >= 0 && g_radioLeader == g_localId);
+    if (!lead) { lastStation = lastTrack = -2; return; }
     MsgRadio m;
     bool on = HostSample(m);
+    m.pad = (uint8_t)(g_localId < 0 ? 0 : g_localId);
     bool changed = m.station != lastStation || (on && m.track != lastTrack);
     if (!changed && now - lastSend < 500) return;
     lastSend = now;
     if (changed && (on || lastStation >= 0))
-        Log("radio: host %s, station %d, track %d (type %d), position %d / %d ms, queue %d %d %d", on ? "plays" : "silent", m.station, m.track, m.curType, m.playMs, m.lengthMs, m.queue[0], m.queue[1], m.queue[2]);
+        Log("radio: %s %s, station %d, track %d (type %d), position %d / %d ms, queue %d %d %d", g_cfg.host ? "host" : "I lead my vehicle and", on ? "plays" : "silent", m.station, m.track, m.curType, m.playMs, m.lengthMs, m.queue[0], m.queue[1], m.queue[2]);
     lastStation = m.station;
     lastTrack = on ? m.track : -2;
-    NetSendToGuests(&m, sizeof(m));
+    NetSendToAll(&m, sizeof(m));
     (void)lastLog;
 }
 
@@ -192,19 +198,25 @@ static void ApplyHost(const MsgRadio &h, int pos)
     *(uint8_t *)RM = 1;   // m_bInitialised
 }
 
-static void GuestFrame(uint32_t now)
+// Follows player ref's radio (the host, or the player who drives the vehicle we ride in).
+// 0.54.96 (report of 24/10: riding with the host, "the radio changes itself every 5 seconds"; the 22/10 log shows each
+// restart landing 2.6 to 4.2 s AHEAD of the host - "position off" - and so another restart 6 s later, three per track):
+// the error of each restart is measured 3 s after it and learnt (bias), later restarts start that much earlier; at most
+// one restart every 10 s.
+static void FollowFrame(uint32_t now, int ref)
 {
-    static uint32_t mismatchSince, lastApply, giveUpUntil, lastLog;
-    static int applyTrack = -2, applyCount;
+    static uint32_t mismatchSince, lastApply, giveUpUntil, lastLog, checkAt;
+    static int applyTrack = -2, applyCount, checkTrack = -2, bias, lastRef = -1;
     static bool libWarned;
+    if (ref != lastRef) { lastRef = ref; mismatchSince = 0; applyTrack = -2; applyCount = 0; giveUpUntil = 0; checkAt = 0; }
     MsgRadio h;
     uint32_t rxAt;
-    if (!NetGetRadio(&h, &rxAt) || now - rxAt > 4000 || h.station < 0) { mismatchSince = 0; return; }   // the host's radio is silent
+    if (!NetGetRadio(ref, &h, &rxAt) || now - rxAt > 4000 || h.station < 0) { mismatchSince = 0; return; }   // his radio is silent
     RadioSettings *a = RadioActive();
     int mode = RadioMode();
     if (now - lastLog > 10000) {
         lastLog = now;
-        Log("radio: host station %d track %d pos %d/%d | me station %d track %d pos %d mode %d", h.station, h.track, h.playMs, h.lengthMs, a->station, HwActiveTrack(), HwPlayTime(), mode);
+        Log("radio: player %d station %d track %d pos %d/%d | me station %d track %d pos %d mode %d", ref, h.station, h.track, h.playMs, h.lengthMs, a->station, HwActiveTrack(), HwPlayTime(), mode);
     }
     if (a->station != h.station || mode != 2) { mismatchSince = 0; return; }
     if (*(uint8_t *)(0xBA6748 + 0x5C)) return;   // game menu open
@@ -222,14 +234,24 @@ static void GuestFrame(uint32_t now)
     }
     int gTrack = HwActiveTrack(), gPos = HwPlayTime();
     if (gTrack < 0 || gPos < 0) return;   // not ready
-    float half = NetPing(0);
-    int hostPos = h.playMs + (int)(now - rxAt) + (half > 0.0f ? (int)(half * 0.5f) : 0);
+    float rtt = NetPing(g_cfg.host ? ref : 0);   // (a guest followed by another guest: through the host, about one round trip)
+    int hostPos = h.playMs + (int)(now - rxAt) + (rtt > 0.0f ? (int)(ref == 0 || g_cfg.host ? rtt * 0.5f : rtt) : 0);
     if (h.lengthMs > 0 && (h.lengthMs < 6000 || hostPos > h.lengthMs - 1000)) { mismatchSince = 0; return; }   // short idents, end of track: the next message tells
     bool same = gTrack == h.track;
+    if (checkAt && (int)(now - checkAt) >= 0) {   // where the last restart landed
+        if (same && gTrack == checkTrack) {
+            int landed = gPos - hostPos;
+            int nb = bias + landed;
+            bias = nb < -2000 ? -2000 : nb > 8000 ? 8000 : nb;
+            static int saidB;
+            if (saidB < 20) { saidB++; Log("radio: the restart landed %d ms %s of player %d, correction now %d ms", landed > 0 ? landed : -landed, landed > 0 ? "ahead" : "behind", ref, bias); }
+        }
+        checkAt = 0;
+    }
     int err = same ? (gPos > hostPos ? gPos - hostPos : hostPos - gPos) : 0;
     if (same && err <= 2500) { mismatchSince = 0; return; }
     if (!mismatchSince) mismatchSince = now;
-    if (now - mismatchSince < 1500 || now - lastApply < 6000 || now < giveUpUntil) return;
+    if (now - mismatchSince < 1500 || now - lastApply < 10000 || now < giveUpUntil) return;
     if (h.track == applyTrack) {
         if (++applyCount > 3) {
             giveUpUntil = now + 60000;
@@ -241,9 +263,12 @@ static void GuestFrame(uint32_t now)
     lastApply = now;
     mismatchSince = 0;
     if (h.lengthMs > 0 && hostPos > h.lengthMs - 1500) hostPos = h.lengthMs - 1500;
-    Log("radio: following the host: station %d, track %d at %d ms (mine: track %d at %d ms, %s), queue %d %d %d", h.station, h.track, hostPos, gTrack, gPos,
-        same ? "position off" : "other track", h.queue[0], h.queue[1], h.queue[2]);
-    ApplyHost(h, hostPos);
+    Log("radio: following player %d: station %d, track %d at %d ms (mine: track %d at %d ms, %s), queue %d %d %d, correction %d ms", ref, h.station, h.track, hostPos, gTrack, gPos,
+        same ? "position off" : "other track", h.queue[0], h.queue[1], h.queue[2], bias);
+    int start = hostPos - bias;
+    ApplyHost(h, start < 0 ? 0 : start);
+    checkAt = now + 3000;
+    checkTrack = h.track;
 }
 
 void RadioSyncFrame()
@@ -253,6 +278,8 @@ void RadioSyncFrame()
     uint32_t now = GetTickCount();
     if (now - last < 250) return;
     last = now;
-    if (g_cfg.host) HostFrame(now);
-    else GuestFrame(now);
+    SendFrame(now);
+    int me = g_localId < 0 ? 0 : g_localId;
+    int ref = g_radioLeader >= 0 ? g_radioLeader : 0;   // the player who drives our shared vehicle, else the host
+    if (ref != me) FollowFrame(now, ref);
 }

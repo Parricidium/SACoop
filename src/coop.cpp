@@ -542,10 +542,26 @@ static void *JackerOf(void *veh, void *sitter)
         if (ped == sitter || ped == FindPlayerPed() || PuppetIndex(ped) >= 0 || IsMissionCopy(ped)) continue;
         // (anywhere in its task tree: an ambient ped's jack runs under its event response, ActiveTask only gave the
         // root and the jack was never seen, 0.54.45)
-        void *task = FindTaskType(ped, 701);   // CTaskComplexEnterCarAsDriver
+        // 0.54.95 (report of 22/10: "NPCs cannot carjack the client from their vehicle", and no jack line in either log):
+        // also 702 CTaskComplexStealCar and 703 CTaskComplexDragPedFromCar (a cop's arrest pulls the driver out with it,
+        // no 701 in it); all three derive from CTaskComplexEnterCar, target vehicle at +0xC.
+        void *task = nullptr;
+        int type = 0;
+        for (int t = 701; t <= 703 && !task; t++) { task = FindTaskType(ped, t); type = t; }
         if (!task || Field<void *>(task, 0xC) != veh) continue;
         const float *pp = EntityPos(ped);
         float dx = pp[0] - vp[0], dy = pp[1] - vp[1];
+        {   // diagnostic: each of our people who goes for a player's vehicle, once
+            static void *seen[16];
+            static int nSeen, said;
+            bool known = false;
+            for (int k = 0; k < 16; k++) if (seen[k] == ped) known = true;
+            if (!known && said < 20) {
+                seen[nSeen++ % 16] = ped; said++;
+                Log("jack (diagnostic) : un de nos personnages (modele %d, type %d) va vers la voiture d'un joueur, tache %d, a %.1f m",
+                    (int)*(int16_t *)((uint8_t *)ped + 0x22), Field<int>(ped, PED_TYPE), type, sqrtf(dx * dx + dy * dy));
+            }
+        }
         if (dx * dx + dy * dy < 4.0f * 4.0f) return ped;
     }
     return nullptr;
@@ -557,8 +573,18 @@ void CoopJacked(uint32_t vehicleId)
     void *me = FindPlayerPed();
     void *veh = me ? PedVehicle(me) : nullptr;
     if (!veh || NetVehicleById(vehicleId) != veh || Field<void *>(veh, VEH_DRIVER) != me) return;
-    if (void *task = NewLeaveCarTask(veh)) SetPrimaryTask(me, task, 3);
-    Log("jacke : un personnage de l'hote nous sort du vehicule %08X", vehicleId);
+    // 0.54.96 (report of 24/10: "NPCs can get the client who's driving out of the car, but once out he can't move, the
+    // only way out is to get back in"): our get-out task waited at the door, where the copy of the cop pulling us out
+    // stands (a copy does not step aside). Now we are put out at once beside the driver's door (WARP_CHAR_FROM_CAR_TO_COORD
+    // 0362, which also clears our tasks), as the game does when the jack is over.
+    uint8_t *mat = *(uint8_t **)((uint8_t *)veh + 0x14);
+    const float *vp = EntityPos(veh);
+    float out[3] = { vp[0], vp[1], vp[2] };
+    if (mat) { const float *r = (const float *)mat; for (int k = 0; k < 3; k++) out[k] -= r[k] * 2.0f; }   // left side, 2 m
+    int args[4] = { PedRef(me) };
+    memcpy(&args[1], out, 12);
+    RunScriptCommandTyped(0x0362, 4, "ifff", args);
+    Log("jacke : un personnage de l'hote nous sort du vehicule %08X : pose a cote de la portiere (%.1f %.1f %.1f)", vehicleId, out[0], out[1], out[2]);
 }
 
 bool PuppetWantsWheel(void *veh)
@@ -592,9 +618,9 @@ static bool IsPuppet(void *ped)
 static void DestroyPuppet(int id)
 {
     Puppet &p = g_puppets[id];
+    if (p.attObj) { RunScriptCommand(0x0108, 1, &p.attObj); p.attObj = p.attModel = 0; }   // (0.54.98: also when the game removed the puppet first)
     if (!p.ped) return;
     HudUpdateBlip(id, nullptr);
-    if (p.attObj) { RunScriptCommand(0x0108, 1, &p.attObj); p.attObj = p.attModel = 0; }
     if (PedFromRef(p.ref) != p.ped) { p.ped = nullptr; return; }   // deja supprime par le jeu
     WorldRemove(p.ped);
     RemoveReferencesToDeletedObject(p.ped);
@@ -686,6 +712,12 @@ static void AttachedToPlayer(void *ped, MsgState &s)
         if (flags[i] & 0x80) continue;
         uint8_t *o = objs + i * 0x19C;   // CObject
         if (*(void **)(o + 0xFC) != ped) continue;
+        // 0.54.98 (report and video of 24/10: "parachute bug still a massive issue": an open canopy over every other
+        // player, all the time, and none over yourself): the parachute script (plchute) keeps its canopy (model 3131)
+        // attached to a player who owns a parachute, hidden until he opens it. The copy on his puppet was always shown.
+        // Only a visible attached object is sent now (entity flags +0x1C bit 0x80): the canopy shows on the puppet while
+        // its player has it open, and goes when he lands.
+        if (!(*(uint32_t *)(o + 0x1C) & 0x80)) continue;
         s.attModel = *(int16_t *)(o + 0x22);
         memcpy(s.attOff, o + 0x100, 12);
         memcpy(s.attRot, o + 0x10C, 12);
@@ -2161,9 +2193,13 @@ static void GroundHold()
     bool active = me && InGame() && (int)(g_holdUntil - now) > 0 && !PedVehicle(me) && !CutsceneNow() && Field<float>(me, PED_HEALTH) > 0.0f;
     float *p = active ? EntityPos(me) : nullptr;
     // (interiors only: a parachute jump or a flight high up after a script teleport must not be held)
-    bool zone = active && (*(int *)0xB72914 != 0 || EntityArea(me) != 0);
+    // 0.54.99 (24/10, video: a guest in his car was moved by the host's mission into the motel interior, 2217 -1150 1025,
+    // while his zone was still 0: interiors are in the sky, no collision for zone 0, he fell 96 m and died when the zone
+    // came 4 s later): also above 900 m (where the interiors are) whatever the zone, and a parachute only counts when it is
+    // in hand (he had one in his weapons from an earlier jump).
+    bool zone = active && (*(int *)0xB72914 != 0 || EntityArea(me) != 0 || p[2] > 900.0f);
     if (zone) {
-        for (int slot = 0; slot < 13; slot++) if (Field<int>(me, PED_WEAPONS + slot * 0x1C) == 46) zone = false;   // parachute
+        if (Field<int>(me, PED_WEAPONS + Field<uint8_t>(me, PED_WEAPONSLOT) * 0x1C) == 46) zone = false;   // parachute in hand
         if (HasTaskType(me, 1303)) zone = false;   // jetpack
     }
     if (!zone) {
@@ -2181,6 +2217,20 @@ static void GroundHold()
     float groundZ;
     memcpy(&groundZ, &bits, 4);
     bool ground = groundZ > p[2] - 30.0f && groundZ < p[2] + 5.0f;
+    // (an interior's floor up there, but we are still in zone 0: no collision with it yet. The host's zone, when he is in an
+    // interior, is taken at once, as the mirror would a moment later.)
+    if (p[2] > 900.0f && EntityArea(me) == 0 && *(int *)0xB72914 == 0) {
+        ground = false;
+        const NetPlayer &h = g_players[0];
+        int area = h.connected && h.state.inGame ? h.state.area : 0;
+        if (!g_cfg.host && area != 0) {
+            RunScriptCommand(0x04BB, 1, &area);
+            int link[2] = { PedRef(me), area };
+            RunScriptCommand(0x0860, 2, link);
+            EntityArea(me) = (uint8_t)area;
+            Log("terrain : a %.0f m dans la zone 0, zone de l'hote (%d) prise tout de suite", p[2], area);
+        }
+    }
     if (ground) {
         if (holding) { holding = false; Log("terrain : sol trouve en %.1f apres %d ms, le joueur est libere", groundZ, (int)(now - startedAt)); }
         g_groundHolding = false;
@@ -2980,6 +3030,7 @@ static void PassengerAreaFrame()
     if (said++ < 30) Log("passager : interieur %d -> %d, comme le conducteur (joueur %d)", cur, want, id);
 }
 
+int g_radioLeader = -1;
 static void RadioFrame()
 {
     RadioSyncFrame();   // radio.cpp: host's track and position for the guests
@@ -3000,7 +3051,7 @@ static void RadioFrame()
         seen = cur;
         for (bool &k : known) k = false;
     }
-    if (!veh) return;
+    if (!veh) { g_radioLeader = -1; return; }
     static uint32_t appliedAt;   // when we last asked the game to retune (the station value only follows when its service runs)
     static int appliedWant = -1;
     static int beforeApply = -1;   // the station before our last retune
@@ -3032,6 +3083,11 @@ static void RadioFrame()
     int leader = -1;
     if (drv) leader = drv == me ? myId : PuppetIndex(drv);
     if (leader < 0 || leader >= MAX_PLAYERS) for (int i = 0; i < MAX_PLAYERS && leader < 0; i++) if (in[i]) leader = i;
+    {   // (radio.cpp follows the leader's track when other players share the vehicle)
+        int others = 0;
+        for (int i = 0; i < MAX_PLAYERS; i++) if (in[i] && i != myId) others++;
+        g_radioLeader = others && leader >= 0 && leader < MAX_PLAYERS ? leader : -1;
+    }
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (!in[i]) { known[i] = false; continue; }
         if (i == myId || known[i]) continue;

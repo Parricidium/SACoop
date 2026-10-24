@@ -517,11 +517,25 @@ static bool PhoneCallOp(int op)
 }
 static bool HostOnPhone() { void *me = FindPlayerPed(); return me && HasTaskType(me, 1600); }
 
+// 0.54.96 (report of 24/10: "two players using Ammu-Nation at the same time: the client sees two sellers, the menu
+// disappears, he is stuck"; the guests' logs show the firing range (mission 113, the shop's activity) started by the
+// host AND by each guest's own shop, the host's mirrored on top of the guest's: SET_PLAYER_CONTROL, cameras, texts).
+// Only story missions are mirrored now. Activities (113 and up: firing range, gyms, odd jobs...) and games (3-10) stay
+// each player's own, as on the guest's side (script.cpp only refuses story missions there).
+static bool g_hostStory;
+void MirrorMissionLaunched(int mission)
+{
+    bool story = IsStoryMission(mission);
+    if (story != g_hostStory) Log("miroir : mission %d lancee chez l'hote : %s", mission, story ? "de l'histoire, rejouee chez les invites" : "activite, pas rejouee (chacun la sienne)");
+    g_hostStory = story;
+}
+bool MirrorStoryMission() { return g_hostStory; }
+
 void MirrorBefore(void *script, int op)
 {
     g_capturing = false;
     if (!g_cfg.host || !NetRunning()) return;
-    bool mission = ScriptIsMission(script);
+    bool mission = ScriptIsMission(script) && g_hostStory;
     if (op == 0x0729 || op == 0x052B) {   // (to learn how the calls start: which script, mission thread or not)
         static int said;
         if (said < 20) { said++; Log("telephone : commande %04X du script %.8s (%s)", op, ScriptName(script), mission ? "mission" : "hors mission"); }
@@ -529,6 +543,15 @@ void MirrorBefore(void *script, int op)
     // A contact's call (scripts mob_*, mob_la1 in the 15/10 log): its sounds go to the guests from the first ring, not only
     // once the host has answered (the guest's own call waits for the host's, script.cpp, so without this he heard no ring).
     // Every command of those scripts is logged once (to learn which one rings).
+    // 0.54.96 diagnostic (24/10: the guests had no copy of 14 objects of mission 23, model 3061, nor of the firing range's
+    // targets, 3018-3025: "pas de copie chez l'invite"): which script creates mission objects, and whether it is mirrored;
+    // and the helper scripts a mission starts (START_NEW_SCRIPT 004F), which are not mirrored.
+    if (op == 0x0107 || op == 0x029B || (op == 0x004F && mission)) {
+        static int saidC;
+        uint32_t *om = OnMissionVar();
+        if (saidC < 80) { saidC++; Log("miroir (diagnostic) : le script %.8s (%s%s) utilise %04X : %s", ScriptName(script), mission ? "de mission" : "pas de mission",
+            om && *om ? ", une mission tourne" : "", op, op == 0x004F ? "lance un script" : mission ? "envoyee" : "pas envoyee"); }
+    }
     bool callScript = !mission && !_strnicmp(ScriptName(script), "mob_", 4);
     if (callScript) {
         static uint16_t seen[64];
@@ -549,7 +572,7 @@ void MirrorBefore(void *script, int op)
     // command that plays a mission line (0x48521C, the one caller of 0x5072B0). While a story mission runs on the host,
     // its lines (mission audio, texts) go to the guests whichever script says them.
     uint32_t *onMission = OnMissionVar();
-    bool helperLine = !mission && !callScript && onMission && *onMission && (PhoneCallOp(op) || op == 0x0949 || op == 0x03D7 || op == 0x097A || op == 0x097B || op == 0x09F1 || op == 0x09F7);
+    bool helperLine = !mission && !callScript && g_hostStory && onMission && *onMission && (PhoneCallOp(op) || op == 0x0949 || op == 0x03D7 || op == 0x097A || op == 0x097B || op == 0x09F1 || op == 0x09F7);
     if (helperLine) { static int said; if (said++ < 10) Log("miroir : ligne de mission %04X dite par le script %.8s (pas le script de mission), envoyee aux invites", op, ScriptName(script)); }
     title = title || helperLine;
     // (to find what shows the mission title on the host only: every command of the mission script in its first 30 s,
@@ -1459,6 +1482,10 @@ static bool Replay(const uint8_t *d, int len)
         int guest = *(int *)(g_script + 0x3C + outIdx[k] * 4);
         HandleMap *m = outKind[k] == 'B' ? g_blips : outKind[k] == 'O' ? g_objects : outKind[k] == 'K' ? g_pickups : outKind[k] == 'R' ? g_fires : g_spheres;
         MapSet(m, outHost[k], guest, IsPersistBlipOp(op));
+        if (outKind[k] == 'O') {   // (0.54.96 diagnostic: every mirrored object creation and what came of it)
+            static int saidO;
+            if (saidO < 120) { saidO++; Log("miroir : objet de l'hote %d (%04X) : chez nous %d%s", outHost[k], op, guest, guest ? "" : " (PAS CREE)"); }
+        }
     }
     // The guest was just put somewhere else by the host's script (next to the host, or into the interior it entered): the
     // scenery and collisions around the new spot are loaded on the spot (LOAD_SCENE 03CB), as TeleportPed does. Without it
@@ -1841,10 +1868,15 @@ static void CameraWatch()
     const NetPlayer &h = g_players[0];
     bool stuck = *(uint8_t *)(0xB6F028 + 0x2B) == 0 && h.connected && h.state.inGame && !h.state.camScripted
                  && now - h.lastStateAt < 1000 && !CutsceneRunning() && !PassengerCamActive() && g_mirrorCamAt && now - g_mirrorCamAt < 180000;
-    if (!stuck) { since = 0; return; }
+    // 0.54.96 (log of 24/10: restored every 2.5 s for over a minute, at CJ's house, his own script holding the camera and
+    // his controls): two restores that did not free it are enough, then it is left alone until it is free again.
+    static int tries;
+    if (!stuck) { since = 0; tries = 0; return; }
+    if (tries >= 2) return;
     if (!since) { since = now; return; }
     if (now - since < 2500) return;
     since = 0;
+    if (++tries == 2) Log("miroir : camera de l'invite tenue par un de ses scripts, on ne la rend plus");
     CameraVectorReset();
     static const uint16_t ops[2] = { 0x02EB, 0x0373 };
     for (uint16_t op : ops) { *(uint16_t *)g_code = op; ExecCommand(op); }

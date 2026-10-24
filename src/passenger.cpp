@@ -25,13 +25,57 @@ static bool DrivenByPlayer(void *veh)
 
 // 0.54.92: a player who has started getting in at the wheel (his state says carTask 1 with this vehicle) counts as its
 // driver already, so a second player can get in as passenger at once instead of waiting until he is seated.
-static bool PlayerEnteringAsDriver(void *veh)
+// 0.54.94 (test of 22/10: both pressed F at the same car at about the same time; each PC saw the other getting in at the
+// wheel, so BOTH turned into passengers, both went for the same seat, nobody drove, and the guest froze until he killed
+// himself or a phone call replaced his task). Now:
+//  - the other player's "at the wheel" must last 250 ms (a player who presses F at a car someone is already getting in
+//    sends carTask 1 for a frame or two before his own PassengerFrame turns it into passenger: the second case of 22/10);
+//  - we give the wheel up only if he started before us (as seen here), or if we were both getting in at the wheel and
+//    he has the lower player number (the host keeps it). Both PCs reach the same answer.
+static void *g_otherWheelVeh[MAX_PLAYERS];
+static uint32_t g_otherWheelSince[MAX_PLAYERS];
+static void *g_myWheelVeh;
+static uint32_t g_myWheelSince;
+
+static void TrackWheelEntries(void *me, uint32_t now)
 {
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (i == g_localId || !g_players[i].connected || !g_players[i].state.inGame) continue;
-        if (g_players[i].state.carTask == 1 && g_players[i].state.carTaskVeh && NetVehicleById(g_players[i].state.carTaskVeh) == veh) return true;
+        void *v = nullptr;
+        if (i != g_localId && g_players[i].connected && g_players[i].state.inGame && g_players[i].state.carTask == 1 && g_players[i].state.carTaskVeh)
+            v = NetVehicleById(g_players[i].state.carTaskVeh);
+        if (v != g_otherWheelVeh[i]) { g_otherWheelVeh[i] = v; g_otherWheelSince[i] = now; }
     }
-    return false;
+    void *task = ActiveTask(me);
+    void *mine = TaskVtable(task) == VT_TaskEnterCarAsDriver ? Field<void *>(task, 0xC) : nullptr;
+    if (mine != g_myWheelVeh) { g_myWheelVeh = mine; g_myWheelSince = now; }
+}
+
+// Player number of another player who gets this vehicle's wheel before us, or -1.
+static int OtherHasWheel(void *veh, uint32_t now)
+{
+    if (!veh) return -1;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (i == g_localId || g_otherWheelVeh[i] != veh) continue;
+        if (now - g_otherWheelSince[i] < 250) continue;
+        if (g_myWheelVeh != veh || (int)(g_otherWheelSince[i] - g_myWheelSince) < 0 || i < g_localId) return i;
+    }
+    return -1;
+}
+
+// 0.54.94: a get-in (task 700 passenger / 701 driver) still running after 15 s is stuck (two players for one seat, a seat
+// taken under us): it is aborted, the player is free again and can press F / G once more.
+static void EntryWatchdog(void *me, uint32_t now)
+{
+    static uint32_t since;
+    if (!FindTaskType(me, 700) && !FindTaskType(me, 701)) { since = 0; return; }
+    if (!since) { since = now | 1; return; }
+    if (now - since < 15000) return;
+    since = 0;
+    uintptr_t vt = TaskVtable(ActiveTask(me));
+    void *veh = PedVehicle(me);
+    DropTaskType(me, 700);
+    DropTaskType(me, 701);
+    Log("montee bloquee depuis 15 s (tache active %08X, %s) : annulee", (unsigned)vt, veh ? "assis dans un vehicule" : "a pied");
 }
 
 static int FreeSeat(void *veh)
@@ -70,6 +114,41 @@ static bool EnterAsPassenger(void *me, void *veh)
     return true;
 }
 
+// 0.54.96 (report of 24/10: "passengers on bikes are not coming off when the driver stacks it and comes off, in any
+// circumstance"): the game throws the passenger off with the driver (CBike::DamageKnockOffRider), but on the passenger's
+// PC the driver is a puppet on a copy, the crash happens on the driver's PC only. Now, as passenger of a bike or quad
+// whose rider was a player: once his state has said for 0.3 s that he is off it, we come off too - jumping off
+// (CTaskComplexLeaveCar, not sensible, forced: what pressing F at speed does) when he fell, getting off when he got off.
+static void BikePassengerFrame(void *me, uint32_t now)
+{
+    static void *bike;
+    static int rider = -1;
+    static uint32_t goneSince, leavingAt;
+    void *veh = PedVehicle(me);
+    int type = veh ? Field<int>(veh, VEH_TYPE) : -1;
+    if (!veh || (type != 9 && type != 10 && type != 2) || Field<void *>(veh, VEH_DRIVER) == me) { bike = nullptr; rider = -1; goneSince = 0; return; }
+    if (veh != bike) { bike = veh; rider = -1; goneSince = 0; }
+    void *drv = Field<void *>(veh, VEH_DRIVER);
+    int id = drv ? PuppetIndex(drv) : -1;
+    if (id >= 0 && id < MAX_PLAYERS) { rider = id; goneSince = 0; if (g_players[id].state.carTask == 3) leavingAt = now | 1; return; }
+    if (rider < 0 || FindTaskType(me, 704)) return;   // no player rode it, or we are getting off already
+    const MsgState &s = g_players[rider].state;
+    if (g_players[rider].connected && s.vehicleId && NetVehicleById(s.vehicleId) == veh) {
+        if (s.carTask == 3) leavingAt = now | 1;   // (getting off the normal way)
+        goneSince = 0;
+        return;
+    }
+    if (!goneSince) { goneSince = now | 1; return; }
+    if (now - goneSince < 300) return;
+    bool fell = s.carTask != 3 && !(leavingAt && now - leavingAt < 2500);
+    void *mem = ((void *(__cdecl *)(unsigned))0x61A5A0)(0x34);
+    void *task = mem ? ((void *(__thiscall *)(void *, void *, int, int, bool, bool))0x63B8C0)(mem, veh, 0, 0, !fell, fell) : nullptr;   // CTaskComplexLeaveCar
+    if (task) SetPrimaryTask(me, task, 3);
+    Log("passager : le joueur %d n'est plus sur la moto (%s) : on %s aussi", rider, fell ? "tombe" : "descendu", fell ? "saute" : "descend");
+    rider = -1;
+    goneSince = leavingAt = 0;
+}
+
 static bool g_wantG;
 static uint32_t g_fAt;   // F (or Enter) pressed on foot, for the forced jack below (0.54.45)
 
@@ -84,11 +163,18 @@ void PassengerFrame()
 {
     void *me = FindPlayerPed();
     if (!me || GameState() != 9) { g_wantG = false; return; }
+    uint32_t now = GetTickCount();
+    TrackWheelEntries(me, now);
+    EntryWatchdog(me, now);
+    BikePassengerFrame(me, now);
     // F vers la voiture d'un joueur : en passager plutot qu'au volant.
     void *task = ActiveTask(me);
     if (TaskVtable(task) == VT_TaskEnterCarAsDriver) {
         void *veh = Field<void *>(task, 0xC);
-        if (veh && (DrivenByPlayer(veh) || PlayerEnteringAsDriver(veh))) {
+        int other = OtherHasWheel(veh, now);
+        if (veh && (DrivenByPlayer(veh) || other >= 0)) {
+            if (other >= 0 && g_myWheelVeh == veh && now - g_myWheelSince > 100)
+                Log("passager : le joueur %d montait aussi au volant, il le garde", other);
             if (!EnterAsPassenger(me, veh)) SetPrimaryTask(me, nullptr, 3);
         }
     }
@@ -134,7 +220,7 @@ void PassengerFrame()
     for (int i = 0; i < p->size; i++) {
         if (p->flags[i] & 0x80) continue;
         void *v = p->objects + i * 0xA18;
-        if (!(DrivenByPlayer(v) || PlayerEnteringAsDriver(v)) || FreeSeat(v) < 0) continue;
+        if (!(DrivenByPlayer(v) || OtherHasWheel(v, now) >= 0) || FreeSeat(v) < 0) continue;
         const float *vp = EntityPos(v);
         float dx = vp[0] - mp[0], dy = vp[1] - mp[1], dz = vp[2] - mp[2], d = dx * dx + dy * dy + dz * dz;
         if (d < bestD) { bestD = d; best = v; }

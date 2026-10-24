@@ -194,7 +194,7 @@ static void OnObject(const MsgObject &m)
     }
     if (!best) {
         // 0.54.85 (fences, report of 18/10: "light posts match up but fences do not sync whatsoever"): a map object stays a plain
-        // dummy (pool 0xB744A0, 0x34 per slot) until something touches it; only then does the game turn it into a CObject
+        // dummy (pool 0xB744A0, 0x38 per slot) until something touches it; only then does the game turn it into a CObject
         // (CPopulation::ConvertToRealObject 0x614580). A fence panel knocked down on one PC was a dummy, untouched, on the other:
         // nothing to place. Make the real object here from the dummy at the same original spot, then place it as below.
         ObjPool *dp = *(ObjPool **)0xB744A0;
@@ -204,7 +204,10 @@ static void OnObject(const MsgObject &m)
         float aBest = 0.3f * 0.3f;
         for (int i = 0; dp && i < dp->size; i++) {
             if (dp->flags[i] & 0x80) continue;
-            uint8_t *d = dp->objects + i * 0x34;
+            // 0.54.94: a CDummy is 0x38 bytes (a CEntity). With 0x34 every slot after the first was read 4 bytes short per
+            // slot: the "matrix pointer" read was soon the entity flags (08000080), and the first time this search ran it
+            // crashed (both PCs, 20/10 and 22/10: PLANTAGE at dinput8 +2C99B, address 080000B0).
+            uint8_t *d = dp->objects + i * 0x38;
             float dd = Dist2(EntityPos(d), m.orig);
             if (*(int16_t *)(d + 0x22) == m.model) { if (dd < dBest) { dBest = dd; dum = d; } }
             else if (dd < aBest) { aBest = dd; anyDum = d; }
@@ -519,13 +522,177 @@ static void __cdecl h_WorldRemove(void *e)
         if (*(void **)node == e) *(void **)node = nullptr;
 }
 
+// 0.54.93: CEntity::CreateRwObject 0x533D30 crashed the guest (20/10, 0.54.90, 60 FPS, 1.2 GB of streaming memory): the
+// model's instance came back empty and the function read through it (00533EA9, eax = 0). Its callers (CRenderer, 0x554164)
+// already cope with an entity that has no 3D object, so a fault inside it is caught: the entity is just not drawn.
+typedef void(__thiscall *CreateRw_t)(void *);
+static CreateRw_t o_CreateRw;
+static void __fastcall h_CreateRw(void *e, void *)
+{
+    __try { o_CreateRw(e); }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        static int n;
+        if (n++ < 10) Log("rendu : objet 3D impossible a creer (entite modele %d) : ignore, pas de plantage", (int)*(int16_t *)((uint8_t *)e + 0x22));
+    }
+}
+
 void InstallObjects()
 {
     static const uint8_t wr[] = { 0x56, 0x8B, 0x74, 0x24, 0x08, 0x8B, 0x06 };
     if (g_cfg.renderGuard) o_WorldRemove = (WorldRemove_t)MakeDetour(0x563280, wr, sizeof(wr), (void *)h_WorldRemove);
     else Log("objets : garde des listes de rendu desactivee (RenderListGuard=0)");
+    static const uint8_t crw[] = { 0x56, 0x8B, 0xF1, 0x8B, 0x46, 0x1C };
+    if (g_cfg.renderGuard) o_CreateRw = (CreateRw_t)MakeDetour(0x533D30, crw, sizeof(crw), (void *)h_CreateRw);
     static const uint8_t pro[] = { 0x83, 0xEC, 0x10, 0x56, 0x8B, 0xF1 };
     o_ObjRender = (ObjRender_t)MakeDetour(0x59FD50, pro, sizeof(pro), (void *)h_ObjRender);
+}
+
+// --- Fires (0.54.95) ---
+// Report of 22/10 (Burning Desire): fire did not sync. The mission's fires were started on both PCs (the mirror replays
+// START_SCRIPT_FIRE 02CF), but each PC put out only its own: the guest's extinguisher left the host's fires burning (and
+// the host's mission waits for them, IS_SCRIPT_FIRE_EXTINGUISHED 02D0), and the host's left the guest's. Fires the players
+// light themselves (molotov, flamethrower) existed only on their own PC.
+// gFireManager 0xB71F80: 60 CFire of 0x28 bytes. CFire: +0 flags (1 active, 2 script, 8 being put out with water),
+// +4 position, +0x10 entity on fire, +0x14 entity that lit it, +0x18 end time (CTimer ms 0xB7CB84), +0x20 spreads left.
+// CFire::Extinguish 0x5393F0 (keeps the script flag: a script fire reads as "extinguished" for 02D0, like one put out by
+// the player); CFireManager::StartFire(CVector, float, uint8, CEntity *, uint32, int8, uint8) 0x539F00.
+// - A fire that went out after water was on it, within 100 m of us: "put out" (op 1) with its place; the others put out
+//   their fire nearest to it, within 2 m.
+// - A fire lit by our player or the vehicle he is in (not a script fire, not on an entity): "lit" (op 2); the others light
+//   one there, burning as long as ours has left. Fires a fire spreads to stay each PC's own.
+enum { FIRE_COUNT = 60, FIRE_SIZE = 0x28 };
+static uint8_t *FireAt(int i) { return (uint8_t *)0xB71F80 + i * FIRE_SIZE; }
+struct FireSeen { bool active, water, fromNet; float pos[3]; };
+static FireSeen g_fireSeen[FIRE_COUNT];
+
+static void OnFire(const MsgFire &m)
+{
+    if (!InGame() || m.from == g_localId) return;
+    if (m.op == 1) {
+        int best = -1;
+        float bestD = 2.0f * 2.0f;
+        for (int i = 0; i < FIRE_COUNT; i++) {
+            uint8_t *f = FireAt(i);
+            if (!(f[0] & 1)) continue;
+            float d = Dist2((const float *)(f + 4), m.pos);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        static int said;
+        if (best < 0) {
+            if (said < 30) { said++; Log("feu eteint par le joueur %d en %.1f %.1f %.1f : aucun feu chez nous a moins de 2 m", m.from, m.pos[0], m.pos[1], m.pos[2]); }
+            return;
+        }
+        uint8_t *f = FireAt(best);
+        bool script = (f[0] & 2) != 0;
+        ((void(__thiscall *)(void *))0x5393F0)(f);   // CFire::Extinguish
+        g_fireSeen[best] = {};
+        if (said < 30) { said++; Log("feu eteint par le joueur %d : le notre aussi (%s, a %.1f m)", m.from, script ? "feu de mission" : "feu ordinaire", sqrtf(bestD)); }
+        return;
+    }
+    if (m.op == 2) {
+        for (int i = 0; i < FIRE_COUNT; i++) {   // already burning there
+            uint8_t *f = FireAt(i);
+            if ((f[0] & 1) && Dist2((const float *)(f + 4), m.pos) < 1.0f) return;
+        }
+        uint32_t ms = m.ms < 500 ? 500 : m.ms > 60000 ? 60000 : m.ms;
+        typedef void *(__thiscall *StartFire_t)(void *, float, float, float, float, uint8_t, void *, uint32_t, int8_t, uint8_t);
+        uint8_t *f = (uint8_t *)((StartFire_t)0x539F00)((void *)0xB71F80, m.pos[0], m.pos[1], m.pos[2], 0.8f, 1, nullptr, ms, (int8_t)m.gens, 1);
+        int i = f ? (int)((f - FireAt(0)) / FIRE_SIZE) : -1;
+        if (i >= 0 && i < FIRE_COUNT) { g_fireSeen[i] = {}; g_fireSeen[i].active = true; g_fireSeen[i].fromNet = true; memcpy(g_fireSeen[i].pos, f + 4, 12); }
+        static int said;
+        if (said < 30) { said++; Log("feu allume par le joueur %d en %.1f %.1f %.1f : %s", m.from, m.pos[0], m.pos[1], m.pos[2], f ? "allume chez nous aussi" : "refuse par le jeu (sous l'eau, plus de place)"); }
+    }
+}
+
+static void FireFrame()   // every frame: a fire put out with water can go from "being put out" to out quickly
+{
+    void *me = FindPlayerPed();
+    if (!me) return;
+    const float *mp = EntityPos(me);
+    void *myVeh = PedVehicle(me);
+    uint32_t gameNow = *(uint32_t *)0xB7CB84;
+    int sent = 0;
+    static int saidOut, saidLit;
+    for (int i = 0; i < FIRE_COUNT; i++) {
+        uint8_t *f = FireAt(i);
+        bool active = (f[0] & 1) != 0;
+        const float *p = (const float *)(f + 4);
+        FireSeen &s = g_fireSeen[i];
+        bool reused = active && s.active && Dist2(p, s.pos) > 1.0f;   // the slot holds another fire now
+        if (s.active && (!active || reused)) {
+            if (!active && s.water && Dist2(s.pos, mp) < 100.0f * 100.0f && sent < 8) {
+                MsgFire m = {};
+                m.type = MSG_FIRE;
+                m.from = (uint8_t)(g_localId < 0 ? 0 : g_localId);
+                m.op = 1;
+                memcpy(m.pos, s.pos, 12);
+                NetSendToAll(&m, sizeof(m));
+                sent++;
+                if (saidOut < 30) { saidOut++; Log("feu eteint chez nous en %.1f %.1f %.1f : envoye", s.pos[0], s.pos[1], s.pos[2]); }
+            }
+            s = {};
+        }
+        if (!active) continue;
+        if (!s.active) {   // a new fire
+            s.active = true;
+            memcpy(s.pos, p, 12);
+            void *creator = *(void **)(f + 0x14);
+            // (0.54.96: the vehicle only when we drive it - the logs of 24/10 show three players in one car each sending
+            // the same fires)
+            bool ours = creator && (creator == me || (myVeh && creator == myVeh && Field<void *>(myVeh, VEH_DRIVER) == me));
+            if (ours && !(f[0] & 2) && !*(void **)(f + 0x10) && sent < 8) {
+                MsgFire m = {};
+                m.type = MSG_FIRE;
+                m.from = (uint8_t)(g_localId < 0 ? 0 : g_localId);
+                m.op = 2;
+                m.gens = *(uint8_t *)(f + 0x20);
+                memcpy(m.pos, p, 12);
+                uint32_t end = *(uint32_t *)(f + 0x18);
+                m.ms = (int)(end - gameNow) > 0 ? end - gameNow : 500;
+                NetSendToAll(&m, sizeof(m));
+                sent++;
+                if (saidLit < 30) { saidLit++; Log("feu allume par nous en %.1f %.1f %.1f (%u ms) : envoye", p[0], p[1], p[2], m.ms); }
+            }
+        }
+        if (f[0] & 8) s.water = true;
+    }
+}
+
+// 0.54.99 (24/10: "parachutes fixed for players, but the ones stuck in the environment remain"): before 0.54.98 every
+// puppet got a copy of the hidden parachute canopy (model 3131), made by our ghost script; a copy left behind when its
+// puppet went was a script object, and script objects are kept in the save: they come back with every game loaded. A
+// canopy that is visible, attached to nobody and has stayed so for 20 s is removed (DELETE_OBJECT 0108); the parachute
+// script's own canopy is hidden or attached to its player, and the one it lets go after a landing is gone within seconds.
+static void StrayCanopies()
+{
+    static uint32_t last;
+    static void *seen[32];
+    static uint32_t since[32];
+    uint32_t now = GetTickCount();
+    if (now - last < 2000) return;
+    last = now;
+    ObjPool *pool = ObjectPool();
+    if (!pool) return;
+    void *cur[32];
+    uint32_t curSince[32];
+    int n = 0;
+    for (int i = 0; i < pool->size && n < 32; i++) {
+        if (pool->flags[i] & 0x80) continue;
+        uint8_t *o = ObjAt(i);
+        // (visible and attached to nobody: the parachute script keeps its own canopy hidden until it is opened)
+        if (*(int16_t *)(o + 0x22) != 3131 || *(void **)(o + 0xFC) || !(*(uint32_t *)(o + 0x1C) & 0x80)) continue;
+        uint32_t t = now;
+        for (int k = 0; k < 32; k++) if (seen[k] == o) t = since[k];
+        if (now - t >= 20000) {
+            int h = ObjRef(i);
+            RunScriptCommand(0x0108, 1, &h);   // DELETE_OBJECT
+            static int said;
+            if (said < 30) { said++; const float *p = EntityPos(o); Log("parachute abandonne (modele 3131) en %.0f %.0f %.0f : retire", p[0], p[1], p[2]); }
+            continue;
+        }
+        cur[n] = o; curSince[n] = t; n++;
+    }
+    for (int k = 0; k < 32; k++) { seen[k] = k < n ? cur[k] : nullptr; since[k] = k < n ? curSince[k] : 0; }
 }
 
 void ObjectsFrame()
@@ -533,7 +700,11 @@ void ObjectsFrame()
     g_onObject = OnObject;
     g_onMObject = OnMObject;
     g_onMObjPush = OnMObjPush;
-    if (!InGame() || !NetRunning()) return;
+    g_onFire = OnFire;
+    if (!InGame()) return;
+    StrayCanopies();
+    if (!NetRunning()) return;
+    FireFrame();
     SendFrame();
     if (g_cfg.syncMissionObjects) { if (g_cfg.host) HostMissionObjects(); else GuestFollowObjects(); }
 }
